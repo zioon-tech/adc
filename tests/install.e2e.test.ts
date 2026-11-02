@@ -34,6 +34,7 @@ describe("released device installer over HTTP", () => {
   let env: NodeJS.ProcessEnv;
   let corruptArchive = false;
   const projectRoot = resolve(import.meta.dirname, "..");
+  let releaseVersion: string;
   const run = (binary: string, args: string[], input = "", environment = env) =>
     new Promise<{ code: number | null; stdout: string; stderr: string }>((done, reject) => {
       const child = spawn(binary, args, {
@@ -105,6 +106,11 @@ describe("released device installer over HTTP", () => {
   };
 
   beforeAll(async () => {
+    releaseVersion = (
+      JSON.parse(await readFile(resolve(projectRoot, "package.json"), "utf8")) as {
+        version: string;
+      }
+    ).version;
     await mkdir(resolve(projectRoot, ".adc"), { recursive: true });
     directory = await mkdtemp(resolve(projectRoot, ".adc/install-e2e-"));
     const user = resolve(directory, "user ' $literal & spaces");
@@ -136,7 +142,10 @@ describe("released device installer over HTTP", () => {
       process.env
     );
     expect(build.code, build.stderr).toBe(0);
-    await writeFile(resolve(releases, "adc-0.1.0-win32-x64-0123456789abcdef.zip"), "zip fixture");
+    await writeFile(
+      resolve(releases, `adc-${releaseVersion}-win32-x64-0123456789abcdef.zip`),
+      "zip fixture"
+    );
     const socket = createServer();
     await new Promise<void>((done) => socket.listen(0, "127.0.0.1", done));
     const address = socket.address();
@@ -204,13 +213,30 @@ describe("released device installer over HTTP", () => {
     expect(windowsInstallerSource).toContain("Expand-Archive");
     expect(windowsInstallerSource).toContain("REM ADC managed launcher");
     expect(windowsInstallerSource).toContain(".adc-managed-user-path");
+    expect(windowsInstallerSource).toContain("[switch]$CliOnly");
     expect(windowsInstallerSource).not.toContain("@ADC_");
     const windowsArchive = await fetch(
-      `${origin}/downloads/node/adc-0.1.0-win32-x64-0123456789abcdef.zip`
+      `${origin}/downloads/node/adc-${releaseVersion}-win32-x64-0123456789abcdef.zip`
     );
     expect(windowsArchive.status).toBe(200);
     expect(windowsArchive.headers.get("content-type")).toContain("application/zip");
     expect((await fetch(`${origin}/downloads/node/missing.tar.gz`)).status).toBe(404);
+    const cliOnly = await install(["--cli-only"]);
+    expect(cliOnly.code, `${cliOnly.stderr}\n${cliOnly.stdout}`).toBe(0);
+    expect(existsSync(env.ADC_NODE_CONFIG!)).toBe(false);
+    expect(existsSync(env.ADC_SERVICE_DIR!)).toBe(false);
+    expect(await getNodes()).toHaveLength(0);
+    expect((await cli(["--version"])).stdout.trim()).toBe(releaseVersion);
+    const status = await cli(["status", "--json"]);
+    expect(status.code, status.stderr).toBe(0);
+    expect(JSON.parse(status.stdout)).toMatchObject({
+      login: { authenticated: false },
+      connection: { authenticated: false }
+    });
+    const conflicted = await install(["--cli-only", "--code", pairing.code]);
+    expect(conflicted.code).not.toBe(0);
+    expect(conflicted.stderr).toContain("cannot be combined");
+    expect(await getNodes()).toHaveLength(0);
     const rootPath = resolve(directory, "user ' $literal & spaces/workspace");
     await mkdir(resolve(env.ADC_INSTALL_DIR!, ".install-lock"), { recursive: true });
     await writeFile(resolve(env.ADC_INSTALL_DIR!, ".adc-installation"), "Agent Device Cloud\n");
@@ -225,19 +251,42 @@ describe("released device installer over HTTP", () => {
     ]);
     expect(installed.code, `${installed.stderr}\n${installed.stdout}`).toBe(0);
     const original = await readFile(env.ADC_NODE_CONFIG!, "utf8");
+    const pairedCliOnly = await install(["--cli-only"]);
+    expect(pairedCliOnly.code, pairedCliOnly.stderr).toBe(0);
+    expect(await readFile(env.ADC_NODE_CONFIG!, "utf8")).toBe(original);
+    expect(await getNodes()).toHaveLength(1);
     expect((await stat(env.ADC_NODE_CONFIG!)).mode & 0o777).toBe(0o600);
     const runtimePathExport = 'export PATH="$ADC_INSTALL_DIR/current/runtime/bin${PATH:+:$PATH}"';
     expect(await readFile(resolve(env.ADC_BIN_DIR!, "adc"), "utf8")).toContain(runtimePathExport);
     expect(await readFile(resolve(env.ADC_BIN_DIR!, "adc-node"), "utf8")).toContain(
       runtimePathExport
     );
-    expect((await node(["--version"])).stdout.trim()).toBe("0.1.0");
+    expect(await readFile(resolve(env.ADC_BIN_DIR!, "adc"), "utf8")).not.toContain(
+      "ADC_CONTROL_PLANE_URL"
+    );
+    const installerResponse = await fetch(`${origin}/install.sh`);
+    const migrated = await run(
+      "/bin/sh",
+      [
+        "-s",
+        "--",
+        "--url",
+        "http://localhost:65534",
+        "--download-url",
+        `${origin}/downloads/node`,
+        "--no-service"
+      ],
+      await installerResponse.text()
+    );
+    expect(migrated.code, `${migrated.stderr}\n${migrated.stdout}`).toBe(0);
+    expect(await readFile(env.ADC_NODE_CONFIG!, "utf8")).toBe(original);
+    expect((await node(["--version"])).stdout.trim()).toBe(releaseVersion);
     expect((await cli(["--help"])).code).toBe(0);
     const updateCheck = await cli(["update", "--check", "--json"]);
     expect(updateCheck.code, updateCheck.stderr).toBe(0);
     expect(JSON.parse(updateCheck.stdout)).toMatchObject({
-      current: { version: "0.1.0", buildId: expect.stringMatching(/^sha256:/) },
-      available: { version: "0.1.0", buildId: expect.stringMatching(/^sha256:/) },
+      current: { version: releaseVersion, buildId: expect.stringMatching(/^sha256:/) },
+      available: { version: releaseVersion, buildId: expect.stringMatching(/^sha256:/) },
       updateAvailable: false
     });
     const installedTarget = await readlink(resolve(env.ADC_INSTALL_DIR!, "current"));

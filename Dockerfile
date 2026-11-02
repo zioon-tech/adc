@@ -7,8 +7,11 @@ COPY packages ./packages
 COPY tests ./tests
 COPY scripts ./scripts
 COPY deploy ./deploy
+COPY skills ./skills
+COPY plugins ./plugins
+COPY docs/harness-plugin-validation.md ./docs/harness-plugin-validation.md
 RUN pnpm install --frozen-lockfile
-RUN pnpm schema:check && pnpm exec tsc --noEmit && pnpm --filter @adc/console build
+RUN pnpm build
 RUN pnpm build:node
 
 FROM node:24-bookworm-slim

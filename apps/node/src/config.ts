@@ -7,6 +7,13 @@ import { McpProviderIdSchema, RootIdSchema } from "@adc/protocol";
 
 export const AccessModeSchema = z.enum(["none", "selected", "home", "full"]);
 export type AccessMode = z.infer<typeof AccessModeSchema>;
+export const SharingConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  trustedHost: z.boolean().default(false),
+  isolation: z.enum(["none", "docker"]).default("none"),
+  image: z.string().regex(/^[a-z0-9./:_-]+@sha256:[a-f0-9]{64}$/).optional()
+}).strict().default({ enabled: true, trustedHost: false, isolation: "none" });
+export type SharingConfig = z.infer<typeof SharingConfigSchema>;
 
 export const ControlPlaneUrlSchema = z
   .string()
@@ -93,6 +100,7 @@ export const ConfigSchema = z
     publicKey: z.string(),
     stateDirectory: z.string(),
     accessMode: AccessModeSchema.default("selected"),
+    sharing: SharingConfigSchema,
     roots: z
       .array(
         z

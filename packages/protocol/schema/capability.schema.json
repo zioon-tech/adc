@@ -23,8 +23,7 @@
         "type": "object",
         "properties": {
           "rootId": {
-            "type": "string",
-            "pattern": "^root_[a-z0-9][a-z0-9_-]{2,127}$"
+            "$ref": "#/$defs/__schema15"
           },
           "path": {
             "type": "string",
@@ -69,6 +68,61 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 64
+    },
+    "transferDataPlanes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "local",
+          "object"
+        ]
+      }
+    },
+    "collaboration": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "trustedHost": {
+          "type": "boolean"
+        },
+        "isolation": {
+          "type": "string",
+          "enum": [
+            "none",
+            "container",
+            "rootless-container",
+            "vm"
+          ]
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "const": "team-root-sharing"
+          }
+        },
+        "roots": {
+          "maxItems": 64,
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema16"
+          }
+        }
+      },
+      "required": [
+        "version",
+        "trustedHost",
+        "isolation"
+      ],
+      "additionalProperties": false
+    },
+    "buildId": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
     },
     "advertisedAt": {
       "type": "string",
@@ -137,12 +191,22 @@
             "device.list",
             "device.status",
             "device.battery.get",
+            "device.info.get",
             "device.network.get",
+            "device.storage.get",
+            "device.vibrate",
             "device.navigation",
+            "app.open",
+            "display.status",
+            "audio.status",
+            "audio.volume.set",
+            "flashlight.status",
+            "flashlight.set",
             "location.get",
             "notification.show",
             "screen.capture",
             "ui.inspect",
+            "ui.wait",
             "ui.action",
             "ui.gesture",
             "file.list",
@@ -151,12 +215,14 @@
             "file.write",
             "file.edit",
             "file.patch",
+            "file.transfer",
             "shell.exec",
             "command.template.list",
             "command.template.run",
             "test.run",
             "task.status",
             "task.result",
+            "task.wait",
             "task.cancel"
           ]
         },
@@ -281,6 +347,28 @@
         "providerId",
         "providerName",
         "sourceToolName"
+      ],
+      "additionalProperties": false
+    },
+    "__schema15": {
+      "type": "string",
+      "pattern": "^root_[a-z0-9][a-z0-9_-]{2,127}$"
+    },
+    "__schema16": {
+      "type": "object",
+      "properties": {
+        "rootId": {
+          "$ref": "#/$defs/__schema15"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32767
+        }
+      },
+      "required": [
+        "rootId",
+        "path"
       ],
       "additionalProperties": false
     }

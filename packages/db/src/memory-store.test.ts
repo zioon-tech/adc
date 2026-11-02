@@ -157,6 +157,11 @@ describe("MemoryStore", () => {
       invocationId: duplicate.invocation.invocationId
     });
     expect(returned.dispatchId).toBe(first.dispatchId);
+    const changedBudget = makeDispatch({
+      ...makeInvocation("write-once"),
+      executionTimeoutMs: 1000
+    });
+    await expect(store.enqueue(changedBudget, audit)).rejects.toThrow("already been used");
   });
 
   it("leases atomically and never regresses a terminal result", async () => {

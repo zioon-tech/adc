@@ -1,6 +1,13 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { createId, CustomToolIdSchema, ProtocolError, ToolIdSchema } from "@adc/protocol";
+import {
+  createId,
+  CustomToolIdSchema,
+  ExecutionTools,
+  isBuiltinTool,
+  ProtocolError,
+  ToolIdSchema
+} from "@adc/protocol";
 import { ApprovalPolicySchema } from "@adc/policy";
 import type { AgentGrantRecord, AuditEvent, NodeRecord, Store } from "@adc/db";
 
@@ -59,11 +66,11 @@ export const GrantSettingsSchema = z
       .array(ToolIdSchema)
       .min(1)
       .max(256)
-      .refine((ids) => new Set(ids).size === ids.length, "Duplicate tools")
+      .refine((ids) => new Set(ids).size === ids.length, "Duplicate tools"),
+    resourceBindings: z.array(z.object({ nodeId: z.string(), bindingId: z.string() }).strict()).max(64).optional()
   })
   .strict();
 const revisionSchema = z.object({ revision: z.number().int().min(1) }).strict();
-const executionTools = new Set(["shell.exec", "command.template.run", "test.run"]);
 /** Cloud controls narrow the locally advertised capability; they never expose new paths. */
 export function effectiveCapability(node: NodeRecord) {
   const capability = node.capability;
@@ -80,7 +87,8 @@ export function effectiveCapability(node: NodeRecord) {
     tools: capability.tools.filter(
       (tool) =>
         (tool.availability?.state ?? "available") === "available" &&
-        (policy.allowExecution || (!executionTools.has(tool.name) && tool.risk !== "execute"))
+        (policy.allowExecution ||
+          !(tool.risk === "execute" || (isBuiltinTool(tool.name) && ExecutionTools.has(tool.name))))
     )
   };
 }
@@ -89,7 +97,8 @@ export async function validateGrantResources(
   store: Store,
   accountId: string,
   body: z.infer<typeof GrantSettingsSchema>,
-  previous?: AgentGrantRecord
+  previous?: AgentGrantRecord,
+  projectedNodes?: NodeRecord[]
 ) {
   if (!body.projectId && !body.nodeIds.length)
     throw new ProtocolError("invalid_request", "Select at least one device.", false);
@@ -110,7 +119,7 @@ export async function validateGrantResources(
       "All-folder access must not include a fixed folder selection.",
       false
     );
-  const nodes = await store.listNodes(accountId);
+  const nodes = projectedNodes ?? await store.listNodes(accountId);
   const selectedNodes = nodes.filter(
     (node) => body.nodeIds.includes(node.nodeId) && node.status === "active"
   );
@@ -172,6 +181,10 @@ export function registerResourceManagement(
     now: () => Date;
     disconnectNode?: (nodeId: string) => void;
     wakeNode?: (nodeId: string) => void;
+    authorizeGrant?: (request: FastifyRequest, grant: AgentGrantRecord) => void;
+    grantResources?: (request: FastifyRequest, body: z.infer<typeof GrantSettingsSchema>, previous?: AgentGrantRecord) => Promise<{
+      nodes: NodeRecord[]; responsibleUserId: string; resourceBindings: NonNullable<AgentGrantRecord["resourceBindings"]>
+    }>;
   }
 ) {
   const { store, requireOwner, accountOf, now } = options;
@@ -198,8 +211,57 @@ export function registerResourceManagement(
     const grant = await store.getGrant(grantId);
     if (!grant || grant.accountId !== accountOf(request) || grant.deletedAt)
       throw new ProtocolError("not_found", "Agent authorization was not found.", false);
+    options.authorizeGrant?.(request, grant);
     return grant;
   };
+  const ownedProject = async (request: FastifyRequest) => {
+    const { projectId } = z.object({ projectId: z.string() }).parse(request.params);
+    const project = await store.getProject(projectId);
+    if (!project || project.accountId !== accountOf(request))
+      throw new ProtocolError("not_found", "Project was not found.", false);
+    return project;
+  };
+  const ownedRoot = async (request: FastifyRequest) => {
+    const project = await ownedProject(request);
+    const { rootId } = z.object({ rootId: z.string() }).parse(request.params);
+    const root = (await store.listRoots(project.projectId)).find(root => root.rootId === rootId);
+    if (!root) throw new ProtocolError("not_found", "Folder was not found.", false);
+    return { project, root };
+  };
+  app.patch("/api/v1/projects/:projectId", { preHandler: requireOwner }, async request => {
+    const project = await ownedProject(request);
+    const body = z.object({ revision: z.number().int().min(1), label: z.string().trim().min(1).max(128) }).strict().parse(request.body);
+    return store.updateProject(project.accountId, project.projectId, body.label, body.revision,
+      audit(request, "project.updated", { projectId: project.projectId, before: { label: project.label }, label: body.label }));
+  });
+  app.delete("/api/v1/projects/:projectId", { preHandler: requireOwner }, async request => {
+    const project = await ownedProject(request);
+    const { revision } = revisionSchema.parse(request.body);
+    await store.deleteProject(project.accountId, project.projectId, revision,
+      audit(request, "project.deleted", { projectId: project.projectId, label: project.label }));
+    return { deleted: true };
+  });
+  app.patch("/api/v1/projects/:projectId/roots/:rootId", { preHandler: requireOwner }, async request => {
+    const { project, root } = await ownedRoot(request);
+    const body = z.object({ revision: z.number().int().min(1), label: z.string().trim().min(1).max(128), writable: z.boolean() }).strict().parse(request.body);
+    // Renaming an unavailable folder must remain possible; only an access increase needs current capability.
+    if (body.writable && !root.writable) {
+      const node = await store.getNode(root.nodeId);
+      if (!node || node.accountId !== project.accountId || node.status !== "active" || node.deletedAt ||
+          !effectiveCapability(node)?.roots.some(r => r.rootId === root.rootId && r.writable))
+        throw new ProtocolError("denied", "Root must be advertised by the device with compatible access.", false);
+    }
+    return store.updateRoot(project.accountId, project.projectId, root.rootId, body, body.revision,
+      audit(request, "project.folder_updated", { projectId: project.projectId, rootId: root.rootId,
+        before: { label: root.label, writable: root.writable }, label: body.label, writable: body.writable }));
+  });
+  app.delete("/api/v1/projects/:projectId/roots/:rootId", { preHandler: requireOwner }, async request => {
+    const { project, root } = await ownedRoot(request);
+    const { revision } = revisionSchema.parse(request.body);
+    await store.deleteRoot(project.accountId, project.projectId, root.rootId, revision,
+      audit(request, "project.folder_removed", { projectId: project.projectId, rootId: root.rootId, nodeId: root.nodeId, label: root.label }));
+    return { deleted: true };
+  });
   app.patch("/api/v1/nodes/:nodeId", { preHandler: requireOwner }, async (request) => {
     const node = await ownedNode(request);
     const body = z
@@ -267,13 +329,17 @@ export function registerResourceManagement(
     const { revision, ...body } = GrantSettingsSchema.extend({
       revision: z.number().int().min(1)
     }).parse(request.body);
-    await validateGrantResources(store, previous.accountId, body, previous);
-    const { projectId, approvalPolicy, ...settings } = body;
+    const resources = await options.grantResources?.(request, body, previous);
+    await validateGrantResources(store, previous.accountId, body, previous, resources?.nodes);
+    const { projectId, approvalPolicy, resourceBindings: _requestedBindings, ...settings } = body;
+    void _requestedBindings;
     const updated: AgentGrantRecord = {
       grantId: previous.grantId,
       actorId: previous.actorId,
       accountId: previous.accountId,
       createdAt: previous.createdAt,
+      ...(previous.responsibleUserId ? { responsibleUserId: previous.responsibleUserId } : {}),
+      ...(resources ? { resourceBindings: resources.resourceBindings } : previous.resourceBindings ? { resourceBindings: previous.resourceBindings } : {}),
       ...settings,
       ...(projectId ? { projectId } : {}),
       ...(approvalPolicy ? { approvalPolicy } : {})

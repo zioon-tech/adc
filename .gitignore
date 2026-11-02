@@ -1,4 +1,7 @@
 node_modules/
+.release-stage/
+.release-out/
+.release-tools/
 dist/
 .env
 .adc/
@@ -11,3 +14,10 @@ apps/android-node/app/build/
 apps/android-node/local.properties
 .DS_Store
 docs/fiction/
+.env.*
+!.env.example
+**/node_modules/
+**/dist/
+*.tsbuildinfo
+.dbg/
+.worktrees/

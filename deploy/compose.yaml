@@ -43,10 +43,20 @@ services:
       ADC_CORS_ORIGINS: ${ADC_CORS_ORIGINS:-}
       ADC_CONSOLE_DIR: /app/apps/console/dist
       ADC_NODE_DOWNLOAD_URL: ${ADC_NODE_DOWNLOAD_URL:-}
+      ADC_ANDROID_RELEASE_DIR: /var/lib/agent-device-cloud/android-releases
       ADC_ASSET_DIR: /var/lib/agent-device-cloud/assets
+      ADC_TRANSFER_DIR: /var/lib/agent-device-cloud/transfers
+      ADC_TRANSFER_BACKEND: ${ADC_TRANSFER_BACKEND:-disabled}
+      ADC_TRANSFER_MAX_BYTES: ${ADC_TRANSFER_MAX_BYTES:-1073741824}
+      ADC_TRANSFER_OSS_REGION: ${ADC_TRANSFER_OSS_REGION:-}
+      ADC_TRANSFER_OSS_BUCKET: ${ADC_TRANSFER_OSS_BUCKET:-}
+      ADC_TRANSFER_OSS_ACCESS_KEY_ID: ${ADC_TRANSFER_OSS_ACCESS_KEY_ID:-}
+      ADC_TRANSFER_OSS_ACCESS_KEY_SECRET: ${ADC_TRANSFER_OSS_ACCESS_KEY_SECRET:-}
       DATABASE_URL: postgresql://adc:${ADC_DATABASE_PASSWORD}@postgres:5432/adc
     volumes:
       - adc-assets:/var/lib/agent-device-cloud/assets
+      - adc-transfers:/var/lib/agent-device-cloud/transfers
+      - ${ADC_ANDROID_RELEASE_HOST_DIR:-./android-releases}:/var/lib/agent-device-cloud/android-releases:ro
     healthcheck:
       test:
         [
@@ -79,6 +89,7 @@ services:
 volumes:
   adc-postgres:
   adc-assets:
+  adc-transfers:
   adc-caddy-data:
   adc-caddy-config:
 

@@ -63,6 +63,13 @@ function ownerPat(row: Record<string, any>): OwnerPat {
 export class IdentityStore {
   constructor(readonly pool: Pool) {}
 
+  async userForAccount(accountId: string): Promise<string | undefined> {
+    const result = await this.pool.query(
+      "SELECT user_id FROM adc_accounts WHERE account_id = $1 AND kind = 'personal'", [accountId]
+    );
+    return result.rows[0]?.user_id ?? undefined;
+  }
+
   async accountForUser(userId: string, name: string): Promise<PersonalAccount> {
     const result = await this.pool.query(
       `INSERT INTO adc_accounts (account_id, user_id, name, created_at)
@@ -191,14 +198,18 @@ export class IdentityStore {
       `INSERT INTO adc_oauth_bindings (client_id, user_id, account_id, grant_id, created_at, generation)
        SELECT $3, $1, $2, grant_id, NOW(), $5
        FROM adc_agent_grants WHERE grant_id = $4 AND account_id = $2 AND revoked_at IS NULL
+         AND (responsible_user_id = $1 OR (responsible_user_id IS NULL
+           AND EXISTS(SELECT 1 FROM adc_accounts a WHERE a.account_id = $2 AND a.user_id = $1)))
        ON CONFLICT (client_id, user_id) DO UPDATE SET
          grant_id = EXCLUDED.grant_id,
+         account_id = EXCLUDED.account_id,
          generation = CASE WHEN adc_oauth_bindings.revoked_at IS NULL
            THEN adc_oauth_bindings.generation ELSE EXCLUDED.generation END,
          created_at = CASE WHEN adc_oauth_bindings.revoked_at IS NULL
            THEN adc_oauth_bindings.created_at ELSE NOW() END,
          revoked_at = NULL
-         WHERE adc_oauth_bindings.grant_id = EXCLUDED.grant_id OR adc_oauth_bindings.revoked_at IS NOT NULL
+         WHERE (adc_oauth_bindings.grant_id = EXCLUDED.grant_id AND adc_oauth_bindings.account_id = EXCLUDED.account_id)
+           OR adc_oauth_bindings.revoked_at IS NOT NULL
        RETURNING grant_id`,
       [userId, accountId, clientId, grantId, `binding_${randomBytes(24).toString("hex")}`]
     );
@@ -217,27 +228,29 @@ export class IdentityStore {
        JOIN adc_agent_grants g ON g.grant_id = b.grant_id AND g.account_id = b.account_id
        WHERE b.user_id = $1 AND b.client_id = $2
          AND b.generation = $3
-         AND b.revoked_at IS NULL AND g.revoked_at IS NULL`,
+         AND b.revoked_at IS NULL AND g.revoked_at IS NULL
+         AND (g.responsible_user_id = b.user_id OR (g.responsible_user_id IS NULL
+           AND EXISTS(SELECT 1 FROM adc_accounts a WHERE a.account_id = b.account_id AND a.user_id = b.user_id)))`,
       [userId, clientId, generation]
     );
     const row = result.rows[0];
     return row ? { accountId: row.account_id, grantId: row.grant_id } : undefined;
   }
 
-  async revokeOAuthBinding(accountId: string, clientId: string): Promise<void> {
+  async revokeOAuthBinding(accountId: string, clientId: string, userId?: string): Promise<void> {
     await this.pool.query(
       `UPDATE adc_oauth_bindings SET revoked_at = COALESCE(revoked_at, NOW())
-       WHERE account_id = $1 AND client_id = $2`,
-      [accountId, clientId]
+       WHERE account_id = $1 AND client_id = $2 AND ($3::text IS NULL OR user_id = $3)`,
+      [accountId, clientId, userId ?? null]
     );
   }
 
-  async listOAuthBindings(accountId: string) {
+  async listOAuthBindings(accountId: string, userId?: string) {
     const result = await this.pool.query(
       `SELECT b.client_id, b.grant_id, b.created_at, COALESCE(b.revoked_at, g.revoked_at) AS revoked_at
        FROM adc_oauth_bindings b JOIN adc_agent_grants g ON g.grant_id = b.grant_id
-       WHERE b.account_id = $1 AND g.deleted_at IS NULL ORDER BY b.created_at DESC`,
-      [accountId]
+       WHERE b.account_id = $1 AND g.deleted_at IS NULL AND ($2::text IS NULL OR b.user_id=$2) ORDER BY b.created_at DESC`,
+      [accountId, userId ?? null]
     );
     return result.rows.map((row) => ({
       clientId: row.client_id,

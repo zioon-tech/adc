@@ -17,6 +17,8 @@ export interface NodeWakeHubOptions {
 export class NodeWakeHub {
   private readonly connections = new Map<string, Connection>();
   private readonly generations = new Map<string, number>();
+  private readonly wakeSequences = new Map<string, number>();
+  private readonly waiters = new Map<string, Set<(woken: boolean) => void>>();
   private readonly heartbeatTimer: NodeJS.Timeout;
   private readonly heartbeatIntervalMs: number;
   private readonly now: () => Date;
@@ -30,6 +32,32 @@ export class NodeWakeHub {
 
   generation(nodeId: string): number {
     return this.generations.get(nodeId) ?? 0;
+  }
+
+  wakeSequence(nodeId: string): number {
+    return this.wakeSequences.get(nodeId) ?? 0;
+  }
+
+  wait(nodeId: string, afterSequence: number, timeoutMs: number): Promise<boolean> {
+    if (this.wakeSequence(nodeId) !== afterSequence) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      let finished = false;
+      const finish = (woken: boolean) => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        const nodeWaiters = this.waiters.get(nodeId);
+        nodeWaiters?.delete(finish);
+        if (nodeWaiters?.size === 0) this.waiters.delete(nodeId);
+        resolve(woken);
+      };
+      const timer = setTimeout(() => finish(false), timeoutMs);
+      timer.unref();
+      const nodeWaiters = this.waiters.get(nodeId) ?? new Set();
+      nodeWaiters.add(finish);
+      this.waiters.set(nodeId, nodeWaiters);
+      if (this.wakeSequence(nodeId) !== afterSequence) finish(true);
+    });
   }
 
   connect(nodeId: string, socket: WebSocket, generation = this.generation(nodeId)): boolean {
@@ -61,8 +89,12 @@ export class NodeWakeHub {
   }
 
   wake(nodeId: string): boolean {
+    this.wakeSequences.set(nodeId, this.wakeSequence(nodeId) + 1);
+    const waiters = this.waiters.get(nodeId);
+    const longPollDelivered = !!waiters?.size;
+    for (const waiter of [...(waiters ?? [])]) waiter(true);
     const connection = this.connections.get(nodeId);
-    if (!connection || connection.socket.readyState !== WebSocket.OPEN) return false;
+    if (!connection || connection.socket.readyState !== WebSocket.OPEN) return longPollDelivered;
     const payload = NodeWakeSignalSchema.parse({
       schemaVersion: PROTOCOL_VERSION,
       type: "dispatch.available",
@@ -83,6 +115,7 @@ export class NodeWakeHub {
 
   disconnect(nodeId: string, reason: string): void {
     this.generations.set(nodeId, this.generation(nodeId) + 1);
+    for (const waiter of [...(this.waiters.get(nodeId) ?? [])]) waiter(false);
     const connection = this.connections.get(nodeId);
     if (!connection) return;
     this.connections.delete(nodeId);
@@ -92,6 +125,10 @@ export class NodeWakeHub {
 
   close(): void {
     clearInterval(this.heartbeatTimer);
+    for (const waiters of this.waiters.values()) {
+      for (const waiter of [...waiters]) waiter(false);
+    }
+    this.waiters.clear();
     for (const { socket } of this.connections.values()) {
       socket.terminate();
     }

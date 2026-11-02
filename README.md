@@ -1,5 +1,10 @@
 # Agent Device Cloud
 
+[Official service](https://adc.zioon.tech) · [Documentation](https://adc.zioon.tech/docs) · [Repository and release](docs/repository-and-release.md)
+
+Teams and named external device sharing use the same policy, dispatch and receipt path across
+website, CLI, SDK, MCP and plugins. See [collaboration workflows and boundaries](docs/collaboration.md).
+
 Agent Device Cloud is private device infrastructure for AI agents. It gives MCP clients, coding
 agents, Skills and automation controlled access to capabilities on devices you own. Desktop Nodes
 provide governed files, tools and environments on macOS, Linux and Windows. The Android Mobile Node
@@ -31,18 +36,23 @@ Self-hosted installations send no analytics by default.
 The native Android source, build instructions, current capabilities and Xiaomi/HyperOS limitations
 are documented in [apps/android-node](apps/android-node/README.md). The
 [Android capability matrix](docs/android-capability-matrix.md) separates ordinary App APIs,
-user-confirmed and special-access flows, and managed-device-only operations. The Mobile Node has
-physical Xiaomi/MIUI validation but is not included in the hosted Connector downloads.
+user-confirmed and special-access flows, and managed-device-only operations. Signed APK publication
+and the App's verified update channel are documented in
+[Android Mobile Node distribution](docs/android-node-distribution.md). The Mobile Node has physical
+Xiaomi/MIUI validation and is available as a manually installed APK from **Devices → Pair device →
+Android**. The current hosted APK uses a development signing key and does not receive automatic
+updates; signed release-channel publication is a separate deployment step.
 
-## Hosted preview
+## Official hosted service
 
-The current public preview is available at
-**https://adc.47-101-150-8.nip.io:8443**. It serves the Console, MCP endpoint and verified macOS/Linux
-Connector packages from the same deployment.
+Use **https://adc.zioon.tech** to create an account, connect devices and authorize agents.
+The official service serves the Console, MCP endpoint, macOS/Linux/Windows Connector packages and
+the Android APK. The main product website at `zioon.tech` links to ADC and Memory.
 
-This is an evaluation environment, not a production service. Email/password registration is enabled
-without email verification; SMTP password recovery and GitHub login are disabled until their
-deployment credentials are configured. Do not store irreplaceable data in the preview.
+Email/password registration, email verification, password recovery and GitHub login are configured.
+Hosted and self-hosted installations share the same authorization and local execution boundaries.
+See [security](https://adc.zioon.tech/docs/security) and [implementation status](docs/implementation-status.md) for
+current safeguards, verified platforms and remaining limitations.
 
 ## Start a public installation
 
@@ -90,13 +100,15 @@ unavailable. Do not use this HTTP override as a public deployment.
 2. Copy the installation command and run it on your device. Its general form is:
 
    ```bash
-   curl -fsSL https://devices.example.com/install.sh | sh -s -- \
+   curl -fsSL https://devices.example.com/downloads/node/install.sh | sh -s -- \
      --url https://devices.example.com --code 'PAIRING_CODE'
    ```
 
    On Windows 10/11 x64, select **Windows PowerShell** in the console. The generated command
    downloads `install.ps1` with `Invoke-WebRequest`; curl, a Unix shell and Node.js are not required.
    WSL remains a separate Linux node and uses the macOS/Linux command.
+   For Android, download the APK from the pairing dialog and enter the displayed service URL and
+   pairing code in ADC Mobile Node. Enable only the local capabilities you intend to share.
 
    The installer includes Node.js and both `adc` and `adc-node`; no source checkout, npm or pnpm is
    needed. It asks for a device name and offers local access choices: choose folders, home, full
@@ -273,8 +285,15 @@ adc invoke file.write --node node_example \
 adc invoke shell.exec --node node_example \
   --args '{"cwd":"/Users/me/work","command":"pnpm test"}' \
   --idempotency-key test-workspace-once --json
+adc transfer create \
+  --source-node node_source --source-root root_source --source-path models/model.bin \
+  --destination-node node_target --destination-root root_target \
+  --destination-path cache/model.bin \
+  --idempotency-key model-copy-1 --wait 4000 --json
+adc transfer wait xfr_example --wait 4000 --json
 adc invocation status <invocation-id> --json
 adc task status <job-id> --json
+adc task wait <job-id> --wait 4000 --json
 adc artifact get <artifact-id> --output ./artifact.log --json
 adc audit show <invocation-id> --json
 adc update --check --json
@@ -289,7 +308,10 @@ for command usage and add `--json` to operations whose output will be parsed. `a
 compares the installed build with the
 current platform archive; `adc update` downloads the checksummed release, switches atomically and
 restarts the Connector while preserving identity, folders and receipts. The current release format
-contains its Node.js runtime, so updates download the complete platform archive.
+contains its Node.js runtime, so updates download the complete platform archive. The console marks
+desktop Connectors whose build differs from the published release, including legacy nodes without a
+build ID. Interactive CLI commands use a daily local cache and detached refresh to print update
+notices without delaying the foreground command; JSON, CI and MCP paths remain deterministic.
 
 For advanced headless integrations, use `ADC_URL` + `ADC_TOKEN`, or import an access key with
 `adc auth token --url URL --stdin`. Use `--password-stdin` for noninteractive login. Do not put
@@ -322,10 +344,25 @@ Token-based MCP clients can use:
 }
 ```
 
-The [official Skill](skills/agent-device-cloud/SKILL.md) orchestrates public CLI operations. Install
-the complete `skills/agent-device-cloud` directory with the Agent host's Skill installer; the
-`references/` files are part of the contract, and a source checkout is not automatically visible to
-every Agent host.
+Install the [official Skill](skills/agent-device-cloud/SKILL.md) directly from the hosted service:
+
+```sh
+npx skills@latest add https://adc.zioon.tech --skill agent-device-cloud
+```
+
+Choose your Agent host when prompted; add `--global` to install across projects. The installer
+requires Node.js 22.20 or later and npm. You can also [download the complete Skill ZIP](https://adc.zioon.tech/downloads/skills/agent-device-cloud.zip),
+extract it into an `agent-device-cloud` directory and import that directory with your host.
+Keep all `references/` files. No GitHub checkout is required.
+
+Then ask: **Help me get started with ADC. Check my setup, connect my device and authorize this Agent.**
+The Skill installs a missing ADC CLI using its bundled runtime, guides browser registration or
+sign-in, reuses or pairs devices, connects selected access and verifies a first read-only tool call.
+The user completes browser sign-in and confirms the login code. Installing the Skill itself does
+not grant device access. Later requests use live discovery, approvals, task tracking and receipts.
+Self-hosted builds publish the same discovery endpoints and ZIP through `pnpm build:skill` (also
+included in `pnpm build`); replace the hosted origin with your installation's origin.
+
 SDK callers use `AdcClient`, `buildInvocation` and the same scoped Agent token. All four entry points
 use the same authorization, placement and receipt path. Side effects require a stable idempotency key.
 CLI exits 20–24 represent denied, approval required, offline, unknown outcome and cancelled.
@@ -390,6 +427,13 @@ mode-dependent sensitive-path checks, bounded reads and atomic writes. Legacy `r
 path calls remain accepted during migration. Node receipts survive restarts; uncertain effects
 return `unknown_outcome`. Processes stop on cancellation, timeout or lease expiry. Long output uses
 authenticated artifacts.
+
+`file.transfer` copies a regular file between devices or from an Agent to one device. Production
+uses private OSS with short-lived direct-upload/download tickets; file bytes bypass ADC.
+Select `ADC_TRANSFER_BACKEND=oss` and configure the private bucket. Transfers default to disabled,
+with a 1 GiB file limit and eight active transfers per account. Explicit `local` relay remains
+available for small self-hosted installations. Destinations are verified and never overwritten.
+See [file transfer](docs/native-node-transfer.md).
 
 `restricted-process` executes with the Node OS user's authority. Its command classifier and output
 redaction are guardrails; arbitrary code can access host files and networking. Node's portable path

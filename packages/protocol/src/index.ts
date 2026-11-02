@@ -2,6 +2,12 @@ import { randomBytes } from "node:crypto";
 import { z } from "zod";
 
 export const PROTOCOL_VERSION = "0.1" as const;
+export const WaitMsSchema = z.number().int().min(0).max(30_000);
+export const ExecutionTimeoutMsSchema = z
+  .number()
+  .int()
+  .min(100)
+  .max(30 * 60_000);
 
 export const ErrorCodes = {
   INVALID_REQUEST: "invalid_request",
@@ -35,6 +41,7 @@ export const DispatchIdSchema = z.string().regex(/^dsp_[a-z0-9][a-z0-9_-]{2,127}
 export const ApprovalIdSchema = z.string().regex(/^apr_[a-z0-9][a-z0-9_-]{2,127}$/);
 export const ReceiptIdSchema = z.string().regex(/^rcpt_[a-z0-9][a-z0-9_-]{2,127}$/);
 export const JobIdSchema = z.string().regex(/^job_[a-z0-9][a-z0-9_-]{2,127}$/);
+export const TransferIdSchema = z.string().regex(/^xfr_[a-z0-9][a-z0-9_-]{2,127}$/);
 export const ArtifactIdSchema = z.string().regex(/^artifact_[a-f0-9]{32}\.(?:log|png)$/);
 export const NodePlatformSchema = z.enum(["darwin", "linux", "win32", "android"]);
 export type NodePlatform = z.infer<typeof NodePlatformSchema>;
@@ -168,6 +175,42 @@ const FilePatchOptions = {
     .min(1)
     .max(10 * 1024 * 1024)
 } as const;
+export const TransferEndpointSchema = z
+  .object({
+    nodeId: NodeIdSchema,
+    rootId: RootIdSchema,
+    path: NonEmptyResourcePathSchema
+  })
+  .strict();
+export type TransferEndpoint = z.infer<typeof TransferEndpointSchema>;
+
+export const AgentTransferSourceSchema = z
+  .object({
+    kind: z.literal("agent"),
+    path: NonEmptyResourcePathSchema,
+    byteSize: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+    contentSha256: z.string().regex(/^sha256:[a-f0-9]{64}$/)
+  })
+  .strict();
+
+export const FileTransferArgsSchema = z
+  .object({
+    source: z.union([TransferEndpointSchema, AgentTransferSourceSchema]),
+    destination: TransferEndpointSchema,
+    overwrite: z.literal("never").default("never"),
+    chunkSizeBytes: z
+      .number()
+      .int()
+      .min(1024 * 1024)
+      .max(32 * 1024 * 1024)
+      .default(8 * 1024 * 1024)
+  })
+  .strict()
+  .refine(
+    (value) => !("nodeId" in value.source) || value.source.nodeId !== value.destination.nodeId,
+    "source and destination nodes must be different"
+  );
+export type FileTransferArgs = z.infer<typeof FileTransferArgsSchema>;
 const ShellOptions = {
   command: z.string().min(1).max(32_768),
   timeoutMs: z
@@ -180,22 +223,59 @@ const ShellOptions = {
 } as const;
 const UiSelectorSchema = z
   .object({
+    snapshotId: z.string().min(1).max(128).optional(),
+    nodeId: z.number().int().min(0).max(1000).optional(),
+    ref: z.string().min(1).max(512).optional(),
     resourceId: z.string().min(1).max(256).optional(),
     text: z.string().max(1000).optional(),
     contentDescription: z.string().max(1000).optional(),
     className: z.string().min(1).max(256).optional(),
     packageName: z.string().min(1).max(256).optional(),
+    role: z
+      .enum([
+        "button",
+        "checkbox",
+        "switch",
+        "edit_text",
+        "text",
+        "image",
+        "list",
+        "list_item",
+        "web_view",
+        "container",
+        "unknown"
+      ])
+      .optional(),
+    clickable: z.boolean().optional(),
+    longClickable: z.boolean().optional(),
+    editable: z.boolean().optional(),
+    scrollable: z.boolean().optional(),
+    enabled: z.boolean().optional(),
+    focused: z.boolean().optional(),
+    selected: z.boolean().optional(),
+    checked: z.boolean().optional(),
     match: z.enum(["exact", "contains"]).default("exact"),
     index: z.number().int().min(0).max(1000).default(0)
   })
   .strict()
   .refine(
     (selector) =>
+      selector.nodeId !== undefined ||
+      selector.ref !== undefined ||
       selector.resourceId !== undefined ||
       selector.text !== undefined ||
       selector.contentDescription !== undefined ||
       selector.className !== undefined ||
-      selector.packageName !== undefined,
+      selector.packageName !== undefined ||
+      selector.role !== undefined ||
+      selector.clickable !== undefined ||
+      selector.longClickable !== undefined ||
+      selector.editable !== undefined ||
+      selector.scrollable !== undefined ||
+      selector.enabled !== undefined ||
+      selector.focused !== undefined ||
+      selector.selected !== undefined ||
+      selector.checked !== undefined,
     "UI selector must include at least one matching field."
   );
 const UiActionArgsSchema = z
@@ -207,9 +287,11 @@ const UiActionArgsSchema = z
       "focus",
       "scroll_forward",
       "scroll_backward",
-      "set_text"
+      "set_text",
+      "clear_text"
     ]),
-    text: z.string().max(4000).optional()
+    text: z.string().max(4000).optional(),
+    postActionWaitMs: z.number().int().min(0).max(5000).default(500)
   })
   .strict()
   .superRefine((value, context) => {
@@ -232,10 +314,43 @@ export const ToolArgsSchemas = {
   "device.list": z.object({}).strict(),
   "device.status": z.object({ nodeId: NodeIdSchema }).strict(),
   "device.battery.get": z.object({}).strict(),
+  "device.info.get": z.object({}).strict(),
   "device.network.get": z.object({}).strict(),
+  "device.storage.get": z.object({}).strict(),
+  "device.vibrate": z
+    .object({
+      durationMs: z.number().int().min(1).max(10_000).default(300),
+      amplitude: z.number().int().min(1).max(255).default(128)
+    })
+    .strict(),
   "device.navigation": z
     .object({
       action: z.enum(["back", "home", "recents", "notifications", "quick_settings"])
+    })
+    .strict(),
+  "app.open": z
+    .object({
+      packageName: z
+        .string()
+        .min(3)
+        .max(255)
+        .regex(/^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/),
+      waitForForegroundMs: z.number().int().min(0).max(15_000).default(5000)
+    })
+    .strict(),
+  "display.status": z.object({}).strict(),
+  "audio.status": z.object({}).strict(),
+  "audio.volume.set": z
+    .object({
+      stream: z.enum(["media", "alarm", "notification", "ring", "system", "voice_call"]),
+      levelPercent: z.number().int().min(0).max(100)
+    })
+    .strict(),
+  "flashlight.status": z.object({}).strict(),
+  "flashlight.set": z
+    .object({
+      enabled: z.boolean(),
+      cameraId: z.string().min(1).max(128).optional()
     })
     .strict(),
   "location.get": z
@@ -268,6 +383,33 @@ export const ToolArgsSchemas = {
       maxNodes: z.number().int().min(1).max(1000).default(500)
     })
     .strict(),
+  "ui.wait": z.discriminatedUnion("condition", [
+    z
+      .object({
+        condition: z.literal("element"),
+        selector: UiSelectorSchema,
+        state: z.enum(["present", "absent"]).default("present"),
+        timeoutMs: z.number().int().min(0).max(30_000).default(10_000),
+        pollIntervalMs: z.number().int().min(50).max(1000).default(200)
+      })
+      .strict(),
+    z
+      .object({
+        condition: z.literal("app"),
+        packageName: z.string().min(1).max(255),
+        timeoutMs: z.number().int().min(0).max(30_000).default(10_000),
+        pollIntervalMs: z.number().int().min(50).max(1000).default(200)
+      })
+      .strict(),
+    z
+      .object({
+        condition: z.literal("idle"),
+        idleMs: z.number().int().min(100).max(5000).default(500),
+        timeoutMs: z.number().int().min(0).max(30_000).default(10_000),
+        pollIntervalMs: z.number().int().min(50).max(1000).default(100)
+      })
+      .strict()
+  ]),
   "ui.action": UiActionArgsSchema,
   "ui.gesture": z.discriminatedUnion("type", [
     z
@@ -312,6 +454,7 @@ export const ToolArgsSchemas = {
     z.object({ ...LegacyRootFileShape, ...FilePatchOptions }).strict(),
     z.object({ ...AbsoluteFileShape, ...FilePatchOptions }).strict()
   ]),
+  "file.transfer": FileTransferArgsSchema,
   "shell.exec": z.union([
     z.object({ rootId: RootIdSchema, cwd: ResourcePathSchema, ...ShellOptions }).strict(),
     z.object({ cwd: AbsolutePathSchema, ...ShellOptions }).strict()
@@ -365,6 +508,7 @@ export const ToolArgsSchemas = {
   ]),
   "task.status": z.object({ jobId: JobIdSchema }).strict(),
   "task.result": z.object({ jobId: JobIdSchema }).strict(),
+  "task.wait": z.object({ jobId: JobIdSchema, waitMs: WaitMsSchema.default(4000) }).strict(),
   "task.cancel": z.object({ jobId: JobIdSchema }).strict()
 } as const;
 
@@ -383,6 +527,63 @@ export function isBuiltinTool(tool: string): tool is ToolName {
   return ToolNameSchema.safeParse(tool).success;
 }
 
+const UiSelectorMatchFields = [
+  "nodeId",
+  "ref",
+  "resourceId",
+  "text",
+  "contentDescription",
+  "className",
+  "packageName",
+  "role",
+  "clickable",
+  "longClickable",
+  "editable",
+  "scrollable",
+  "enabled",
+  "focused",
+  "selected",
+  "checked"
+] as const;
+
+export function toolArgsJsonSchema(tool: ToolName): Record<string, unknown> {
+  const schema = z.toJSONSchema(ToolArgsSchemas[tool], {
+    target: "draft-2020-12",
+    unrepresentable: "any",
+    reused: "inline",
+    io: "input"
+  }) as Record<string, unknown>;
+  const requireSelectorField = {
+    anyOf: UiSelectorMatchFields.map((field) => ({ required: [field] }))
+  };
+  if (tool === "ui.action") {
+    const properties = schema.properties as Record<string, Record<string, unknown>>;
+    properties.selector = { ...properties.selector, ...requireSelectorField };
+    schema.allOf = [
+      {
+        if: {
+          properties: { action: { const: "set_text" } },
+          required: ["action"]
+        },
+        then: { required: ["text"] },
+        else: { not: { required: ["text"] } }
+      }
+    ];
+  } else if (tool === "ui.wait") {
+    const variants = schema.oneOf as Array<Record<string, unknown>>;
+    const element = variants.find(
+      (variant) =>
+        ((variant.properties as Record<string, Record<string, unknown>> | undefined)?.condition
+          ?.const as string | undefined) === "element"
+    );
+    if (element) {
+      const properties = element.properties as Record<string, Record<string, unknown>>;
+      properties.selector = { ...properties.selector, ...requireSelectorField };
+    }
+  }
+  return schema;
+}
+
 export function absolutePathForToolArgs(
   tool: string,
   args: Record<string, unknown>
@@ -396,26 +597,61 @@ export const ReadOnlyTools: ReadonlySet<ToolName> = new Set([
   "device.list",
   "device.status",
   "device.battery.get",
+  "device.info.get",
   "device.network.get",
+  "device.storage.get",
+  "display.status",
+  "audio.status",
+  "flashlight.status",
   "screen.capture",
   "ui.inspect",
+  "ui.wait",
   "location.get",
   "file.list",
   "file.read",
   "file.search",
   "command.template.list",
   "task.status",
-  "task.result"
+  "task.result",
+  "task.wait"
+]);
+
+export const ControlPlaneTools: ReadonlySet<ToolName> = new Set([
+  "device.list",
+  "device.status",
+  "file.transfer",
+  "task.status",
+  "task.result",
+  "task.wait",
+  "task.cancel"
+]);
+
+export const ExecutionTools: ReadonlySet<ToolName> = new Set([
+  "device.navigation",
+  "device.vibrate",
+  "app.open",
+  "audio.volume.set",
+  "flashlight.set",
+  "ui.action",
+  "ui.gesture",
+  "shell.exec",
+  "command.template.run",
+  "test.run"
 ]);
 
 export const SideEffectTools: ReadonlySet<ToolName> = new Set([
   "device.navigation",
+  "device.vibrate",
+  "app.open",
+  "audio.volume.set",
+  "flashlight.set",
   "notification.show",
   "ui.action",
   "ui.gesture",
   "file.write",
   "file.edit",
   "file.patch",
+  "file.transfer",
   "shell.exec",
   "command.template.run",
   "test.run",
@@ -426,6 +662,43 @@ export function isSideEffectTool(tool: string): boolean {
   return !isBuiltinTool(tool) || SideEffectTools.has(tool);
 }
 
+/** An exact, versioned upper bound on delegated access. No future-root wildcard. */
+export const DeviceFolderPathSchema = z.string().min(1).max(32767).refine((path) =>
+  (path.startsWith("/") && !path.startsWith("//") && !path.includes("\0")) ||
+  /^[a-z]:[\\/]/i.test(path) && !path.includes("\0"), "Use an absolute local device folder.");
+export function isDeviceRoot(path: string): boolean {
+  return /^\/+$/.test(path) || /^[a-z]:[\\/]*$/i.test(path);
+}
+export const CollaborationScopeSchema = z.object({
+  roots: z.array(z.object({
+    rootId: RootIdSchema,
+    path: DeviceFolderPathSchema,
+    writable: z.boolean()
+  }).strict()).max(64),
+  allowedTools: z.array(ToolIdSchema).min(1).max(256),
+  execution: z.enum(["read-only", "trusted-host", "isolated"]).default("read-only"),
+  approvalPolicy: z.enum(["never", "writes", "execute", "always"]).default("never"),
+  templateIds: z.array(z.string().min(1).max(128)).max(64).default([])
+}).strict();
+export type CollaborationScope = z.infer<typeof CollaborationScopeSchema>;
+
+/** Generated by the control plane, carried over the authenticated Node lease. */
+export const DelegationSchema = z.object({
+  version: z.literal(1),
+  requesterAccountId: AccountIdSchema,
+  requesterUserId: z.string().min(1).max(256),
+  resourceAccountId: AccountIdSchema,
+  bindingId: z.string().min(1).max(256).optional(),
+  bindingRevision: z.number().int().positive().optional(),
+  /** Emitted only for whole-device team access supported by the current Node. */
+  bindingKind: z.literal("team").optional(),
+  membershipRevision: z.number().int().positive().optional(),
+  grantRevision: z.number().int().positive(),
+  scope: CollaborationScopeSchema,
+  expiresAt: z.iso.datetime({ offset: true })
+}).strict();
+export type Delegation = z.infer<typeof DelegationSchema>;
+
 const InvocationBaseSchema = z
   .object({
     schemaVersion: z.literal(PROTOCOL_VERSION),
@@ -434,7 +707,7 @@ const InvocationBaseSchema = z
     accountId: AccountIdSchema,
     actor: z
       .object({
-        type: z.enum(["owner", "agent", "service"]),
+        type: z.enum(["owner", "agent", "service", "user"]),
         id: ActorIdSchema
       })
       .strict(),
@@ -454,8 +727,10 @@ const InvocationBaseSchema = z
         grantId: z.string().regex(/^grant_[a-z0-9][a-z0-9_-]{2,127}$/)
       })
       .strict(),
+    delegation: DelegationSchema.optional(),
     issuedAt: z.iso.datetime({ offset: true }),
     expiresAt: z.iso.datetime({ offset: true }),
+    executionTimeoutMs: ExecutionTimeoutMsSchema.optional(),
     idempotencyKey: z.string().min(8).max(256).optional(),
     metadata: z
       .object({
@@ -548,7 +823,8 @@ export const ReceiptSchema = z
     startedAt: z.iso.datetime({ offset: true }),
     completedAt: z.iso.datetime({ offset: true }),
     durationMs: z.number().int().nonnegative(),
-    artifactRefs: z.array(ArtifactIdSchema).default([])
+    artifactRefs: z.array(ArtifactIdSchema).default([]),
+    delegation: DelegationSchema.optional()
   })
   .strict();
 export type Receipt = z.infer<typeof ReceiptSchema>;
@@ -688,6 +964,18 @@ export const CapabilitySchema = z
     platform: NodePlatformSchema,
     accessMode: z.enum(["none", "selected", "home", "full"]).optional(),
     nodeVersion: z.string().min(1).max(64),
+    transferDataPlanes: z.array(z.enum(["local", "object"])).optional(),
+    collaboration: z.object({
+      version: z.literal(1),
+      trustedHost: z.boolean(),
+      isolation: z.enum(["none", "container", "rootless-container", "vm"]),
+      features: z.array(z.literal("team-root-sharing")).optional(),
+      roots: z.array(z.object({ rootId: RootIdSchema, path: DeviceFolderPathSchema }).strict()).max(64).optional()
+    }).strict().optional(),
+    buildId: z
+      .string()
+      .regex(/^sha256:[a-f0-9]{64}$/)
+      .optional(),
     advertisedAt: z.iso.datetime({ offset: true })
   })
   .strict();
@@ -740,6 +1028,7 @@ export function createId(
     | "apr"
     | "rcpt"
     | "job"
+    | "xfr"
     | "grant"
 ): string {
   const timestamp = Date.now().toString(36).padStart(9, "0");

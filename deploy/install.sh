@@ -20,6 +20,7 @@ Options:
   --root-id ID         Folder identifier (default: root_workspace)
   --read-only          Advertise the folder as read-only
   --no-service         Pair only; run adc-node run yourself
+  --cli-only           Install the CLI without pairing or starting a Connector
 
 Repeat the command to upgrade; existing identity and folders are preserved.
 ADC_INSTALL_DIR, ADC_BIN_DIR, ADC_NODE_CONFIG override user-level paths.
@@ -28,11 +29,12 @@ USAGE
 
 download_url=@ADC_DOWNLOAD_URL@
 url='' code='' label='' root_path='' root_id='' access_mode=''
-no_service=false read_only=false
+no_service=false read_only=false cli_only=false
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --help|-h) usage; exit 0 ;;
     --no-service) no_service=true; shift ;;
+    --cli-only) cli_only=true; shift ;;
     --read-only) read_only=true; shift ;;
     --url|--code|--download-url|--label|--root-path|--root-id|--access)
       [ "$#" -ge 2 ] && [ -n "$2" ] || fail "$1 requires a value"
@@ -45,6 +47,10 @@ while [ "$#" -gt 0 ]; do
     *) fail "Unknown option: $1 (use --help)" ;;
   esac
 done
+if [ "$cli_only" = true ]; then
+  [ -z "$code$label$root_path$root_id$access_mode" ] && [ "$read_only" = false ] ||
+    fail "--cli-only cannot be combined with device pairing or folder options."
+fi
 if [ -z "$download_url" ]; then
   [ -n "$url" ] || fail "Use --url ORIGIN or --download-url URL."
   download_url="${url%/}/downloads/node"
@@ -140,18 +146,22 @@ runtime="$temporary/payload/runtime/bin/node"
 
 export ADC_INSTALL_DIR="$install_dir" ADC_BIN_DIR="$bin_dir" ADC_NODE_CONFIG="$config_path"
 set -- setup
-[ -z "$url" ] || set -- "$@" --url "$url"
-[ -z "$code" ] || set -- "$@" --code "$code"
-[ -z "$label" ] || set -- "$@" --label "$label"
-[ -z "$root_path" ] || set -- "$@" --root-path "$root_path"
-[ -z "$root_id" ] || set -- "$@" --root-id "$root_id"
-[ -z "$access_mode" ] || set -- "$@" --access "$access_mode"
-[ "$read_only" = false ] || set -- "$@" --read-only
+if [ ! -f "$config_path" ]; then
+  [ -z "$url" ] || set -- "$@" --url "$url"
+  [ -z "$code" ] || set -- "$@" --code "$code"
+  [ -z "$label" ] || set -- "$@" --label "$label"
+  [ -z "$root_path" ] || set -- "$@" --root-path "$root_path"
+  [ -z "$root_id" ] || set -- "$@" --root-id "$root_id"
+  [ -z "$access_mode" ] || set -- "$@" --access "$access_mode"
+  [ "$read_only" = false ] || set -- "$@" --read-only
+fi
 # Validate/reuse identity before switching the active program.
-if [ "$no_service" = false ]; then
-  "$runtime" "$temporary/payload/lib/adc-node.mjs" "$@" --no-service >/dev/null
-else
-  "$runtime" "$temporary/payload/lib/adc-node.mjs" "$@" --no-service
+if [ "$cli_only" = false ]; then
+  if [ "$no_service" = false ]; then
+    "$runtime" "$temporary/payload/lib/adc-node.mjs" "$@" --no-service >/dev/null
+  else
+    "$runtime" "$temporary/payload/lib/adc-node.mjs" "$@" --no-service
+  fi
 fi
 
 release_name=${archive%.tar.gz}
@@ -176,9 +186,6 @@ for name in adc adc-node; do
     printf 'export ADC_BIN_DIR='; quote "$bin_dir"; printf '\n'
     printf 'export ADC_UPDATE_URL='; quote "$download_url"; printf '\n'
     printf 'export PATH="$ADC_INSTALL_DIR/current/runtime/bin${PATH:+:$PATH}"\n'
-    if [ -n "$url" ]; then
-      printf 'export ADC_CONTROL_PLANE_URL='; quote "$url"; printf '\n'
-    fi
     printf 'if [ -z "${ADC_NODE_CONFIG:-}" ]; then export ADC_NODE_CONFIG='
     quote "$config_path"; printf '; fi\n'
     if [ -n "${ADC_SERVICE_DIR:-}" ]; then
@@ -189,7 +196,7 @@ for name in adc adc-node; do
   chmod 755 "$temporary/$name"
   mv -f "$temporary/$name" "$bin_dir/$name"
 done
-if [ "$no_service" = false ]; then
+if [ "$no_service" = false ] && [ "$cli_only" = false ]; then
   if ! "$bin_dir/adc-node" setup; then
     if [ -n "$previous_target" ]; then
       ln -s "$previous_target" "$temporary/previous"
@@ -201,10 +208,12 @@ if [ "$no_service" = false ]; then
     fail "Connector service setup failed. The downloaded release remains installed."
   fi
 fi
-printf '\nInstalled: %s\n' "$bin_dir/adc-node"
+printf '\nInstalled: %s\n' "$bin_dir/adc"
 case ":${PATH:-}:" in
   *":$bin_dir:"*) ;;
   *) printf 'Add this to your shell profile, then open a new terminal:\n  export PATH='
      quote "$bin_dir"; printf ':$PATH\n' ;;
 esac
-printf 'Status: '; quote "$bin_dir/adc-node"; printf ' status\n'
+printf 'Status: '
+if [ "$cli_only" = true ]; then quote "$bin_dir/adc"; printf ' status --json\n'
+else quote "$bin_dir/adc-node"; printf ' status\n'; fi

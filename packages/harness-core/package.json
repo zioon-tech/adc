@@ -1,0 +1,13 @@
+{
+  "name": "@adc/harness-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@adc/client": "workspace:*",
+    "@adc/mcp-adapter": "workspace:*",
+    "@adc/protocol": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.30.1"
+  }
+}

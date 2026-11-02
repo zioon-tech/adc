@@ -29,34 +29,62 @@ idempotency key.
 
 The live schema is authoritative. These examples show the protocol 0.1 shapes:
 
-| Tool                    | `--args` JSON                                                                                 |
-| ----------------------- | --------------------------------------------------------------------------------------------- |
-| `device.list`           | `{}`                                                                                          |
-| `device.status`         | `{"nodeId":"node_example"}`                                                                   |
-| `device.battery.get`    | `{}`                                                                                          |
-| `device.network.get`    | `{}`                                                                                          |
-| `device.navigation`     | `{"action":"back"}`                                                                           |
-| `location.get`          | `{"desiredAccuracy":"balanced","maxAgeMs":15000,"timeoutMs":10000}`                           |
-| `notification.show`     | `{"title":"ADC","body":"Task completed"}`                                                     |
-| `screen.capture`        | `{"format":"png","maxWidth":1080}`                                                            |
-| `ui.inspect`            | `{"maxDepth":12,"maxNodes":500}`                                                              |
-| `ui.action`             | `{"selector":{"text":"Save"},"action":"click"}`                                               |
-| `ui.gesture`            | `{"type":"swipe","startX":500,"startY":1500,"endX":500,"endY":500,"durationMs":300}`          |
-| `file.list`             | `{"path":"/absolute/folder","glob":"**/*.ts","maxEntries":1000}`                              |
-| `file.read`             | `{"path":"/absolute/file","encoding":"utf8","maxBytes":1048576}`                              |
-| `file.search`           | `{"path":"/absolute/folder","query":"needle","glob":"**/*.ts","maxMatches":1000}`             |
-| `file.write`            | `{"path":"/absolute/file","content":"...","createOnly":true}`                                 |
-| `file.edit`             | `{"path":"/absolute/file","oldText":"exact text","newText":"replacement","replaceAll":false}` |
-| `file.patch`            | `{"path":"/absolute/file","patch":"unified diff"}`                                            |
-| `shell.exec`            | `{"cwd":"/absolute/folder","command":"pnpm test","timeoutMs":120000,"env":{}}`                |
-| `command.template.list` | `{}` or `{"projectId":"proj_example"}`                                                        |
-| `command.template.run`  | `{"cwd":"/absolute/folder","templateId":"build","parameters":{}}`                             |
-| `test.run`              | `{"cwd":"/absolute/folder","templateId":"test","timeoutMs":300000}`                           |
-| `task.status`           | `{"jobId":"job_example"}`                                                                     |
-| `task.result`           | `{"jobId":"job_example"}`                                                                     |
-| `task.cancel`           | `{"jobId":"job_example"}`                                                                     |
+| Tool                    | `--args` JSON                                                                                                                                                          |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `device.list`           | `{}`                                                                                                                                                                   |
+| `device.status`         | `{"nodeId":"node_example"}`                                                                                                                                            |
+| `device.battery.get`    | `{}`                                                                                                                                                                   |
+| `device.info.get`       | `{}`                                                                                                                                                                   |
+| `device.network.get`    | `{}`                                                                                                                                                                   |
+| `device.storage.get`    | `{}`                                                                                                                                                                   |
+| `device.vibrate`        | `{"durationMs":300,"amplitude":128}`                                                                                                                                   |
+| `device.navigation`     | `{"action":"back"}`                                                                                                                                                    |
+| `app.open`              | `{"packageName":"com.android.settings","waitForForegroundMs":5000}`                                                                                                    |
+| `display.status`        | `{}`                                                                                                                                                                   |
+| `audio.status`          | `{}`                                                                                                                                                                   |
+| `audio.volume.set`      | `{"stream":"media","levelPercent":50}`                                                                                                                                 |
+| `flashlight.status`     | `{}`                                                                                                                                                                   |
+| `flashlight.set`        | `{"enabled":true}`                                                                                                                                                     |
+| `location.get`          | `{"desiredAccuracy":"balanced","maxAgeMs":15000,"timeoutMs":10000}`                                                                                                    |
+| `notification.show`     | `{"title":"ADC","body":"Task completed"}`                                                                                                                              |
+| `screen.capture`        | `{"format":"png","maxWidth":1080}`                                                                                                                                     |
+| `ui.inspect`            | `{"maxDepth":12,"maxNodes":500}`                                                                                                                                       |
+| `ui.wait`               | `{"condition":"element","selector":{"text":"Save"},"state":"present","timeoutMs":10000}`                                                                               |
+| `ui.action`             | `{"selector":{"text":"Save"},"action":"click"}`                                                                                                                        |
+| `ui.gesture`            | `{"type":"swipe","startX":500,"startY":1500,"endX":500,"endY":500,"durationMs":300}`                                                                                   |
+| `file.list`             | `{"path":"/absolute/folder","glob":"**/*.ts","maxEntries":1000}`                                                                                                       |
+| `file.read`             | `{"path":"/absolute/file","encoding":"utf8","maxBytes":1048576}`                                                                                                       |
+| `file.search`           | `{"path":"/absolute/folder","query":"needle","glob":"**/*.ts","maxMatches":1000}`                                                                                      |
+| `file.write`            | `{"path":"/absolute/file","content":"...","createOnly":true}`                                                                                                          |
+| `file.edit`             | `{"path":"/absolute/file","oldText":"exact text","newText":"replacement","replaceAll":false}`                                                                          |
+| `file.patch`            | `{"path":"/absolute/file","patch":"unified diff"}`                                                                                                                     |
+| `file.transfer`         | `{"source":{"nodeId":"node_source","rootId":"root_source","path":"model.bin"},"destination":{"nodeId":"node_target","rootId":"root_target","path":"cache/model.bin"}}` |
+| `shell.exec`            | `{"cwd":"/absolute/folder","command":"pnpm test","timeoutMs":120000,"env":{}}`                                                                                         |
+| `command.template.list` | `{}` or `{"projectId":"proj_example"}`                                                                                                                                 |
+| `command.template.run`  | `{"cwd":"/absolute/folder","templateId":"build","parameters":{}}`                                                                                                      |
+| `test.run`              | `{"cwd":"/absolute/folder","templateId":"test","timeoutMs":300000}`                                                                                                    |
+| `task.status`           | `{"jobId":"job_example"}`                                                                                                                                              |
+| `task.result`           | `{"jobId":"job_example"}`                                                                                                                                              |
+| `task.wait`             | `{"jobId":"job_example","waitMs":4000}`                                                                                                                                |
+| `task.cancel`           | `{"jobId":"job_example"}`                                                                                                                                              |
 
 Optional fields may be omitted. Do not send undocumented fields because tool arguments are strict.
+MCP calls accept `waitMs` (0–30000, default 4000) alongside `args` and `target`.
+CLI calls use `--wait 4000`; SDK calls use `client.invoke(invocation, { waitMs: 4000 })`.
+Waiting returns a terminal result or the current task state without cancelling or restarting it.
+Continue with `task.wait`, `adc task wait JOB --wait 4000 --json`, or `client.taskWait(jobId)`.
+
+`file.transfer` supports a two-device job or a local Agent upload to one device. For two devices, both devices and both roots must be present in the
+current authorization; the source root may be read-only and the destination root must be writable.
+Use `adc transfer create` for its dedicated CLI, then `adc transfer status|wait|cancel` with the
+returned `transferId` or `jobId`. Protocol 0.1 transfers one regular file, never overwrites an
+existing destination, and does not support directories. A retry of the same transfer intent must
+reuse its original idempotency key.
+
+Use `executionTimeoutMs` in MCP or `--execution-timeout` in CLI only when a total budget is needed.
+It accepts 100–1800000 ms from submission, including queue time, and requests cooperative cancellation
+on expiry. Waiting never extends this budget. Existing tool-specific `args.timeoutMs` still applies.
+Existing grants must explicitly include `task.wait` to expose that tool.
 Use `--args @/absolute/input.json` when shell quoting would make a large JSON value unsafe or
 ambiguous, and remove temporary inputs that contain sensitive data.
 
@@ -124,14 +152,19 @@ key for multiple operations.
 
 ## Invocation Lifecycle
 
+For mobile UI and device-status calls, add `--wait 1500` to the initial `adc invoke` command. This
+keeps one CLI process alive for the common sub-second completion path. A result that remains
+`queued` or `running` still follows the workflow below.
+
 For `queued` or `running`, save the `jobId` and poll:
 
 ```bash
 adc task status JOB_ID --json
 ```
 
-Poll after 2 seconds, then 5 seconds, then at most every 10 seconds. Stop at the user-visible or
-tool timeout. If local waiting stops, retain the `jobId`; do not submit the operation again.
+Poll after 200 milliseconds, then 500 milliseconds and one second. For work that is still running,
+back off to at most every five seconds. Stop at the user-visible or tool timeout. If local waiting
+stops, retain the `jobId`; do not submit the operation again.
 
 For `approval_required`, save `invocationId`, `error.details.approvalId`, and
 `error.details.expiresAt`. Ask the user to decide independently. After the user confirms:

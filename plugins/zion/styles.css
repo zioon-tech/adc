@@ -1,0 +1,80 @@
+.adc-sidebar {
+  box-sizing: border-box;
+  padding: 16px;
+  color: var(--fg, inherit);
+  font: inherit;
+  overflow: auto;
+}
+.adc-sidebar header,
+.adc-sidebar nav {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.adc-sidebar header {
+  justify-content: space-between;
+  padding-bottom: 16px;
+}
+.adc-sidebar header span,
+.adc-sidebar p,
+.adc-sidebar li {
+  font-size: 12px;
+  opacity: 0.8;
+  line-height: 1.6;
+}
+.adc-sidebar nav {
+  margin: 12px 0 20px;
+}
+.adc-sidebar button,
+.adc-sidebar select {
+  font: inherit;
+  color: inherit;
+  background: var(--bg-secondary, transparent);
+  border: 1px solid var(--border, #8885);
+  border-radius: 5px;
+  padding: 6px 10px;
+}
+.adc-sidebar button {
+  cursor: pointer;
+  transition: background-color 120ms;
+}
+.adc-sidebar button:hover {
+  background: var(--hover, #8882);
+}
+.adc-sidebar label,
+.adc-sidebar select {
+  display: block;
+  width: 100%;
+}
+.adc-sidebar select {
+  margin-top: 8px;
+}
+.adc-sidebar h3 {
+  font-size: 12px;
+  margin: 24px 0 12px;
+}
+.adc-sidebar details {
+  border-top: 1px solid var(--border, #8885);
+  padding: 10px 0;
+}
+.adc-sidebar summary {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.adc-sidebar pre {
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.adc-sidebar a {
+  color: var(--accent, #5289dc);
+  font-size: 12px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .adc-sidebar button {
+    transition: none;
+  }
+}

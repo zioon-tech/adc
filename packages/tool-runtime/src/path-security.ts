@@ -11,7 +11,8 @@ const defaultSensitiveSegments = new Set([
   ".npmrc",
   ".netrc",
   ".env",
-  "credentials"
+  "credentials",
+  ".adc", ".zion", ".config", ".git", "launchagents", "launchdaemons", "systemd"
 ]);
 
 export interface LocalRoot {
@@ -27,10 +28,11 @@ function isWithin(root: string, candidate: string): boolean {
   return child === "" || (!child.startsWith(`..${sep}`) && child !== ".." && !isAbsolute(child));
 }
 
-function assertNotSensitive(resourcePath: string): void {
+export function assertNotSensitive(resourcePath: string): void {
   const denied = resourcePath
     .split("/")
-    .find((segment) => defaultSensitiveSegments.has(segment.toLowerCase()));
+    .find((segment) => defaultSensitiveSegments.has(segment.toLowerCase()) ||
+      segment.toLowerCase().startsWith(".env."));
   if (denied) {
     throw new ProtocolError(
       ErrorCodes.DENIED,

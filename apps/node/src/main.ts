@@ -5,6 +5,7 @@ import { dirname, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { ReadStream, WriteStream } from "node:tty";
 import { NodeApiClient, generateNodeKeyPair } from "@adc/client/node";
+import { z } from "zod";
 import { NodeDaemon } from "./daemon.ts";
 import {
   ConfigSchema,
@@ -12,6 +13,7 @@ import {
   CommandTemplateSchema,
   ControlPlaneUrlSchema,
   McpProviderConfigSchema,
+  SharingConfigSchema,
   accessRoots,
   configPath,
   localFolder,
@@ -28,12 +30,40 @@ import {
 } from "./service.ts";
 import { nodePlatform } from "./platform.ts";
 
-const version = process.env.ADC_BUILD_VERSION ?? "0.1.0-dev";
+const InstalledReleaseSchema = z
+  .object({
+    version: z.string().min(1),
+    buildId: z
+      .string()
+      .regex(/^sha256:[a-f0-9]{64}$/)
+      .optional()
+  })
+  .passthrough();
+
+async function installedRelease() {
+  const install = process.env.ADC_INSTALL_DIR;
+  if (!install) return;
+  const directory = process.env.ADC_RELEASE
+    ? resolve(install, "releases", process.env.ADC_RELEASE)
+    : resolve(install, "current");
+  try {
+    return InstalledReleaseSchema.parse(
+      JSON.parse(await readFile(resolve(directory, "release.json"), "utf8"))
+    );
+  } catch {
+    return;
+  }
+}
+
+const release = await installedRelease();
+const version = process.env.ADC_BUILD_VERSION ?? release?.version ?? "0.1.0-dev";
+const buildId = process.env.ADC_BUILD_ID ?? release?.buildId;
 const usage = `Agent Device Cloud device ${version}
 Usage:
   adc-node setup --url ORIGIN --code CODE [--label NAME] [--root-path FOLDER]
                  [--access none|selected|home|full] [--root-id ID] [--read-only] [--no-service]
   adc-node access [none|selected|home|full] [--read-only]
+  adc-node sharing [on|off] [--trusted-host on|off] [--isolation none|docker] [--image PINNED_IMAGE]
   adc-node roots list
   adc-node roots add FOLDER [--root-id ID] [--label NAME] [--read-only]
   adc-node roots remove ROOT_ID
@@ -250,6 +280,25 @@ async function main(): Promise<void> {
       console.log("Paired. Start in the foreground with adc-node run.");
     return;
   }
+  if (command === "sharing") {
+    const config = await loadConfig();
+    const mode = process.argv[3];
+    if (!mode) { console.log(JSON.stringify(config.sharing, null, 2)); return; }
+    if (!["on", "off"].includes(mode)) throw new Error("Use sharing on or off.");
+    const args = argumentsMap(process.argv.slice(4));
+    const trustedHost = args.get("trusted-host");
+    if (trustedHost && !["on", "off"].includes(trustedHost)) throw new Error("Use --trusted-host on or off.");
+    const sharing = SharingConfigSchema.parse({
+      ...config.sharing, enabled: mode === "on",
+      ...(trustedHost ? { trustedHost: trustedHost === "on" } : {}),
+      ...(args.get("isolation") ? { isolation: args.get("isolation") } : {}),
+      ...(args.get("image") ? { image: args.get("image") } : {})
+    });
+    if (sharing.isolation === "docker" && !sharing.image) throw new Error("Supply an installed image pinned with @sha256:digest.");
+    await saveConfig(ConfigSchema.parse({ ...config, sharing }));
+    console.log(JSON.stringify({ sharing, reload: "automatic" }, null, 2));
+    return;
+  }
   if (command === "access") {
     const config = await loadConfig();
     const modeArg = process.argv[3];
@@ -280,10 +329,6 @@ async function main(): Promise<void> {
     const value = process.argv[4];
     if (!value) throw new Error("Supply a folder path to add, or a root ID to remove.");
     if (action === "add") {
-      if (config.accessMode === "full")
-        throw new Error(
-          "Full trust already exposes all folders. Use adc-node access selected to choose folders."
-        );
       const args = argumentsMap(process.argv.slice(5));
       const root = await localFolder(value, {
         ...(args.get("root-id") ? { rootId: args.get("root-id")! } : {}),
@@ -295,7 +340,7 @@ async function main(): Promise<void> {
       if (config.roots.some((item) => item.rootId === root.rootId && item.path !== root.path))
         throw new Error("This root ID already refers to another folder.");
       config.roots = [...config.roots.filter((item) => item.rootId !== root.rootId), root];
-      config.accessMode = "selected";
+      if (config.accessMode !== "full") config.accessMode = "selected";
     } else if (action === "remove") {
       if (!config.roots.some((root) => root.rootId === value))
         throw new Error("Folder ID was not found.");
@@ -448,7 +493,17 @@ async function main(): Promise<void> {
     return;
   }
   if (command === "status") {
-    console.log(JSON.stringify(await serviceStatus(), null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          ...(await serviceStatus()),
+          version,
+          buildId: buildId ?? null
+        },
+        null,
+        2
+      )
+    );
     return;
   }
   if (command === "start") {
@@ -507,6 +562,7 @@ async function main(): Promise<void> {
     const daemon = new NodeDaemon({
       ...config,
       nodeVersion: version,
+      ...(buildId ? { buildId } : {}),
       loadAccess: async () => {
         const current = await loadConfig();
         if (

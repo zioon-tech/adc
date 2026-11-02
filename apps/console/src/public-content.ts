@@ -1,4 +1,5 @@
 import type { Locale } from "./i18n.tsx";
+import { showCloudFileTransfers } from "./file-transfer-visibility.ts";
 
 export interface LocalizedText {
   en: string;
@@ -35,7 +36,236 @@ export function localize(value: LocalizedText, locale: Locale): string {
   return value[locale];
 }
 
-export const publicContent: PublicContentEntry[] = [
+const contentEntries: PublicContentEntry[] = [
+  {
+    path: "/updates/connector-0-1-6",
+    kind: "Product update",
+    title: text("Connector 0.1.6: current package and task workflow", "Connector 0.1.6：当前软件包与任务工作流"),
+    summary: text(
+      "Keep your Connector current and follow the task you already submitted.",
+      "保持 Connector 更新，跟踪已经提交的任务。"
+    ),
+    publishedAt: "2026-11-03",
+    updatedAt: "2026-11-03",
+    readingMinutes: 2,
+    keywords: ["ADC 0.1.6", "task.wait", "Connector update"],
+    listed: true,
+    relatedPaths: ["/updates/connector-0-1-3", "/guides/first-device-to-first-tool-call"],
+    sections: [
+      {
+        id: "package",
+        title: text("Use the current package", "使用当前软件包"),
+        paragraphs: [text(
+          "The repository package is version 0.1.6. Check the service download manifest for the version available for your platform.",
+          "仓库软件包版本为 0.1.6。请查看服务下载清单，确认你的平台当前可安装的版本。"
+        )],
+        code: "adc update"
+      },
+      {
+        id: "task",
+        title: text("Follow an existing task", "跟踪已有任务"),
+        paragraphs: [text(
+          "Use the returned jobId to inspect or wait for an existing task. A bounded wait ending does not require resubmitting the original operation.",
+          "使用返回的 jobId 检查或等待已有任务。有界等待结束时，无需重新提交原操作。"
+        )],
+        code: `adc invoke task.wait --args '{"jobId":"job_example","waitMs":4000}' --json`
+      },
+      {
+        id: "history",
+        title: text("Review earlier releases", "阅读历史版本说明"),
+        paragraphs: [text(
+          "Earlier release notes remain available. Tool access follows the service configuration, account authorization and device policy.",
+          "历史版本说明继续保留。实际工具能力以服务配置、账户授权和设备策略为准。"
+        )]
+      }
+    ]
+  },
+  {
+    path: "/updates/connector-0-1-4",
+    kind: "Product update",
+    title: text("Connector 0.1.4: direct file transfers", "Connector 0.1.4：文件直传"),
+    summary: text(
+      "Copy files between devices or upload from an Agent through private object storage.",
+      "通过私有对象存储在设备间复制文件，或从 Agent 上传到设备。"
+    ),
+    publishedAt: "2026-10-19",
+    updatedAt: "2026-10-19",
+    readingMinutes: 2,
+    keywords: ["ADC file.transfer", "Agent upload", "private object storage"],
+    listed: true,
+    relatedPaths: ["/updates/connector-0-1-3", "/guides/first-device-to-first-tool-call"],
+    sections: [
+      {
+        id: "transfer",
+        title: text("Transfer files with scoped authorization", "在授权范围内传输文件"),
+        paragraphs: [
+          text(
+            "Connector 0.1.4 supports private object storage for file.transfer. Your administrator must enable the backend and both participating Connectors must be updated. ADC handles authorization, approval and task state; file bytes travel directly through storage.",
+            "Connector 0.1.4 为 file.transfer 增加私有对象存储支持。管理员需启用后端，参与传输的 Connector 均需更新。ADC 处理授权、审批和任务状态，文件字节直接通过对象存储传输。"
+          ),
+          text(
+            "adc transfer upload sends a local Agent file to an authorized device without registering a source Node. The destination verifies the file and commits it without overwriting an existing path. Keep the same arguments and idempotency key when resuming after approval.",
+            "adc transfer upload 可将 Agent 本地文件上传至已授权设备，无需注册源 Node。目标校验文件后落盘，保留已有同名文件。审批后继续上传时，保持相同参数与幂等键。"
+          )
+        ],
+        code: "adc update\nadc transfer upload --help"
+      },
+      {
+        id: "wait",
+        title: text("Follow the existing task", "跟踪已有任务"),
+        paragraphs: [
+          text(
+            "An upload response contains the existing jobId. Use task.wait to follow the destination result. Upload completion alone does not mean the destination has committed the file.",
+            "上传响应包含已有 jobId，使用 task.wait 跟踪目标结果。上传结束时，目标可能尚未完成文件落盘。"
+          )
+        ],
+        code: `adc invoke task.wait --args '{"jobId":"job_example","waitMs":4000}' --json`
+      },
+      {
+        id: "permissions",
+        title: text("Check destination access", "检查目标权限"),
+        paragraphs: [
+          text(
+            "Grant file.transfer and access to the destination folder. Device-to-device copies also require source access. Owner approval applies before transfer starts, and cancellation stops pending storage requests.",
+            "授权需包含 file.transfer 和目标目录权限。设备间复制还需源目录权限。需要审批的传输在审批后开始，取消会停止待处理的存储请求。"
+          )
+        ]
+      }
+    ]
+  },
+  {
+    path: "/updates/connector-0-1-3",
+    kind: "Product update",
+    title: text(
+      "Connector 0.1.3: bounded task waits and the official service",
+      "Connector 0.1.3：有界任务等待与正式服务"
+    ),
+    summary: text(
+      "Follow existing tasks with task.wait, connect through adc.zioon.tech and choose desktop or Android installation from the console.",
+      "通过 task.wait 跟踪已有任务，使用 adc.zioon.tech 正式服务，并在控制台选择桌面端或 Android 安装方式。"
+    ),
+    publishedAt: "2026-10-16",
+    updatedAt: "2026-10-16",
+    readingMinutes: 3,
+    keywords: [
+      "Agent Device Cloud 0.1.3",
+      "ADC task.wait",
+      "Android Mobile Node",
+      "adc.zioon.tech"
+    ],
+    listed: true,
+    relatedPaths: [
+      "/guides/first-device-to-first-tool-call",
+      "/updates/connector-0-1-1",
+      "/updates/websocket-task-wakeups"
+    ],
+    sections: [
+      {
+        id: "task-wait",
+        title: text("Wait for the task you already submitted", "等待已经提交的任务"),
+        paragraphs: [
+          text(
+            "Connector 0.1.3, released on October 13, adds bounded waiting across CLI, MCP and SDK calls. task.wait accepts the existing jobId and a waitMs budget from 0 to 30000 milliseconds, defaulting to 4000. It returns the terminal result when available, or the current task state when the budget expires.",
+            "10 月 13 日发布的 Connector 0.1.3 为 CLI、MCP 和 SDK 调用加入有界等待。task.wait 接收已有 jobId 与 0 到 30000 毫秒的 waitMs 预算，默认 4000。完成时返回终态结果，等待预算耗尽时返回任务当前状态。"
+          ),
+          text(
+            "An unfinished task keeps the same jobId. Continue waiting or inspect its status; do not submit the original operation again just because one wait ended.",
+            "尚未完成的任务保留同一个 jobId。继续等待或检查状态即可，不要因为一次等待结束就重新提交原操作。"
+          )
+        ],
+        code: `adc invoke task.wait --args '{"jobId":"job_example","waitMs":4000}' --json`
+      },
+      {
+        id: "official-service",
+        title: text("Connect through the official domain", "通过正式域名连接"),
+        paragraphs: [
+          text(
+            "The official hosted service is available at https://adc.zioon.tech with email registration, verification, password recovery and configured GitHub sign-in. zioon.tech and www.zioon.tech redirect to the service while preserving paths and query parameters.",
+            "官方托管服务现使用 https://adc.zioon.tech，已配置邮箱注册、验证、密码找回与 GitHub 登录。zioon.tech 与 www.zioon.tech 保留路径和查询参数跳转到正式服务。"
+          ),
+          text(
+            "The website, discovery metadata and download manifests use the official address. Hosted and self-hosted installations continue to share the same authorization, approvals, audit and local execution model.",
+            "网站、发现元数据与下载清单统一使用正式地址。托管与自部署实例继续共享相同的授权、审批、审计和本地执行模型。"
+          )
+        ],
+        code: "adc login --url https://adc.zioon.tech"
+      },
+      {
+        id: "device-downloads",
+        title: text("Choose the installation for your device", "选择适合设备的安装方式"),
+        paragraphs: [
+          text(
+            "Devices → Pair device offers macOS, glibc Linux, Windows x64 and Android. Desktop installers include their own runtime and support explicit upgrades with adc update. Android pairing uses an APK and the service URL and code shown in the console.",
+            "「设备 → 配对设备」提供 macOS、glibc Linux、Windows x64 和 Android。桌面安装器自带运行时，并支持通过 adc update 主动升级。Android 通过 APK 安装，使用控制台显示的服务地址与配对码。"
+          ),
+          text(
+            "The current hosted Android APK uses development signing and requires manual installation and updates. Phone capabilities depend on local permissions. Xiaomi/MIUI testing does not certify every Android model; desktop and mobile verification boundaries remain documented in Security.",
+            "当前托管 Android APK 使用开发签名，安装和更新均需手动完成。手机能力取决于本地权限。Xiaomi/MIUI 测试不代表所有 Android 机型均已认证；桌面端与移动端的验证范围仍在「安全」页面中明确说明。"
+          )
+        ]
+      }
+    ]
+  },
+  {
+    path: "/updates/connector-0-1-1",
+    kind: "Product update",
+    title: text(
+      "Connector 0.1.1: faster mobile control and visible updates",
+      "Connector 0.1.1：更快的移动端控制与可见更新"
+    ),
+    summary: text(
+      "ADC 0.1.1 tightens Android UI execution, refreshes long-running MCP sessions and makes outdated desktop Connectors visible without blocking CLI work.",
+      "ADC 0.1.1 收紧 Android UI 执行语义、刷新长时间运行的 MCP 会话，并在不阻塞 CLI 工作的前提下标识过期桌面 Connector。"
+    ),
+    publishedAt: "2026-10-11",
+    updatedAt: "2026-10-11",
+    readingMinutes: 4,
+    keywords: [
+      "Agent Device Cloud 0.1.1",
+      "ADC Connector update",
+      "Android accessibility automation",
+      "MCP tool refresh"
+    ],
+    listed: true,
+    relatedPaths: [
+      "/guides/first-device-to-first-tool-call",
+      "/updates/websocket-task-wakeups",
+      "/articles/least-privilege-for-ai-agents"
+    ],
+    sections: [
+      {
+        id: "mobile-control",
+        title: text("Mobile actions follow observed UI state", "移动端操作遵循实际 UI 状态"),
+        paragraphs: [
+          text(
+            "UI actions now wait for an accessibility revision instead of repeatedly rebuilding full snapshots. Snapshot-bound actions reject a changed UI, clickable ancestors are resolved without an arbitrary depth limit, and native callbacks are released when the Android service stops.",
+            "UI 操作现在等待无障碍修订，不再反复重建完整快照。绑定快照的操作会拒绝已经变化的界面，可点击祖先不再受任意层级限制，Android 服务停止时也会释放原生回调。"
+          )
+        ]
+      },
+      {
+        id: "mcp-refresh",
+        title: text("Long-running MCP sessions stay current", "长时间运行的 MCP 会话保持最新"),
+        paragraphs: [
+          text(
+            "Tool lists, target devices and authorization context refresh while an MCP server remains open. ADC also tolerates object arguments serialized by compatibility bridges and briefly follows queued mobile work so common sub-second actions return one terminal result.",
+            "MCP 服务保持连接时会刷新工具列表、目标设备与授权上下文。ADC 也兼容被桥接层序列化的对象参数，并短暂跟踪已排队的移动端任务，使常见的亚秒级操作直接返回一个终态结果。"
+          )
+        ]
+      },
+      {
+        id: "update-discovery",
+        title: text("Old builds become operationally visible", "旧构建在运维侧清晰可见"),
+        paragraphs: [
+          text(
+            "Desktop Connectors advertise an immutable build ID. The console compares it with the published release and treats legacy nodes without an ID as updateable. Current nodes log one notice for each available build, while interactive CLI checks use a daily cache and detached refresh so JSON, CI and MCP output never waits on the release server.",
+            "桌面 Connector 会上报不可变构建 ID。控制台将其与已发布版本比较，并把缺少 ID 的旧节点视为可更新。当前节点会针对每个可用构建记录一次提示；交互式 CLI 则使用每日缓存与后台刷新，因此 JSON、CI 和 MCP 输出不会等待发布服务器。"
+          )
+        ],
+        code: "adc update --check --json\nadc update\nadc-node logs"
+      }
+    ]
+  },
   {
     path: "/updates/public-knowledge-base",
     kind: "Product update",
@@ -129,7 +359,7 @@ export const publicContent: PublicContentEntry[] = [
       "配对 Connector、创建最小 Agent 授权，并验证完整执行链路。"
     ),
     publishedAt: "2026-09-29",
-    updatedAt: "2026-09-29",
+    updatedAt: "2026-10-16",
     readingMinutes: 7,
     keywords: [
       "Agent Device Cloud tutorial",
@@ -174,7 +404,7 @@ export const publicContent: PublicContentEntry[] = [
             "登录控制台，在「设备」中选择目标平台并运行生成的命令。配对码短时有效且只能使用一次。配对会创建本地 Ed25519 身份，并配置 launchd、systemd --user 或 Windows 任务计划程序。"
           )
         ],
-        code: `curl -fsSL https://devices.example.com/install.sh | sh -s -- \\
+        code: `curl -fsSL https://devices.example.com/downloads/node/install.sh | sh -s -- \\
   --url https://devices.example.com --code 'PAIRING_CODE'
 
 adc-node status
@@ -808,6 +1038,10 @@ adc invoke file.read --node node_example \\
     ]
   }
 ];
+
+export const publicContent = contentEntries.filter(
+  (entry) => showCloudFileTransfers || entry.path !== "/updates/connector-0-1-4"
+);
 
 export const listedPublicContent = publicContent.filter((entry) => entry.listed);
 

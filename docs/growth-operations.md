@@ -154,5 +154,7 @@ For each public release:
 5. Publish matching GitHub release notes and distribution posts.
 6. Review search coverage and funnel ratios after 24 hours, 7 days and 28 days.
 
-No release is promoted as production-ready while the site still uses the preview `nip.io` hostname,
-the security contact is unset, or backup/restore and provider delivery checks remain incomplete.
+The official hosted service uses `https://adc.zioon.tech`; `zioon.tech` and `www.zioon.tech` redirect
+there. Keep canonical metadata, OAuth callbacks, install commands and download manifests aligned
+with that origin. Each release must describe its actual platform verification and remaining
+limitations, and deployment checks must cover health, backup/restore and configured provider delivery.

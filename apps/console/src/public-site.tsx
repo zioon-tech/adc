@@ -249,8 +249,8 @@ export function PublicArticle({
                   </strong>
                   <span>
                     {locale === "zh-CN"
-                      ? "使用托管预览，或部署同一套开源服务。"
-                      : "Use the hosted preview or deploy the same open-source service."}
+                      ? "使用官方托管服务，或部署同一套开源服务。"
+                      : "Use the official hosted service or deploy the same open-source service."}
                   </span>
                 </div>
                 <Link className="primary" to={start}>

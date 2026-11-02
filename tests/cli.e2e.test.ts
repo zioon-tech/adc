@@ -70,6 +70,9 @@ describe("public signup and CLI authentication over HTTP", () => {
     await mkdir(releases);
     await writeFile(resolve(releases, "install.sh"), "#!/bin/sh\n");
     await writeFile(resolve(releases, "install.ps1"), "# installer\n");
+    await writeFile(resolve(releases, "manifest-v2.json"), JSON.stringify({
+      version: "0.1.6", runtimeVersion: "24.21.0", buildId: `sha256:${"a".repeat(64)}`
+    }));
     const socket = createServer();
     await new Promise<void>((done) => socket.listen(0, "127.0.0.1", done));
     const address = socket.address();
@@ -302,6 +305,22 @@ describe("public signup and CLI authentication over HTTP", () => {
     const project = await command(["project", "create", "--name", "CLI project", "--json"]);
     expect(project.code, project.stderr).toBe(0);
     expect(JSON.parse(project.stdout).project.name).toBe("CLI project");
+    const projectId = JSON.parse(project.stdout).project.id;
+    const renameProject = await command(["project", "rename", projectId, "--name", "CLI renamed project", "--json"]);
+    expect(renameProject.code, renameProject.stderr).toBe(0);
+    expect(JSON.parse(renameProject.stdout).project).toMatchObject({ projectId, label: "CLI renamed project", revision: 2 });
+    const addFolder = await command(["project", "root-add", projectId, "--device", "CLI Mac", "--folder", "/workspace", "--read-only", "--json"]);
+    expect(addFolder.code, addFolder.stderr).toBe(0);
+    expect(JSON.parse(addFolder.stdout).folder).toMatchObject({ rootId: "root_workspace", writable: false });
+    const editFolder = await command(["project", "root-edit", projectId, "--folder", "Workspace", "--name", "CLI source", "--json"]);
+    expect(editFolder.code, editFolder.stderr).toBe(0);
+    expect(JSON.parse(editFolder.stdout).folder).toMatchObject({ label: "CLI source", writable: false, revision: 2 });
+    const removeUnconfirmed = await command(["project", "root-remove", projectId, "--folder", "/workspace", "--json"]);
+    expect(removeUnconfirmed.code).not.toBe(0);
+    const removeFolder = await command(["project", "root-remove", projectId, "--folder", "CLI source", "--yes", "--json"]);
+    expect(removeFolder.code, removeFolder.stderr).toBe(0);
+    const deleteProject = await command(["project", "delete", projectId, "--yes", "--json"]);
+    expect(deleteProject.code, deleteProject.stderr).toBe(0);
     const access = await command([
       "access",
       "create",

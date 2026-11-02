@@ -1,0 +1,23 @@
+diff --git a/apps/runtime/src/accounts/account-access-control.mjs b/apps/runtime/src/accounts/account-access-control.mjs
+--- a/apps/runtime/src/accounts/account-access-control.mjs
++++ b/apps/runtime/src/accounts/account-access-control.mjs
+@@ -8,7 +8,7 @@
+ // Positive routing rules for non-admin writes. New service endpoints require an
+ // explicit decision before ordinary members may mutate the control plane.
+ export function accountRequestScope(method, pathname) {
+-  if (method === "POST" && /^\/v1\/plugins\/(?:dev\.goal|dev\.context-compression)\/commands$/.test(pathname)) {
++  if (method === "POST" && /^\/v1\/plugins\/(?:dev\.goal|dev\.context-compression|dev\.agent-device-cloud)\/commands$/.test(pathname)) {
+     // The command router separately requires run.execute for every mutation/model call.
+     return "runtime.read";
+   }
+diff --git a/apps/runtime/src/server.mjs b/apps/runtime/src/server.mjs
+--- a/apps/runtime/src/server.mjs
++++ b/apps/runtime/src/server.mjs
+@@ -1169,6 +1169,7 @@
+           }
+           const result = await pluginCommands(decodeURIComponent(pluginCommandPath[1]), body, {
+             sessionId,
+             principal: request.zionPrincipal,
++            origin: request.headers.origin,
+             request: executionRequest,
+             signal: commandCancellation.signal,

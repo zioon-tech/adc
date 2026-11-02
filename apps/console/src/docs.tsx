@@ -10,7 +10,6 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleHelp,
-  Clipboard,
   Code2,
   GitPullRequest,
   History,
@@ -25,13 +24,18 @@ import {
 } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { useI18n, type Message } from "./i18n.tsx";
-import { PublicHeader, repositoryUrl } from "./public-header.tsx";
+import { PublicFooter, PublicHeader, repositoryUrl } from "./public-header.tsx";
+import { HarnessPlugins } from "./harness-plugins.tsx";
+import { CodeBlock } from "./docs-code.tsx";
+import { CollaborationDocs } from "./collaboration-docs.tsx";
+import { isConsoleToolVisible, showCloudFileTransfers } from "./file-transfer-visibility.ts";
 
 export type DocsPageId =
   | "overview"
   | "quickstart"
   | "use-cases"
   | "concepts"
+  | "collaboration"
   | "architecture"
   | "connector"
   | "integrations"
@@ -55,6 +59,7 @@ export const docsPages: Array<{
   { id: "quickstart", title: "Get started", icon: Rocket, group: "Start" },
   { id: "use-cases", title: "Use cases", icon: BriefcaseBusiness, group: "Start" },
   { id: "concepts", title: "Core concepts", icon: Network, group: "Understand" },
+  { id: "collaboration", title: "Teams and sharing", icon: Network, group: "Understand" },
   { id: "architecture", title: "Architecture", icon: Boxes, group: "Understand" },
   { id: "security", title: "Security", icon: ShieldCheck, group: "Understand" },
   { id: "connector", title: "Device connector", icon: Laptop, group: "Build" },
@@ -73,6 +78,7 @@ const docsSummaries: Partial<Record<DocsPageId, Message>> = {
   quickstart: "Connect your first device",
   "use-cases": "Real work, on the machine that is ready for it.",
   concepts: "How authorization works",
+  collaboration: "Teams and sharing",
   architecture: "One control plane. Execution remains local.",
   security: "Trust model",
   connector: "Install and pair",
@@ -83,19 +89,29 @@ const docsSummaries: Partial<Record<DocsPageId, Message>> = {
   troubleshooting: "Device is offline",
   roadmap: "A clear boundary between available and planned.",
   contributing: "Build and review changes",
-  changelog: "Version 0.1.0"
+  changelog: "Version 0.1.3"
 };
 
 export const documentedTools = [
   "device.list",
   "device.status",
   "device.battery.get",
+  "device.info.get",
   "device.network.get",
+  "device.storage.get",
+  "device.vibrate",
   "device.navigation",
+  "app.open",
+  "display.status",
+  "audio.status",
+  "audio.volume.set",
+  "flashlight.status",
+  "flashlight.set",
   "location.get",
   "notification.show",
   "screen.capture",
   "ui.inspect",
+  "ui.wait",
   "ui.action",
   "ui.gesture",
   "file.list",
@@ -104,12 +120,14 @@ export const documentedTools = [
   "file.write",
   "file.edit",
   "file.patch",
+  "file.transfer",
   "shell.exec",
   "command.template.list",
   "command.template.run",
   "test.run",
   "task.status",
   "task.result",
+  "task.wait",
   "task.cancel"
 ] as const;
 
@@ -122,37 +140,6 @@ export function docsPageId(pathname: string): DocsPageId | undefined {
 function useDocCopy() {
   const { locale } = useI18n();
   return (en: string, zh: string) => (locale === "zh-CN" ? zh : en);
-}
-
-function CodeBlock({ label, children }: { label: string; children: string }) {
-  const { t } = useI18n();
-  const [copied, setCopied] = useState(false);
-  return (
-    <div className="docs-code">
-      <div>
-        <span>{label}</span>
-        <button
-          className="icon-button"
-          title={t("Copy command")}
-          aria-label={t("Copy command")}
-          onClick={() => {
-            void navigator.clipboard
-              .writeText(children)
-              .then(() => {
-                setCopied(true);
-                window.setTimeout(() => setCopied(false), 1600);
-              })
-              .catch(() => setCopied(false));
-          }}
-        >
-          {copied ? <Check size={15} /> : <Clipboard size={15} />}
-        </button>
-      </div>
-      <pre>
-        <code>{children}</code>
-      </pre>
-    </div>
-  );
 }
 
 function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
@@ -228,7 +215,7 @@ function Quickstart() {
       <Section id="requirements" title={t("Before you begin")}>
         <p>
           {t(
-            "The hosted preview requires an account and a supported macOS, glibc Linux or Windows device. Installed connectors include their own Node.js runtime; Node.js 22 is only required for source development."
+            "Create an account and connect a macOS, glibc Linux or Windows device, or install ADC Mobile Node on Android. Desktop connectors include their own Node.js runtime; Node.js 22 is only required for source development."
           )}
         </p>
         <ul className="docs-checklist">
@@ -246,6 +233,12 @@ function Quickstart() {
             )}
           </li>
         </ul>
+        <p>
+          {copy(
+            "For Android, use Devices → Pair device → Android to download the APK. The current hosted APK uses development signing and requires manual installation and updates. Mobile capabilities depend on permissions enabled on the phone; compatibility is validated per model.",
+            "Android 用户可在「设备 → 配对设备 → Android」下载 APK。当前托管 APK 使用开发签名，安装和更新均需手动完成。移动端能力取决于手机上开启的权限，兼容性按具体机型验证。"
+          )}
+        </p>
       </Section>
       <ol className="docs-steps">
         <li>
@@ -263,7 +256,7 @@ function Quickstart() {
             <h2>{t("Pair a device")}</h2>
             <p>
               {t(
-                "Open Devices, select the target platform, create a pairing code, and run the generated command."
+                "Open Devices, select the target platform and create a pairing code. Run the generated command on a computer, or install the APK and enter the code in ADC Mobile Node on Android."
               )}
             </p>
           </div>
@@ -945,16 +938,25 @@ adc-node mcp remove github`}
 
 function Integrations() {
   const { t } = useI18n();
+  const copy = useDocCopy();
   const origin = typeof window === "undefined" ? "__ADC_PUBLIC_ORIGIN__" : window.location.origin;
   return (
     <>
       <PageIntro
         eyebrow={t("Integrations")}
-        title="MCP · CLI · Skill · SDK"
-        description={t(
-          "Tools use the same schemas and policy path across HTTP, CLI, MCP, SDK and Skill."
+        title={copy("Connect ADC to your Agent", "把 ADC 接入你的 Agent")}
+        description={copy(
+          "Install a plugin for guided setup, or connect authorized devices through MCP, Skill or CLI.",
+          "安装插件获得接入引导，或通过 MCP、Skill 与 CLI 连接已授权设备。"
         )}
       />
+      <nav className="integration-nav" aria-label={copy("Connection methods", "接入方式")}>
+        <a href="#plugins">{copy("Agent plugins", "Agent 插件")}</a>
+        <a href="#skill">{copy("Official Skill", "官方 Skill")}</a>
+        <a href="#oauth-mcp">MCP</a>
+        <a href="#cli">CLI</a>
+      </nav>
+      <HarnessPlugins origin={origin} />
       <Section id="oauth-mcp" title={t("Connect an MCP client")}>
         <p>
           {t(
@@ -1004,17 +1006,45 @@ adc invocation status INVOCATION_ID --json`}
       </Section>
       <Section id="skill" title={t("Official Skill")}>
         <p>
-          {t(
-            "Install the complete official Skill directory with your Agent host. It discovers live tools and devices, follows approvals and task results, and never reads device credentials."
+          {copy(
+            "Install directly from this website with the open-source skills installer. Choose your Agent host when prompted; no GitHub checkout is needed.",
+            "通过开源 skills 安装器直接从本站安装，按提示选择你的 Agent 宿主，无需去 GitHub 查找或下载仓库。"
           )}
         </p>
-        <CodeBlock label="Skill">
-          {`skills/agent-device-cloud/
-  SKILL.md
-  references/
-    account-and-device-management.md
-    tool-invocation.md`}
+        <CodeBlock label={copy("Install Skill", "安装 Skill")}>
+          {`npx skills@latest add ${origin} --skill agent-device-cloud`}
         </CodeBlock>
+        <p>
+          {copy(
+            "The installer requires Node.js 22.20 or later and npm. Add --global to use the Skill across projects. For hosts with a manual Skill importer, download the complete ZIP, extract it into an agent-device-cloud folder and import that folder, including references/.",
+            "安装器需要 Node.js 22.20 或更高版本及 npm；加上 --global 可供所有项目使用。如果宿主支持手动导入 Skill，可下载完整 ZIP，解压到 agent-device-cloud 文件夹后导入，保留 references/ 目录。"
+          )}
+        </p>
+        <a
+          className="secondary"
+          href={`${origin}/downloads/skills/agent-device-cloud.zip`}
+          download
+        >
+          {copy("Download official Skill ZIP", "下载官方 Skill ZIP")}
+        </a>
+        <p>
+          {copy(
+            "Once installed, ask your Agent to help you get started. The Skill checks your CLI and connection, guides registration or sign-in, reuses or pairs your device, creates the access you choose and verifies a first tool call. You complete browser sign-in and confirmation yourself.",
+            "安装后，直接让 Agent 帮你开始使用 ADC。Skill 会检查 CLI 和连接状态，引导注册或登录、复用或接入设备、配置你选择的授权，并验证首次工具调用。浏览器登录和确认由你本人完成。"
+          )}
+        </p>
+        <CodeBlock label={copy("First prompt", "首次使用提示")}>
+          {copy(
+            "Help me get started with ADC. Check my setup and guide me through connecting my device and authorizing this Agent.",
+            "帮我开始使用 ADC，检查当前配置，引导我连接设备并为这个 Agent 配置授权。"
+          )}
+        </CodeBlock>
+        <p>
+          {copy(
+            "After setup, ask naturally to read files, run authorized tasks, inspect results or manage devices. The Skill discovers live tools and devices and follows approvals and task receipts.",
+            "完成接入后，可以直接用自然语言让 Agent 读取文件、运行已授权的任务、查看结果或管理设备。Skill 会发现实时工具与设备，并跟踪审批、任务状态和执行凭证。"
+          )}
+        </p>
       </Section>
     </>
   );
@@ -1022,6 +1052,7 @@ adc invocation status INVOCATION_ID --json`}
 
 function ToolReference() {
   const { t } = useI18n();
+  const copy = useDocCopy();
   const groups: Array<{ tools: string[]; risk: Message; purpose: Message }> = [
     {
       tools: ["device.list", "device.status"],
@@ -1031,10 +1062,16 @@ function ToolReference() {
     {
       tools: [
         "device.battery.get",
+        "device.info.get",
         "device.network.get",
+        "device.storage.get",
+        "display.status",
+        "audio.status",
+        "flashlight.status",
         "location.get",
         "screen.capture",
-        "ui.inspect"
+        "ui.inspect",
+        "ui.wait"
       ],
       risk: "Read",
       purpose: "Read live state exposed by an authorized mobile device."
@@ -1045,7 +1082,15 @@ function ToolReference() {
       purpose: "Present an authorized notification on a mobile device."
     },
     {
-      tools: ["device.navigation", "ui.action", "ui.gesture"],
+      tools: [
+        "device.navigation",
+        "device.vibrate",
+        "app.open",
+        "audio.volume.set",
+        "flashlight.set",
+        "ui.action",
+        "ui.gesture"
+      ],
       risk: "Execute",
       purpose: "Operate the visible Android interface within local Accessibility permission."
     },
@@ -1055,7 +1100,7 @@ function ToolReference() {
       purpose: "List, read and search files inside authorized folders."
     },
     {
-      tools: ["file.write", "file.edit", "file.patch"],
+      tools: ["file.write", "file.edit", "file.patch", "file.transfer"],
       risk: "Write",
       purpose: "Create, replace, edit or patch files atomically."
     },
@@ -1065,7 +1110,7 @@ function ToolReference() {
       purpose: "Run shell commands or locally configured command templates and tests."
     },
     {
-      tools: ["task.status", "task.result", "task.cancel"],
+      tools: ["task.status", "task.result", "task.wait", "task.cancel"],
       risk: "Varies",
       purpose: "Inspect or cancel asynchronous work."
     }
@@ -1074,7 +1119,7 @@ function ToolReference() {
     <>
       <PageIntro
         eyebrow={t("Tool reference")}
-        title={t("{count} built-in tools", { count: documentedTools.length })}
+        title={t("{count} built-in tools", { count: documentedTools.filter(isConsoleToolVisible).length })}
         description={t(
           "Tools use the same schemas and policy path across HTTP, CLI, MCP, SDK and Skill."
         )}
@@ -1090,7 +1135,7 @@ function ToolReference() {
           </thead>
           <tbody>
             {groups.flatMap((group) =>
-              group.tools.map((tool) => (
+              group.tools.filter(isConsoleToolVisible).map((tool) => (
                 <tr key={tool}>
                   <td>
                     <code>{tool}</code>
@@ -1113,6 +1158,37 @@ function ToolReference() {
           "Devices may also register namespaced MCP Provider tools. Their original input schema is exposed to the Agent, they default to execution risk, and they appear only after explicit authorization."
         )}
       </p>
+      {showCloudFileTransfers ? <Section id="file-transfer" title={copy("Transfer between devices", "在设备之间传输文件")}>
+        <p>
+          {copy(
+            "file.transfer copies one regular file between two authorized desktop devices. The source folder may be read-only; the destination folder must be writable. ADC relays verified binary chunks through its own persistent transfer directory, requires independent approval when write approval is enabled, and never requires TOS, S3 or another object-storage service.",
+            "file.transfer 可在两台已授权桌面设备之间复制单个普通文件。源目录可以只读，目标目录必须可写。ADC 通过自身的持久化传输目录中继并校验二进制分块；启用写入审批时仍需独立审批，且不依赖 TOS、S3 或其他对象存储服务。"
+          )}
+        </p>
+        <CodeBlock label="CLI">
+          {`adc transfer create \\
+  --source-node node_source --source-root root_source --source-path models/model.bin \\
+  --destination-node node_target --destination-root root_target --destination-path cache/model.bin \\
+  --idempotency-key model-copy-1 --wait 4000 --json`}
+        </CodeBlock>
+        <p>
+          {copy(
+            "The command returns one transfer job. Continue with adc transfer wait, status or cancel using its transferId or jobId. Version 0.1 never overwrites an existing destination and does not copy directories.",
+            "该命令返回一个传输任务。使用其 transferId 或 jobId 继续执行 adc transfer wait、status 或 cancel。0.1 版本不会覆盖已有目标文件，也不支持复制目录。"
+          )}
+        </p>
+      </Section> : null}
+      <Section id="task-wait" title={copy("Wait for an existing task", "等待已有任务")}>
+        <p>
+          {copy(
+            "task.wait accepts jobId and waitMs (0–30000 milliseconds, default 4000). It returns when the task finishes or the wait budget expires. A non-terminal response keeps the same jobId: wait again or inspect task.status without resubmitting the original operation.",
+            "task.wait 接收 jobId 和 waitMs（0–30000 毫秒，默认 4000）。任务完成或等待预算耗尽时返回。非终态响应保留同一个 jobId：继续等待或查看 task.status 即可，无需重新提交原操作。"
+          )}
+        </p>
+        <CodeBlock label="CLI">
+          {`adc invoke task.wait --args '{"jobId":"job_example","waitMs":4000}' --json`}
+        </CodeBlock>
+      </Section>
     </>
   );
 }
@@ -1293,8 +1369,8 @@ function ApiReference() {
             <dt>{copy("Device identity", "设备身份")}</dt>
             <dd>
               {copy(
-                "Connector routes use an Ed25519 signature, timestamp and one-time nonce. Device credentials are not accepted by owner or Agent routes.",
-                "Connector 路由使用 Ed25519 签名、时间戳与一次性 nonce。设备凭据不能访问账号用户或 Agent 路由。"
+                "Device routes use an Ed25519 or Android Keystore P-256 signature, timestamp and one-time nonce. Device credentials are not accepted by owner or Agent routes.",
+                "设备路由使用 Ed25519 或 Android Keystore P-256 签名、时间戳与一次性 nonce。设备凭据不能访问账号用户或 Agent 路由。"
               )}
             </dd>
           </div>
@@ -1429,6 +1505,7 @@ function ApiReference() {
 
 function Security() {
   const { t } = useI18n();
+  const copy = useDocCopy();
   const controls: Array<[Message, Message, Message]> = [
     [
       "Stolen access key",
@@ -1437,7 +1514,7 @@ function Security() {
     ],
     [
       "Compromised device key",
-      "Every request uses an Ed25519 signature, timestamp and durable one-time nonce.",
+      "Every device request uses an Ed25519 or Android Keystore P-256 signature, timestamp and one-time nonce.",
       "A stolen private key remains valid until the device is revoked."
     ],
     [
@@ -1478,7 +1555,7 @@ function Security() {
           <ShieldCheck />
           <span>
             {t(
-              "Device requests are signed with a local Ed25519 key, timestamp and one-time nonce."
+              "Every device request uses an Ed25519 or Android Keystore P-256 signature, timestamp and one-time nonce."
             )}
           </span>
         </li>
@@ -1500,8 +1577,9 @@ function Security() {
       </Section>
       <Section id="credentials" title={t("Credential storage")}>
         <p>
-          {t(
-            "Device private keys currently use a mode-0600 file. Keychain and keyring support is not implemented."
+          {copy(
+            "Desktop device keys are stored in local configuration files (mode 0600 on Unix); desktop Keychain and keyring support is not implemented. Android Mobile Node keeps its P-256 private key in Android Keystore.",
+            "桌面设备密钥保存在本地配置文件中（Unix 权限为 0600）；桌面 Keychain 和 keyring 支持尚未实现。Android Mobile Node 的 P-256 私钥保存在 Android Keystore 中。"
           )}
         </p>
       </Section>
@@ -1544,20 +1622,28 @@ function Security() {
       <Section id="assurance" title={t("Current assurance")}>
         <div className="docs-assurance">
           <div>
-            <strong>{t("Verified in automation and preview")}</strong>
+            <strong>{t("Verified in automation and deployment")}</strong>
             <ul>
               <li>{t("Protocol schemas, policy decisions and adapter parity")}</li>
               <li>{t("Real PostgreSQL migrations, locking, restart and account isolation")}</li>
               <li>{t("Path traversal, symlink escape, cancellation and idempotency recovery")}</li>
               <li>{t("macOS arm64 installation, upgrade, reconnect and uninstall")}</li>
               <li>{t("Public HTTPS deployment, database readiness and restart recovery")}</li>
+              <li>
+                {t("Hosted email verification and password recovery with real inbox delivery")}
+              </li>
+              <li>
+                {t(
+                  "Selected Xiaomi/MIUI mobile capabilities; other Android models require validation"
+                )}
+              </li>
             </ul>
           </div>
           <div>
             <strong>{t("Not yet certified")}</strong>
             <ul>
               <li>{t("External penetration testing and signed release provenance")}</li>
-              <li>{t("Production SMTP and real GitHub consent flows")}</li>
+              <li>{t("Real GitHub consent round trip")}</li>
               <li>{t("Linux systemd and every generated cross-platform archive")}</li>
               <li>{t("Hard filesystem, network and process isolation")}</li>
             </ul>
@@ -1991,14 +2077,15 @@ function Roadmap() {
       items: [
         "Personal accounts, email and GitHub sign-in",
         "macOS and glibc Linux connectors for arm64 and x64",
+        "Windows x64 connector and manually installed Android Mobile Node",
         "Scoped Agent grants, approvals, audit and durable receipts",
         "MCP OAuth, CLI connections, SDK and official Skill",
-        "Hosted public preview and the same application for self-hosted deployment"
+        "Official hosted service and the same application for self-hosted deployment"
       ]
     },
     {
       state: "Next",
-      title: "Production hardening",
+      title: "Reliability and operations",
       items: [
         "Signed release packages and unattended updates",
         "Keychain and keyring-backed device identity",
@@ -2014,7 +2101,7 @@ function Roadmap() {
         "Linux container isolation for higher-risk execution",
         "Team roles, shared device pools and approval workflows",
         "Enterprise SSO, SCIM and SIEM export",
-        "Windows connector and additional local executors",
+        "Additional local executors and device integrations",
         "Tool plugin and community Skill ecosystem"
       ]
     }
@@ -2240,12 +2327,68 @@ function Changelog() {
     <>
       <PageIntro
         eyebrow={t("Changelog")}
-        title={copy("0.1 pre-release history", "0.1 预发布版本记录")}
+        title={copy("Release history", "版本记录")}
         description={copy(
-          "Behavior changes, verification status and operator actions for the public preview and self-hosted source release.",
-          "记录公开预览与自托管源码版本的行为变化、验证状态和运维操作。"
+          "Behavior changes and upgrade guidance for the official hosted service and self-hosted releases.",
+          "记录官方托管服务与自部署版本的行为变化和升级说明。"
         )}
       />
+      <Section
+        id="2026-10-16-hosted"
+        title={copy(
+          "2026-10-16 · Official service at adc.zioon.tech",
+          "2026-10-16 · 正式服务 adc.zioon.tech"
+        )}
+      >
+        <p>
+          {copy(
+            "The official service uses https://adc.zioon.tech. The root and www domains redirect there while preserving paths and query parameters. Documentation and downloads now use the official service address, and the public footer displays the approved ICP filing.",
+            "正式服务使用 https://adc.zioon.tech。主域名与 www 域名保留路径和查询参数跳转到此处；文档与下载入口统一使用正式地址，网站页脚展示已通过的 ICP 备案号。"
+          )}
+        </p>
+      </Section>
+      <Section
+        id="2026-10-13-release"
+        title={copy("2026-10-13 · Connector 0.1.3", "2026-10-13 · Connector 0.1.3")}
+      >
+        <p>
+          {copy(
+            "Bounded task waiting lets CLI, MCP and SDK callers follow an existing task without repeated submission. Use task.wait with the returned jobId; a wait timeout leaves the task running and returns its current state.",
+            "有界任务等待使 CLI、MCP 和 SDK 调用方能跟踪已有任务，无需重复提交。使用返回的 jobId 调用 task.wait；等待超时后任务仍继续运行，并返回当前状态。"
+          )}
+        </p>
+      </Section>
+      <Section
+        id="2026-10-11-release"
+        title={copy("2026-10-11 · Connector 0.1.1", "2026-10-11 · Connector 0.1.1")}
+      >
+        <ul className="docs-checklist">
+          <li>
+            {copy(
+              "Android UI actions wait for actual accessibility revisions, reject stale snapshots and release native callbacks cleanly.",
+              "Android UI 操作按真实无障碍修订等待、拒绝过期快照，并正确释放原生回调。"
+            )}
+          </li>
+          <li>
+            {copy(
+              "MCP tool and device snapshots refresh during a long-running session, while common mobile calls can return their quick terminal result directly.",
+              "长时间运行的 MCP 会话可刷新工具与设备快照，常见移动端调用也可直接返回快速完成的终态结果。"
+            )}
+          </li>
+          <li>
+            {copy(
+              "The console, Connector logs and interactive CLI now expose available desktop updates without blocking structured commands on a network check.",
+              "控制台、Connector 日志与交互式 CLI 现在会提示可用桌面端更新，同时不会让结构化命令等待网络检查。"
+            )}
+          </li>
+        </ul>
+        <p className="docs-callout">
+          {copy(
+            "Operator action: publish archives and installers before both manifests, restart the Control Plane, then verify an old node is marked Update available.",
+            "运维操作：先发布归档与安装器，再发布两份清单；重启控制面后，确认旧节点显示「有可用更新」。"
+          )}
+        </p>
+      </Section>
       <Section
         id="2026-09-29-wake"
         title={copy("2026-09-29 · WebSocket task wakeups", "2026-09-29 · WebSocket 任务唤醒")}
@@ -2302,15 +2445,15 @@ function Changelog() {
         </p>
         <p>
           {copy(
-            "The pre-release supports macOS and glibc Linux on arm64 and x64. Production claims remain bounded by the verification published in Security and the implementation status.",
-            "预发布版本支持 arm64 与 x64 的 macOS 和 glibc Linux。生产能力声明以「安全」页面和实现状态中公开的验证范围为准。"
+            "The initial release targeted macOS and glibc Linux on arm64 and x64. Windows x64 and Android Mobile Node were added later; current platform verification is documented in Security and the implementation status.",
+            "最初版本面向 arm64 与 x64 的 macOS 和 glibc Linux，后续加入 Windows x64 与 Android Mobile Node。当前平台验证范围见「安全」页面和实现状态。"
           )}
         </p>
       </Section>
       <Section id="known-limits" title={t("Known limits")}>
         <p>
           {t(
-            "Windows, hard process isolation, signed packages, automatic updates, quotas and external artifact storage are not available yet."
+            "Hard process isolation, signed desktop packages, unattended updates, quotas and external artifact storage are not available yet. Desktop updates use adc update; the hosted Android APK uses development signing and manual installation."
           )}
         </p>
       </Section>
@@ -2326,6 +2469,7 @@ function Changelog() {
 }
 
 function DocContent({ page }: { page: DocsPageId }) {
+  if (page === "collaboration") return <CollaborationDocs />;
   if (page === "overview") return <DocumentationOverview />;
   if (page === "quickstart") return <Quickstart />;
   if (page === "use-cases") return <UseCases />;
@@ -2440,6 +2584,7 @@ export function Documentation({ signedIn }: { signedIn: boolean }) {
           )}
         </main>
       </div>
+      <PublicFooter />
     </div>
   );
 }

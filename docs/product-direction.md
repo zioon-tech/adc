@@ -5,9 +5,9 @@
 Agent Device Cloud is private device infrastructure for AI agents.
 
 It lets a user authorize an Agent to use selected files, tools and environments on the user's own
-macOS and Linux devices. A lightweight control plane handles identity, policy, placement, approvals
-and evidence. The selected device remains the execution environment and the final authorization
-boundary.
+macOS, Linux and Windows devices, plus native capabilities on Android. A lightweight control plane
+handles identity, policy, placement, approvals and evidence. The selected device remains the execution
+environment and the final authorization boundary.
 
 The product is not a hosted shell, public compute marketplace, chat application, generic RPA system
 or network tunnel.
@@ -133,12 +133,14 @@ multi-region requirements justify the additional consistency model.
 
 - Personal account isolation, email/password and GitHub authentication.
 - macOS and glibc Linux connectors for arm64 and x64.
+- Windows x64 Connector and manually installed Android Mobile Node.
 - Local none, selected-folder, home and full-device access modes.
 - Device policy, scoped Agent grants, approvals, audit and durable receipts.
 - MCP OAuth, expiring Agent tokens, CLI, SDK and official Skill.
 - Docker Compose self-hosting with PostgreSQL and Caddy.
+- Official hosted service at `https://adc.zioon.tech`.
 
-### Next: production hardening
+### Next: reliability and operations
 
 - Signed release packages and unattended Connector updates.
 - Keychain and keyring-backed device identity.
@@ -152,22 +154,22 @@ multi-region requirements justify the additional consistency model.
 - Linux container isolation for higher-risk execution.
 - Team roles, shared device pools and multi-party approval workflows.
 - Enterprise SSO, SCIM and SIEM export.
-- Windows Connector.
 - Additional local executors, a Tool plugin SDK and a community Skill ecosystem.
 
 Roadmap entries are direction, not shipped capability. Current behavior and known limits remain
 authoritative in [implementation-status.md](implementation-status.md).
 
-## Trust before public release
+## Security assurance goals
 
-Public trust requires evidence in addition to product copy:
+These are ongoing assurance goals. Completed checks and remaining gaps are recorded in
+[implementation-status.md](implementation-status.md):
 
 - source history in a dedicated repository with reviewable releases;
 - published checksums, signatures and an SBOM for every client artifact;
 - a maintained threat model and private vulnerability reporting channel;
 - reproducible integration tests across every supported operating system and architecture;
 - documented data retention, deletion, backup and incident-response behavior;
-- external security review before a hosted public beta;
+- external security review;
 - an honest compatibility matrix for named MCP clients;
 - public changelog, migration notes and support policy.
 

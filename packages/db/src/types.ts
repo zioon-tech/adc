@@ -4,9 +4,66 @@ import type {
   InvocationResult,
   PolicyDecision,
   Receipt,
+  FileTransferArgs,
   NodePlatform,
-  ToolId
+  ToolId,
+  Delegation
 } from "@adc/protocol";
+import type { CollaborationScope } from "@adc/protocol";
+
+export type TeamRole = "owner" | "admin" | "member";
+export interface TeamMembership {
+  accountId: string;
+  userId: string;
+  role: TeamRole;
+  revision: number;
+  state: "active" | "removed";
+  rules: { nodeId: string; scope: CollaborationScope }[];
+  createdAt: string;
+}
+export interface TeamAccount {
+  accountId: string;
+  kind: "team";
+  name: string;
+  membership: TeamMembership;
+}
+export interface ResourceBinding {
+  bindingId: string;
+  kind: "share" | "team";
+  nodeId: string;
+  resourceAccountId: string;
+  recipientAccountId: string;
+  recipientUserId?: string;
+  scope: CollaborationScope;
+  expiresAt: string | null;
+  revision: number;
+  state: "active" | "paused" | "revoked";
+  createdAt: string;
+}
+export interface CollaborationInvitation {
+  invitationId: string;
+  kind: "member" | "share" | "scope";
+  senderAccountId: string;
+  senderUserId: string;
+  recipientEmail: string;
+  teamAccountId?: string;
+  role?: Exclude<TeamRole, "owner">;
+  nodeId?: string;
+  bindingId?: string;
+  bindingRevision?: number;
+  scope?: CollaborationScope;
+  durationDays?: number | null;
+  /** Scope proposals retain an absolute deadline, independent of acceptance. */
+  bindingExpiresAt?: string | null;
+  expiresAt: string;
+  revision: number;
+  state: "pending" | "accepted" | "declined" | "revoked";
+  acceptedUserId?: string;
+  acceptedAccountId?: string;
+  acceptedBindingId?: string;
+  targetUserId?: string;
+  createdAt: string;
+}
 
 export interface AccountRecord {
   accountId: string;
@@ -24,6 +81,10 @@ export interface PairingCodeRecord {
 export interface NodeRecord {
   nodeId: string;
   accountId: string;
+  /** Request-specific projection, never persisted as Node ownership. */
+  resourceAuthorization?: Delegation;
+  /** Set only by pairing/provisioning on the control plane. */
+  resourceClass?: "physical" | "managed" | "platform";
   label: string;
   /** Free-form owner note shown to harness plugins and consoles. */
   description?: string;
@@ -51,6 +112,8 @@ export interface ProjectRecord {
   accountId: string;
   label: string;
   createdAt: string;
+  revision?: number;
+  deletedAt?: string;
 }
 
 export interface RootBindingRecord {
@@ -60,6 +123,8 @@ export interface RootBindingRecord {
   label: string;
   writable: boolean;
   createdAt: string;
+  revision?: number;
+  deletedAt?: string;
 }
 
 export interface AgentGrantRecord {
@@ -68,6 +133,9 @@ export interface AgentGrantRecord {
   name?: string;
   projectId?: string;
   actorId: string;
+  /** Immutable responsible human; required for team and delegated resources. */
+  responsibleUserId?: string;
+  resourceBindings?: { nodeId: string; bindingId: string; scope?: CollaborationScope }[];
   profile: "read-only" | "workspace-write" | "approve-required" | "unattended";
   nodeIds: string[];
   rootIds: string[];
@@ -143,6 +211,34 @@ export interface ArtifactRecord {
   createdAt: string;
 }
 
+export type TransferStatus =
+  | "awaiting_approval"
+  | "queued"
+  | "transferring"
+  | "verifying"
+  | "succeeded"
+  | "failed"
+  | "denied"
+  | "cancelled"
+  | "unknown_outcome";
+
+export interface TransferRecord {
+  transferId: string;
+  invocation: Invocation;
+  args: FileTransferArgs;
+  status: TransferStatus;
+  sourceDispatchId?: string;
+  destinationDispatchId?: string;
+  byteSize?: number;
+  chunkCount?: number;
+  contentSha256?: string;
+  bytesTransferred: number;
+  error?: { code: string; message: string };
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+}
+
 export interface ApprovalRecord {
   approvalId: string;
   accountId: string;
@@ -154,13 +250,17 @@ export interface ApprovalRecord {
   createdAt: string;
   expiresAt: string;
   resolvedAt?: string;
+  requiredConsents?: Array<{ accountId: string; userId?: string; role: "requester" | "resource" }>;
+  consents?: Array<{ accountId: string; userId: string; approvedAt: string }>;
 }
 
 export interface ApprovalPageOptions {
+  includeResourceConsent?: boolean;
   limit: number;
   before?: PageCursor;
   status?: "pending" | "resolved";
   now: string;
+  responsibleUserId?: string;
 }
 
 export interface ApprovalPage {
@@ -213,10 +313,14 @@ export interface Store {
     audit: AuditEvent
   ): Promise<NodeRecord>;
   deleteNode(accountId: string, nodeId: string, revision: number, audit: AuditEvent): Promise<void>;
-  putProject(project: ProjectRecord): Promise<void>;
+  putProject(project: ProjectRecord, createOnly?: boolean, audit?: AuditEvent): Promise<void>;
+  updateProject(accountId: string, projectId: string, label: string, revision: number, audit: AuditEvent): Promise<ProjectRecord>;
+  deleteProject(accountId: string, projectId: string, revision: number, audit: AuditEvent): Promise<void>;
   getProject(projectId: string): Promise<ProjectRecord | undefined>;
   listProjects(accountId: string): Promise<ProjectRecord[]>;
-  putRoot(root: RootBindingRecord): Promise<void>;
+  putRoot(root: RootBindingRecord, createOnly?: boolean, audit?: AuditEvent): Promise<RootBindingRecord>;
+  updateRoot(accountId: string, projectId: string, rootId: string, changes: { label: string; writable: boolean }, revision: number, audit: AuditEvent): Promise<RootBindingRecord>;
+  deleteRoot(accountId: string, projectId: string, rootId: string, revision: number, audit: AuditEvent): Promise<void>;
   listRoots(projectId: string): Promise<RootBindingRecord[]>;
   listRootsForAccount(accountId: string): Promise<RootBindingRecord[]>;
   putGrant(grant: AgentGrantRecord, createOnly?: boolean): Promise<void>;
@@ -250,6 +354,47 @@ export interface Store {
     audit: AuditEvent,
     now: Date
   ): Promise<DispatchRecord | undefined>;
+  createTransfer(
+    transfer: TransferRecord,
+    dispatches: DispatchRecord[],
+    audits: AuditEvent[]
+  ): Promise<TransferRecord>;
+  approveAndStartTransfer(
+    approvalId: string,
+    transferId: string,
+    dispatches: DispatchRecord[],
+    audits: AuditEvent[],
+    now: Date
+  ): Promise<TransferRecord | undefined>;
+  getTransferById(transferId: string): Promise<TransferRecord | undefined>;
+  getTransferByInvocation(invocationId: string): Promise<TransferRecord | undefined>;
+  getTransferByIdempotency(
+    accountId: string,
+    actorId: string,
+    key: string
+  ): Promise<TransferRecord | undefined>;
+  getTransferByDispatch(dispatchId: string): Promise<TransferRecord | undefined>;
+  prepareTransfer(
+    transferId: string,
+    sourceNodeId: string,
+    metadata: { byteSize: number; chunkCount: number }
+  ): Promise<TransferRecord | undefined>;
+  finalizeTransferSource(
+    transferId: string,
+    sourceNodeId: string,
+    contentSha256: string
+  ): Promise<TransferRecord | undefined>;
+  updateTransferProgress(
+    transferId: string,
+    destinationNodeId: string,
+    bytesTransferred: number,
+    status?: "transferring" | "verifying"
+  ): Promise<TransferRecord | undefined>;
+  reconcileTransfer(dispatchId: string, now: Date): Promise<TransferRecord | undefined>;
+  requestCancelTransfer(transferId: string, now: Date): Promise<TransferRecord | undefined>;
+  denyTransfer(transferId: string, now: Date): Promise<TransferRecord | undefined>;
+  listTransferCleanupCandidates(before: Date, limit: number): Promise<string[]>;
+  markTransferCleaned(transferId: string): Promise<void>;
   enqueue(dispatch: DispatchRecord, audit: AuditEvent): Promise<DispatchRecord>;
   claim(nodeId: string, now: Date, leaseMs: number): Promise<DispatchRecord | undefined>;
   acknowledge(

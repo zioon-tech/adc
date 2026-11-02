@@ -10,7 +10,8 @@ param(
   [ValidateSet("", "none", "selected", "home", "full")]
   [string]$Access = "",
   [switch]$ReadOnly,
-  [switch]$NoService
+  [switch]$NoService,
+  [switch]$CliOnly
 )
 
 Set-StrictMode -Version Latest
@@ -21,6 +22,10 @@ $ProgressPreference = "SilentlyContinue"
 
 function Fail([string]$Message) {
   throw "ADC: $Message"
+}
+
+if ($CliOnly -and ($Code -or $Label -or $RootPath -or $RootId -or $Access -or $ReadOnly)) {
+  Fail "-CliOnly cannot be combined with device pairing or folder options."
 }
 
 function Assert-DownloadUrl([string]$Value) {
@@ -182,17 +187,21 @@ try {
   $env:ADC_BIN_DIR = $BinDir
   $env:ADC_NODE_CONFIG = $ConfigPath
   $SetupArgs = @((Join-Path $Payload "lib\adc-node.mjs"), "setup")
-  if ($Url) { $SetupArgs += @("--url", $Url) }
-  if ($Code) { $SetupArgs += @("--code", $Code) }
-  if ($Label) { $SetupArgs += @("--label", $Label) }
-  if ($RootPath) { $SetupArgs += @("--root-path", $RootPath) }
-  if ($RootId) { $SetupArgs += @("--root-id", $RootId) }
-  if ($Access) { $SetupArgs += @("--access", $Access) }
-  if ($ReadOnly) { $SetupArgs += "--read-only" }
-  $SetupArgs += "--no-service"
-  & $Runtime @SetupArgs
-  if ($LASTEXITCODE -ne 0) {
-    Fail "Device setup failed. Existing release was preserved."
+  if (-not (Test-Path -LiteralPath $ConfigPath)) {
+    if ($Url) { $SetupArgs += @("--url", $Url) }
+    if ($Code) { $SetupArgs += @("--code", $Code) }
+    if ($Label) { $SetupArgs += @("--label", $Label) }
+    if ($RootPath) { $SetupArgs += @("--root-path", $RootPath) }
+    if ($RootId) { $SetupArgs += @("--root-id", $RootId) }
+    if ($Access) { $SetupArgs += @("--access", $Access) }
+    if ($ReadOnly) { $SetupArgs += "--read-only" }
+  }
+  if (-not $CliOnly) {
+    $SetupArgs += "--no-service"
+    & $Runtime @SetupArgs
+    if ($LASTEXITCODE -ne 0) {
+      Fail "Device setup failed. Existing release was preserved."
+    }
   }
 
   $ReleaseName = [IO.Path]::GetFileNameWithoutExtension($Archive.File)
@@ -223,11 +232,6 @@ try {
   $EscapedBin = Escape-Cmd $BinDir
   $EscapedDownload = Escape-Cmd $DownloadUrl
   $EscapedConfig = Escape-Cmd $ConfigPath
-  $ControlPlaneLine = if ($Url) {
-    "set `"ADC_CONTROL_PLANE_URL=$(Escape-Cmd $Url)`"`r`n"
-  } else {
-    ""
-  }
   $ServiceLine = if ($env:ADC_SERVICE_DIR) {
     "set `"ADC_SERVICE_DIR=$(Escape-Cmd $env:ADC_SERVICE_DIR)`"`r`n"
   } else {
@@ -241,7 +245,6 @@ try {
       "set `"ADC_INSTALL_DIR=$EscapedInstall`"`r`n" +
       "set `"ADC_BIN_DIR=$EscapedBin`"`r`n" +
       "set `"ADC_UPDATE_URL=$EscapedDownload`"`r`n" +
-      $ControlPlaneLine +
       "if not defined ADC_NODE_CONFIG set `"ADC_NODE_CONFIG=$EscapedConfig`"`r`n" +
       $ServiceLine +
       "for /f `"usebackq delims=`" %%R in (`"%ADC_INSTALL_DIR%\current.txt`") do set `"ADC_RELEASE=%%R`"`r`n" +
@@ -251,7 +254,7 @@ try {
     Write-Utf8 (Join-Path $BinDir "$Name.cmd") $Content
   }
 
-  if (-not $NoService) {
+  if (-not $NoService -and -not $CliOnly) {
     & (Join-Path $BinDir "adc-node.cmd") "setup"
     if ($LASTEXITCODE -ne 0) {
       if ($PreviousRelease) {
@@ -264,7 +267,7 @@ try {
   }
 
   Write-Host ""
-  Write-Host "Installed: $(Join-Path $BinDir 'adc-node.cmd')"
+  Write-Host "Installed: $(Join-Path $BinDir 'adc.cmd')"
   $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
   if ([string]::IsNullOrEmpty($UserPath)) { $UserPath = "" }
   $UserEntries = @($UserPath -split ";" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
@@ -283,7 +286,11 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
       Write-Host "Add this directory to your user PATH: $BinDir"
     }
   }
-  Write-Host "Status: & '$(Join-Path $BinDir 'adc-node.cmd')' status"
+  if ($CliOnly) {
+    Write-Host "Status: & '$(Join-Path $BinDir 'adc.cmd')' status --json"
+  } else {
+    Write-Host "Status: & '$(Join-Path $BinDir 'adc-node.cmd')' status"
+  }
 } finally {
   if (Test-Path -LiteralPath $Temporary) {
     Remove-Item -LiteralPath $Temporary -Recurse -Force -ErrorAction SilentlyContinue

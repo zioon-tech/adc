@@ -17,7 +17,14 @@ import {
   signOut
 } from "./auth.ts";
 import { isManagementCommand, managementUsage, runManagementCommand } from "./management.ts";
-import { updateClient } from "./update.ts";
+import { uploadFile } from "./transfer-upload.ts";
+import {
+  UPDATE_NOTICE_COMMAND,
+  cachedUpdateNotice,
+  launchUpdateNoticeRefresh,
+  refreshUpdateNotice,
+  updateClient
+} from "./update.ts";
 
 const usage = `Agent Device Cloud
 Usage:
@@ -31,9 +38,16 @@ Usage:
   adc approval list|approve|deny
   adc project list|create|roots|root-add
   adc tool list|show [TOOL]
-  adc invoke TOOL --args JSON
+  adc invoke TOOL --args JSON [--node DEVICE] [--wait [MILLISECONDS]]
+             [--idempotency-key KEY] [--execution-timeout MILLISECONDS]
   adc invocation status INVOCATION
-  adc task status|result|cancel JOB
+  adc task status|result|wait|cancel JOB [--wait MILLISECONDS]
+  adc transfer create --source-node NODE --source-root ROOT --source-path PATH
+                      --destination-node NODE --destination-root ROOT --destination-path PATH
+                      --idempotency-key KEY [--chunk-size BYTES] [--wait MILLISECONDS]
+  adc transfer status|wait|cancel TRANSFER [--wait MILLISECONDS]
+  adc transfer upload --file PATH --destination-node NODE --destination-root ROOT
+                      --destination-path PATH --idempotency-key KEY
   adc artifact get ID
   adc audit show|list
   adc mcp
@@ -111,11 +125,31 @@ function print(value: unknown, json: boolean): void {
 async function main(): Promise<void> {
   const { positionals, flags } = parseArgs(process.argv.slice(2));
   let [domain, action] = positionals;
+  if (domain === UPDATE_NOTICE_COMMAND) {
+    await refreshUpdateNotice();
+    return;
+  }
   if (domain === "login" || domain === "logout" || domain === "status") {
     action = domain;
     domain = "auth";
   }
   const json = flags.has("json");
+  if (
+    process.stderr.isTTY &&
+    !json &&
+    domain !== "mcp" &&
+    domain !== "update" &&
+    !process.env.CI &&
+    process.env.ADC_NO_UPDATE_NOTIFIER !== "1"
+  ) {
+    const notice = await cachedUpdateNotice();
+    if (notice.update) {
+      process.stderr.write(
+        `ADC ${notice.update.version} is available. Run "adc update" to install it.\n`
+      );
+    }
+    if (notice.stale) launchUpdateNoticeRefresh();
+  }
 
   if (flags.has("version") || domain === "version") {
     console.log(process.env.ADC_BUILD_VERSION ?? "0.1.0-dev");
@@ -177,7 +211,15 @@ async function main(): Promise<void> {
     : "token" in config
       ? config.token
       : { cookie: config.cookie };
-  const client = new AdcClient(config.url, credential);
+  let client = new AdcClient(config.url, credential);
+  const account = stringFlag(flags, "account");
+  if (management && account) {
+    const accounts = await client.accounts();
+    const matches = accounts.teams.filter(team => team.accountId === account || team.name === account);
+    if (account === accounts.personalAccountId || account === "personal") client = client.withAccount(accounts.personalAccountId);
+    else if (matches.length === 1) client = client.withAccount(matches[0]!.accountId);
+    else throw new Error("--account must select your personal account or an exact team ID/unambiguous name.");
+  }
 
   if (management) {
     const result = await runManagementCommand({
@@ -220,6 +262,93 @@ async function main(): Promise<void> {
   }
   if (domain === "node" && action === "pairing-code") {
     print(await client.createPairingCode(Number(stringFlag(flags, "ttl") ?? 600)), json);
+    return;
+  }
+  if (domain === "transfer" && action === "upload") {
+    const result = await uploadFile(client, {
+      path: requiredFlag(flags, "file"),
+      destination: {
+        nodeId: requiredFlag(flags, "destination-node"),
+        rootId: requiredFlag(flags, "destination-root"),
+        path: requiredFlag(flags, "destination-path")
+      },
+      idempotencyKey: requiredFlag(flags, "idempotency-key"),
+      ...(stringFlag(flags, "chunk-size")
+        ? { chunkSizeBytes: Number(stringFlag(flags, "chunk-size")) }
+        : {}),
+      ...(stringFlag(flags, "execution-timeout")
+        ? { executionTimeoutMs: Number(stringFlag(flags, "execution-timeout")) }
+        : {})
+    });
+    const waitMs = Number(stringFlag(flags, "wait") ?? 0);
+    const final =
+      result.jobId && waitMs && ["queued", "running"].includes(result.status)
+        ? await client.taskWait(result.jobId, waitMs)
+        : result;
+    print(final, json);
+    process.exitCode = exitCode(final);
+    return;
+  }
+  if (domain === "transfer" && action === "create") {
+    const me = await client.me();
+    if (me.kind !== "agent") throw new Error("An Agent connection is required.");
+    const sourceNode = requiredFlag(flags, "source-node");
+    const destinationNode = requiredFlag(flags, "destination-node");
+    const sourceRoot = requiredFlag(flags, "source-root");
+    const destinationRoot = requiredFlag(flags, "destination-root");
+    for (const nodeId of [sourceNode, destinationNode]) {
+      if (!me.context.nodeIds?.includes(nodeId)) {
+        throw new Error(`Device is outside this connection's authorization: ${nodeId}`);
+      }
+    }
+    for (const rootId of [sourceRoot, destinationRoot]) {
+      if (me.context.rootAccess !== "all" && !me.context.rootIds.includes(rootId)) {
+        throw new Error(`Folder is outside this connection's authorization: ${rootId}`);
+      }
+    }
+    const invocation = buildInvocation({
+      context: me.context,
+      tool: "file.transfer",
+      args: {
+        source: {
+          nodeId: sourceNode,
+          rootId: sourceRoot,
+          path: requiredFlag(flags, "source-path")
+        },
+        destination: {
+          nodeId: destinationNode,
+          rootId: destinationRoot,
+          path: requiredFlag(flags, "destination-path")
+        },
+        overwrite: "never",
+        ...(stringFlag(flags, "chunk-size")
+          ? { chunkSizeBytes: Number(stringFlag(flags, "chunk-size")) }
+          : {})
+      },
+      source: "cli",
+      idempotencyKey: requiredFlag(flags, "idempotency-key"),
+      ...(stringFlag(flags, "execution-timeout")
+        ? { executionTimeoutMs: Number(stringFlag(flags, "execution-timeout")) }
+        : {})
+    });
+    const waitMs = Number(stringFlag(flags, "wait") ?? 0);
+    const result = await client.invoke(invocation, { waitMs });
+    print(result, json);
+    process.exitCode = exitCode(result);
+    return;
+  }
+  if (domain === "transfer" && ["status", "wait", "cancel"].includes(action ?? "")) {
+    const transferId = positionals[2];
+    if (!transferId) throw new Error("transfer id is required");
+    const jobId = transferId.startsWith("job_") ? transferId : `job_${transferId}`;
+    const result =
+      action === "cancel"
+        ? await client.cancelTask(jobId)
+        : action === "wait"
+          ? await client.taskWait(jobId, Number(stringFlag(flags, "wait") ?? 4000))
+          : await client.taskStatus(jobId);
+    print(result, json);
+    process.exitCode = exitCode(result);
     return;
   }
   if (domain === "tool" && (action === "list" || action === "show")) {
@@ -296,9 +425,16 @@ async function main(): Promise<void> {
           : {}),
       source: stringFlag(flags, "source") === "skill" ? "skill" : "cli",
       ...(idempotencyKey ? { idempotencyKey } : {}),
+      ...(stringFlag(flags, "execution-timeout")
+        ? { executionTimeoutMs: Number(stringFlag(flags, "execution-timeout")) }
+        : {}),
       ...(stringFlag(flags, "timeout") ? { timeoutMs: Number(stringFlag(flags, "timeout")) } : {})
     });
-    const result = await client.invoke(invocation);
+    const wait = flags.get("wait");
+    const waitMs = wait === true ? 4000 : typeof wait === "string" ? Number(wait) : 0;
+    if (!Number.isFinite(waitMs) || waitMs < 0 || waitMs > 30_000)
+      throw new Error("--wait must be between 0 and 30000 milliseconds");
+    const result = await client.invoke(invocation, { waitMs });
     print(result, json);
     process.exitCode = exitCode(result);
     return;
@@ -311,11 +447,15 @@ async function main(): Promise<void> {
     process.exitCode = exitCode(result);
     return;
   }
-  if (domain === "task" && (action === "status" || action === "result" || action === "cancel")) {
+  if (domain === "task" && ["status", "result", "wait", "cancel"].includes(action ?? "")) {
     const jobId = positionals[2];
     if (!jobId) throw new Error("job id is required");
     const result =
-      action === "cancel" ? await client.cancelTask(jobId) : await client.taskStatus(jobId);
+      action === "cancel"
+        ? await client.cancelTask(jobId)
+        : action === "wait"
+          ? await client.taskWait(jobId, Number(stringFlag(flags, "wait") ?? 4000))
+          : await client.taskStatus(jobId);
     print(result, json);
     process.exitCode = exitCode(result);
     return;

@@ -13,11 +13,11 @@ connections, inspect account audit, update ADC, or change the local Connector.
 Never substitute one for the other. If owner login is required, ask the user to run:
 
 ```bash
-adc login --url https://installation.example
+adc login --url https://adc.zioon.tech
 ```
 
 The browser displays a short-lived code. Do not request the user's password, browser cookie, access
-key, or device private key.
+key, or device private key. Substitute the selected origin for a self-hosted installation.
 
 ## Pair A Device
 

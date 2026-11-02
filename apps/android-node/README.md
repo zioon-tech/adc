@@ -8,11 +8,21 @@ authorization and receipt path used by desktop Nodes without exposing a shell or
 | Capability           | Local requirement                                     |
 | -------------------- | ----------------------------------------------------- |
 | `device.battery.get` | None                                                  |
+| `device.info.get`    | None                                                  |
 | `device.network.get` | Android network-state access                          |
+| `device.storage.get` | None                                                  |
+| `device.vibrate`     | Device with vibration hardware                        |
+| `app.open`           | Installed app with a launcher activity                |
+| `display.status`     | None                                                  |
+| `audio.status`       | None                                                  |
+| `audio.volume.set`   | None                                                  |
+| `flashlight.status`  | Camera permission and camera flash hardware           |
+| `flashlight.set`     | Camera permission and camera flash hardware           |
 | `location.get`       | Location permission, location enabled and App visible |
 | `notification.show`  | Notification permission on Android 13 and later       |
 | `screen.capture`     | Local capability switch and MediaProjection consent   |
 | `ui.inspect`         | Local capability switch and Accessibility service     |
+| `ui.wait`            | Local capability switch and Accessibility service     |
 | `ui.action`          | Local capability switch and Accessibility service     |
 | `ui.gesture`         | Local capability switch and Accessibility service     |
 | `device.navigation`  | Local capability switch and Accessibility service     |
@@ -51,8 +61,24 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
    permission, screen-share and Accessibility consent remain separate system-level boundaries.
 5. In ADC Agent access, select this device and explicitly enable its device-native capabilities.
 
-The MVP uses a user-started foreground service and a persistent notification. It polls every 15
-seconds rather than claiming to be an unrestricted always-on Android daemon.
+The MVP uses a user-started foreground service and a persistent notification. While connected, it
+keeps an authenticated WebSocket wake channel aligned with desktop Nodes. Wake messages contain no
+task data; the App claims work through the signed poll API. It falls back to a server-woken
+ten-second long poll while the socket reconnects, and to one-second polling with older Control
+Planes. A 30-second durable poll covers a lost wake without claiming to be an unrestricted
+always-on Android daemon.
+
+## Version and updates
+
+The App's **Version & updates** section shows the installed version, the latest version published by
+the paired Control Plane, localized release notes and the last check time. The App validates the
+download size, SHA-256, package metadata and signing certificate before opening Android's package
+installer. Installation always requires device-owner confirmation.
+
+The first updater-enabled build must still be installed manually. Signed release publication and
+the trust boundary are documented in
+[Android Mobile Node distribution](../../docs/android-node-distribution.md). Debug APKs are for
+local development and must not be published through the production update channel.
 
 ## Xiaomi and HyperOS
 
@@ -70,9 +96,15 @@ screen-share session is active. PNG bytes are uploaded as an opaque Artifact ref
 deployments must configure the external content-addressed asset directory.
 
 UI inspection and control use an Android Accessibility service that the device owner must enable in
-system settings. The Node supports bounded semantic snapshots, selector-based click/long-click/
-focus/scroll/text actions, coordinate tap/swipe gestures and Back/Home/Recents/system-shade
-navigation. Password field contents are redacted from snapshots.
+system settings. Snapshots include display/window metadata, versioned snapshot IDs, node
+references, semantic roles and state. The Node supports waiting for UI/app/idle conditions,
+selector-based click/long-click/focus/scroll/set/clear text actions with before/after verification,
+coordinate tap/swipe gestures and Back/Home/Recents/system-shade navigation. Password field
+contents are redacted from snapshots.
+
+The Android native provider exposes app launch, device/build/storage/display/audio status, bounded
+volume and vibration controls, and flashlight status/control. These capabilities use Android public
+APIs and share the Device status local switch; flashlight access also requires camera permission.
 
 ## Security boundary
 

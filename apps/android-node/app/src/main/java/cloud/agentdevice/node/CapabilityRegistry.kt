@@ -41,6 +41,10 @@ class CapabilityRegistry(
     private val context: Context
 ) {
     private val store = NodeStore(context)
+    private val nativeProvider: MobileCapabilityProvider =
+        AndroidNativeProvider(context, store)
+
+    fun close() = nativeProvider.close()
 
     fun manifest(nodeId: String): JSONObject {
         val now = DateTimeFormatter.ISO_INSTANT.format(Instant.now())
@@ -218,7 +222,34 @@ class CapabilityRegistry(
                                         )
                                 )
                                 .put("additionalProperties", false),
-                            objectSchema("packageName", "windowCount", "nodes", "truncated")
+                            objectSchema(
+                                "snapshotId",
+                                "observedAt",
+                                "packageName",
+                                "windowCount",
+                                "windows",
+                                "display",
+                                "bounds",
+                                "nodes",
+                                "truncated"
+                            )
+                        )
+                    )
+                    .put(
+                        descriptor(
+                            "ui.wait",
+                            "Wait for UI state",
+                            "Wait for an element, foreground app or accessibility idle state.",
+                            "read",
+                            uiControlAvailability(now),
+                            uiWaitSchema(),
+                            objectSchema(
+                                "satisfied",
+                                "condition",
+                                "waitedMs",
+                                "snapshotId",
+                                "foregroundPackage"
+                            )
                         )
                     )
                     .put(
@@ -229,7 +260,15 @@ class CapabilityRegistry(
                             "execute",
                             uiControlAvailability(now),
                             uiActionSchema(),
-                            objectSchema("performed", "action", "matched")
+                            objectSchema(
+                                "performed",
+                                "action",
+                                "matched",
+                                "beforeSnapshotId",
+                                "afterSnapshotId",
+                                "changed",
+                                "foregroundPackage"
+                            )
                         )
                     )
                     .put(
@@ -254,13 +293,20 @@ class CapabilityRegistry(
                             objectSchema("performed", "action")
                         )
                     )
+                    .apply {
+                        nativeProvider.descriptors(now).forEach { put(it) }
+                    }
             )
             .put("roots", JSONArray())
             .put("accessMode", "none")
             .put("platform", "android")
-            .put("nodeVersion", "0.1.0")
+            .put("nodeVersion", appVersion())
             .put("advertisedAt", now)
     }
+
+    @Suppress("DEPRECATION")
+    private fun appVersion(): String =
+        context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
 
     fun execute(
         tool: String,
@@ -269,6 +315,9 @@ class CapabilityRegistry(
     ): MobileCapabilityResult {
         if (cancelled()) {
             throw CapabilityException("cancelled", "Invocation was cancelled.", false)
+        }
+        if (tool in nativeProvider.toolNames) {
+            return nativeProvider.execute(tool, args, cancelled)
         }
         return when (tool) {
             "device.battery.get" -> {
@@ -299,6 +348,10 @@ class CapabilityRegistry(
                         args.optInt("maxNodes", 500)
                     )
                 )
+            }
+            "ui.wait" -> {
+                requireEnabled(CapabilityGroup.UI_CONTROL)
+                MobileCapabilityResult(AdcAccessibilityService.wait(args, cancelled))
             }
             "ui.action" -> {
                 requireEnabled(CapabilityGroup.UI_CONTROL)
@@ -718,14 +771,49 @@ class CapabilityRegistry(
                                         "focus",
                                         "scroll_forward",
                                         "scroll_backward",
-                                        "set_text"
+                                        "set_text",
+                                        "clear_text"
                                     )
                                 )
                             )
                     )
                     .put("text", JSONObject().put("type", "string").put("maxLength", 4000))
+                    .put(
+                        "postActionWaitMs",
+                        JSONObject()
+                            .put("type", "integer")
+                            .put("minimum", 0)
+                            .put("maximum", 5000)
+                            .put("default", 500)
+                    )
             )
             .put("required", JSONArray(listOf("selector", "action")))
+            .put(
+                "allOf",
+                JSONArray().put(
+                    JSONObject()
+                        .put(
+                            "if",
+                            JSONObject()
+                                .put(
+                                    "properties",
+                                    JSONObject().put(
+                                        "action",
+                                        JSONObject().put("const", "set_text")
+                                    )
+                                )
+                                .put("required", JSONArray(listOf("action")))
+                        )
+                        .put("then", JSONObject().put("required", JSONArray(listOf("text"))))
+                        .put(
+                            "else",
+                            JSONObject().put(
+                                "not",
+                                JSONObject().put("required", JSONArray(listOf("text")))
+                            )
+                        )
+                )
+            )
             .put("additionalProperties", false)
 
     private fun uiSelectorSchema(): JSONObject =
@@ -734,11 +822,51 @@ class CapabilityRegistry(
             .put(
                 "properties",
                 JSONObject()
+                    .put("snapshotId", JSONObject().put("type", "string").put("maxLength", 128))
+                    .put(
+                        "nodeId",
+                        JSONObject()
+                            .put("type", "integer")
+                            .put("minimum", 0)
+                            .put("maximum", 1000)
+                    )
+                    .put("ref", JSONObject().put("type", "string").put("maxLength", 512))
                     .put("resourceId", JSONObject().put("type", "string"))
                     .put("text", JSONObject().put("type", "string"))
                     .put("contentDescription", JSONObject().put("type", "string"))
                     .put("className", JSONObject().put("type", "string"))
                     .put("packageName", JSONObject().put("type", "string"))
+                    .put(
+                        "role",
+                        JSONObject()
+                            .put("type", "string")
+                            .put(
+                                "enum",
+                                JSONArray(
+                                    listOf(
+                                        "button",
+                                        "checkbox",
+                                        "switch",
+                                        "edit_text",
+                                        "text",
+                                        "image",
+                                        "list",
+                                        "list_item",
+                                        "web_view",
+                                        "container",
+                                        "unknown"
+                                    )
+                                )
+                            )
+                    )
+                    .put("clickable", JSONObject().put("type", "boolean"))
+                    .put("longClickable", JSONObject().put("type", "boolean"))
+                    .put("editable", JSONObject().put("type", "boolean"))
+                    .put("scrollable", JSONObject().put("type", "boolean"))
+                    .put("enabled", JSONObject().put("type", "boolean"))
+                    .put("focused", JSONObject().put("type", "boolean"))
+                    .put("selected", JSONObject().put("type", "boolean"))
+                    .put("checked", JSONObject().put("type", "boolean"))
                     .put(
                         "match",
                         JSONObject()
@@ -755,37 +883,171 @@ class CapabilityRegistry(
                             .put("default", 0)
                     )
             )
+            .put(
+                "anyOf",
+                JSONArray(
+                    listOf(
+                        "nodeId",
+                        "ref",
+                        "resourceId",
+                        "text",
+                        "contentDescription",
+                        "className",
+                        "packageName",
+                        "role",
+                        "clickable",
+                        "longClickable",
+                        "editable",
+                        "scrollable",
+                        "enabled",
+                        "focused",
+                        "selected",
+                        "checked"
+                    ).map { JSONObject().put("required", JSONArray(listOf(it))) }
+                )
+            )
             .put("additionalProperties", false)
+
+    private fun uiWaitSchema(): JSONObject {
+        fun timeoutProperties(): JSONObject =
+            JSONObject()
+                .put(
+                    "timeoutMs",
+                    JSONObject()
+                        .put("type", "integer")
+                        .put("minimum", 0)
+                        .put("maximum", 30_000)
+                        .put("default", 10_000)
+                )
+                .put(
+                    "pollIntervalMs",
+                    JSONObject()
+                        .put("type", "integer")
+                        .put("minimum", 50)
+                        .put("maximum", 1000)
+                )
+        return JSONObject()
+            .put(
+                "oneOf",
+                JSONArray()
+                    .put(
+                        JSONObject()
+                            .put("type", "object")
+                            .put(
+                                "properties",
+                                timeoutProperties()
+                                    .put("condition", JSONObject().put("const", "element"))
+                                    .put("selector", uiSelectorSchema())
+                                    .put(
+                                        "state",
+                                        JSONObject()
+                                            .put("type", "string")
+                                            .put(
+                                                "enum",
+                                                JSONArray(listOf("present", "absent"))
+                                            )
+                                            .put("default", "present")
+                                    )
+                            )
+                            .put(
+                                "required",
+                                JSONArray(listOf("condition", "selector"))
+                            )
+                            .put("additionalProperties", false)
+                    )
+                    .put(
+                        JSONObject()
+                            .put("type", "object")
+                            .put(
+                                "properties",
+                                timeoutProperties()
+                                    .put("condition", JSONObject().put("const", "app"))
+                                    .put(
+                                        "packageName",
+                                        JSONObject().put("type", "string")
+                                    )
+                            )
+                            .put(
+                                "required",
+                                JSONArray(listOf("condition", "packageName"))
+                            )
+                            .put("additionalProperties", false)
+                    )
+                    .put(
+                        JSONObject()
+                            .put("type", "object")
+                            .put(
+                                "properties",
+                                timeoutProperties()
+                                    .put("condition", JSONObject().put("const", "idle"))
+                                    .put(
+                                        "idleMs",
+                                        JSONObject()
+                                            .put("type", "integer")
+                                            .put("minimum", 100)
+                                            .put("maximum", 5000)
+                                            .put("default", 500)
+                                    )
+                            )
+                            .put("required", JSONArray(listOf("condition")))
+                            .put("additionalProperties", false)
+                    )
+            )
+    }
 
     private fun uiGestureSchema(): JSONObject =
         JSONObject()
-            .put("type", "object")
             .put(
-                "properties",
-                JSONObject()
+                "oneOf",
+                JSONArray()
                     .put(
-                        "type",
                         JSONObject()
-                            .put("type", "string")
-                            .put("enum", JSONArray(listOf("tap", "swipe")))
+                            .put("type", "object")
+                            .put(
+                                "properties",
+                                JSONObject()
+                                    .put("type", JSONObject().put("const", "tap"))
+                                    .put("x", coordinateSchema())
+                                    .put("y", coordinateSchema())
+                            )
+                            .put("required", JSONArray(listOf("type", "x", "y")))
+                            .put("additionalProperties", false)
                     )
-                    .put("x", coordinateSchema())
-                    .put("y", coordinateSchema())
-                    .put("startX", coordinateSchema())
-                    .put("startY", coordinateSchema())
-                    .put("endX", coordinateSchema())
-                    .put("endY", coordinateSchema())
                     .put(
-                        "durationMs",
                         JSONObject()
-                            .put("type", "integer")
-                            .put("minimum", 50)
-                            .put("maximum", 5000)
-                            .put("default", 300)
+                            .put("type", "object")
+                            .put(
+                                "properties",
+                                JSONObject()
+                                    .put("type", JSONObject().put("const", "swipe"))
+                                    .put("startX", coordinateSchema())
+                                    .put("startY", coordinateSchema())
+                                    .put("endX", coordinateSchema())
+                                    .put("endY", coordinateSchema())
+                                    .put(
+                                        "durationMs",
+                                        JSONObject()
+                                            .put("type", "integer")
+                                            .put("minimum", 50)
+                                            .put("maximum", 5000)
+                                            .put("default", 300)
+                                    )
+                            )
+                            .put(
+                                "required",
+                                JSONArray(
+                                    listOf(
+                                        "type",
+                                        "startX",
+                                        "startY",
+                                        "endX",
+                                        "endY"
+                                    )
+                                )
+                            )
+                            .put("additionalProperties", false)
                     )
             )
-            .put("required", JSONArray(listOf("type")))
-            .put("additionalProperties", false)
 
     private fun coordinateSchema(): JSONObject =
         JSONObject()

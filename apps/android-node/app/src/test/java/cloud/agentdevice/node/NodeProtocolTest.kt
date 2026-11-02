@@ -51,6 +51,7 @@ class NodeProtocolTest {
             "\"before\u2028middle\u2029after\"",
             NodeProtocol.canonicalString("before\u2028middle\u2029after")
         )
+        assertEquals("\"Asia/Shanghai\"", NodeProtocol.canonicalString("Asia/Shanghai"))
     }
 
     @Test
@@ -69,6 +70,25 @@ class NodeProtocolTest {
         assertEquals(
             "/api/v1/nodes/node_example/poll",
             payload.lineSequence().drop(1).first()
+        )
+    }
+
+    @Test
+    fun hashesAnAbsentWebSocketHandshakeBodyAsEmptyBytes() {
+        val payload = NodeProtocol.requestPayload(
+            "GET",
+            "/api/v1/nodes/node_example/events",
+            "2026-10-11T00:00:00Z",
+            "nonce_example",
+            null,
+            bodyPresent = false
+        )
+
+        assertEquals(
+            "GET\n/api/v1/nodes/node_example/events\n2026-10-11T00:00:00Z\n" +
+                "nonce_example\n" +
+                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            payload
         )
     }
 }

@@ -1,6 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ResultSchema, type Invocation } from "@adc/protocol";
 import { McpInvocationAdapter, createMcpServer } from "./index.ts";
 
@@ -139,6 +139,70 @@ describe("McpInvocationAdapter", () => {
         "node_beta"
       ]);
       expect(read.inputSchema.required).toContain("target");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("exposes native transfer as one control-plane tool without a separate target", async () => {
+    let captured: Invocation | undefined;
+    const server = createMcpServer({
+      client: {
+        invoke: async (invocation) => {
+          captured = invocation;
+          return ResultSchema.parse({
+            schemaVersion: "0.1",
+            invocationId: invocation.invocationId,
+            attemptId: invocation.attemptId,
+            status: "queued",
+            jobId: "job_xfr_example"
+          });
+        }
+      },
+      context: {
+        accountId: "acct_primary",
+        actorId: "actor_testagent",
+        grantId: "grant_example",
+        nodeIds: ["node_source", "node_destination"],
+        rootIds: ["root_source", "root_destination"],
+        toolNodeIds: {
+          "file.transfer": ["node_source", "node_destination"]
+        }
+      },
+      allowedTools: ["file.transfer"]
+    });
+    const client = new Client({ name: "transfer-tool-test", version: "0.1.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    try {
+      const tool = (await client.listTools()).tools[0]!;
+      expect(tool.name).toBe("file.transfer");
+      expect(tool.inputSchema.required).toEqual(["args", "idempotencyKey"]);
+      await client.callTool({
+        name: "file.transfer",
+        arguments: {
+          args: {
+            source: {
+              nodeId: "node_source",
+              rootId: "root_source",
+              path: "model.bin"
+            },
+            destination: {
+              nodeId: "node_destination",
+              rootId: "root_destination",
+              path: "model.bin"
+            }
+          },
+          idempotencyKey: "mcp-native-transfer"
+        }
+      });
+      expect(captured).toMatchObject({
+        tool: "file.transfer",
+        target: { nodeId: "node_source" },
+        authorization: { rootIds: ["root_source", "root_destination"] }
+      });
     } finally {
       await client.close();
       await server.close();
@@ -309,5 +373,194 @@ describe("McpInvocationAdapter", () => {
       await client.close();
       await server.close();
     }
+  });
+
+  it("refreshes tools and target enums from the live context", async () => {
+    let context = {
+      accountId: "acct_primary",
+      actorId: "actor_testagent",
+      grantId: "grant_example",
+      nodeIds: ["node_alpha"],
+      toolNodeIds: { "file.read": ["node_alpha"] },
+      rootIds: [],
+      allowedTools: ["file.read" as const]
+    };
+    const server = createMcpServer({
+      client: { invoke: async () => Promise.reject(new Error("not called")) },
+      context,
+      loadContext: async () => context
+    });
+    const client = new Client({ name: "refresh-test", version: "0.1.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    try {
+      const first = (await client.listTools()).tools[0]!;
+      expect(((first.inputSchema.properties!.target as any).properties.nodeId as any).enum).toEqual(
+        ["node_alpha"]
+      );
+      context = {
+        ...context,
+        nodeIds: ["node_beta"],
+        toolNodeIds: { "file.read": ["node_beta"] }
+      };
+      const second = (await client.listTools()).tools[0]!;
+      expect(
+        ((second.inputSchema.properties!.target as any).properties.nodeId as any).enum
+      ).toEqual(["node_beta"]);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("proactively notifies the host when live tools change", async () => {
+    let context = {
+      accountId: "acct_primary",
+      actorId: "actor_testagent",
+      grantId: "grant_example",
+      nodeIds: ["node_alpha"],
+      toolNodeIds: { "file.read": ["node_alpha"] },
+      rootIds: [],
+      allowedTools: ["file.read" as const]
+    };
+    const server = createMcpServer({
+      client: { invoke: async () => Promise.reject(new Error("not called")) },
+      context,
+      loadContext: async () => context,
+      contextRefreshIntervalMs: 10
+    });
+    const changed = vi.spyOn(server, "sendToolListChanged");
+    const client = new Client({ name: "proactive-refresh-test", version: "0.1.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    try {
+      context = {
+        ...context,
+        nodeIds: ["node_beta"],
+        toolNodeIds: { "file.read": ["node_beta"] }
+      };
+      await vi.waitFor(() => expect(changed).toHaveBeenCalled(), { timeout: 1_000 });
+      const listed = (await client.listTools()).tools[0]!;
+      expect(
+        ((listed.inputSchema.properties!.target as any).properties.nodeId as any).enum
+      ).toEqual(["node_beta"]);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("normalizes a JSON object string emitted by compatibility MCP bridges", async () => {
+    let captured: Invocation | undefined;
+    const server = createMcpServer({
+      client: {
+        invoke: async (invocation) => {
+          captured = invocation;
+          return ResultSchema.parse({
+            schemaVersion: "0.1",
+            invocationId: invocation.invocationId,
+            attemptId: invocation.attemptId,
+            status: "succeeded",
+            output: { level: 80 }
+          });
+        }
+      },
+      context: {
+        accountId: "acct_primary",
+        actorId: "actor_testagent",
+        grantId: "grant_example",
+        nodeIds: ["node_phone"],
+        toolNodeIds: { "device.battery.get": ["node_phone"] },
+        rootIds: [],
+        allowedTools: ["device.battery.get"]
+      }
+    });
+    const client = new Client({ name: "bridge-compat-test", version: "0.1.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    try {
+      await client.callTool({
+        name: "device.battery.get",
+        arguments: { args: "{}", target: { nodeId: "node_phone" } }
+      });
+      expect(captured?.args).toEqual({});
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("uses a stable control-plane target for task tools with multiple devices", async () => {
+    let captured: Invocation | undefined;
+    const adapter = new McpInvocationAdapter({
+      client: {
+        invoke: async (invocation) => {
+          captured = invocation;
+          return ResultSchema.parse({
+            schemaVersion: "0.1",
+            invocationId: invocation.invocationId,
+            attemptId: invocation.attemptId,
+            status: "succeeded",
+            output: { task: null }
+          });
+        }
+      },
+      context: {
+        accountId: "acct_primary",
+        actorId: "actor_testagent",
+        grantId: "grant_example",
+        nodeIds: ["node_alpha", "node_beta"],
+        rootIds: []
+      }
+    });
+    await adapter.invoke("task.status", { args: { jobId: "job_example" } });
+    expect(captured?.target).toEqual({ nodeId: "node_alpha" });
+  });
+
+  it("returns quick task completion without a second MCP call", async () => {
+    const waits: number[] = [];
+    const adapter = new McpInvocationAdapter({
+      client: {
+        invoke: async (invocation, options) => {
+          waits.push(options?.waitMs ?? -1);
+          return ResultSchema.parse({
+            schemaVersion: "0.1",
+            invocationId: invocation.invocationId,
+            attemptId: invocation.attemptId,
+            status: "succeeded",
+            output: { performed: true }
+          });
+        }
+      },
+      context: {
+        accountId: "acct_primary",
+        actorId: "actor_testagent",
+        grantId: "grant_example",
+        nodeIds: ["node_phone"],
+        rootIds: []
+      },
+      quickWaitMs: 500
+    });
+    await expect(
+      adapter.invoke("ui.inspect", { args: {}, target: { nodeId: "node_phone" } })
+    ).resolves.toMatchObject({ status: "succeeded" });
+    expect(waits).toEqual([500]);
+    await adapter.invoke("ui.inspect", {
+      args: {},
+      target: { nodeId: "node_phone" },
+      waitMs: 0,
+      executionTimeoutMs: 1000
+    });
+    expect(waits).toEqual([500, 0]);
+    await expect(
+      adapter.invoke("ui.inspect", {
+        args: {},
+        target: { nodeId: "node_phone" },
+        waitMs: 30_001
+      })
+    ).rejects.toThrow();
   });
 });

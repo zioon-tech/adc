@@ -1,7 +1,10 @@
 import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { resolve } from "node:path";
 import type { InjectOptions, LightMyRequestResponse } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
-import { AdcClient } from "@adc/client";
+import { AdcClient, buildInvocation } from "@adc/client";
 import { NodeApiClient, generateNodeKeyPair, signNodeRequest } from "@adc/client/node";
 import { MemoryStore } from "@adc/db";
 import {
@@ -12,9 +15,11 @@ import {
   createId
 } from "@adc/protocol";
 import { createControlPlane } from "./app.ts";
+import type { NodeDistribution } from "./distribution.ts";
 import { accessFixture } from "../../../tests/helpers/access-fixture.ts";
 
 const apps: Awaited<ReturnType<typeof createControlPlane>>[] = [];
+const directories: string[] = [];
 const cookie = "adc.session_token=api-test-session";
 
 function fetchFor(app: Awaited<ReturnType<typeof createControlPlane>>): typeof fetch {
@@ -35,7 +40,7 @@ function fetchFor(app: Awaited<ReturnType<typeof createControlPlane>>): typeof f
   }) as typeof fetch;
 }
 
-async function fixture(now?: () => Date) {
+async function fixture(now?: () => Date, nodeDistribution?: NodeDistribution) {
   const store = new MemoryStore();
   const assets = new Map<string, Buffer>();
   const app = await createControlPlane({
@@ -57,7 +62,8 @@ async function fixture(now?: () => Date) {
         return Buffer.from(data);
       }
     },
-    ...(now ? { now } : {})
+    ...(now ? { now } : {}),
+    ...(nodeDistribution ? { nodeDistribution } : {})
   });
   apps.push(app);
   const fetcher = fetchFor(app);
@@ -108,9 +114,270 @@ async function ownerRequest(
 
 afterEach(async () => {
   await Promise.all(apps.splice(0).map((app) => app.close()));
+  await Promise.all(
+    directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))
+  );
 });
 
 describe("control plane", () => {
+  async function waitFixture(
+    allowedTools: Array<"file.read" | "task.wait"> = ["file.read", "task.wait"]
+  ) {
+    const setup = await fixture();
+    await setup.node.poll(setup.capability);
+    await setup.owner.createAccess({
+      grantId: "grant_example",
+      actorId: "actor_testagent",
+      name: "Wait agent",
+      profile: "read-only",
+      nodeIds: [setup.paired.nodeId],
+      rootAccess: "selected",
+      rootIds: ["root_workspace"],
+      approvalPolicy: "never",
+      allowedTools
+    });
+    const invocation = buildInvocation({
+      context: {
+        accountId: "acct_primary",
+        actorId: "actor_testagent",
+        grantId: "grant_example",
+        nodeIds: [setup.paired.nodeId],
+        rootIds: ["root_workspace"]
+      },
+      tool: "file.read",
+      args: { rootId: "root_workspace", path: "README.md" },
+      source: "sdk"
+    });
+    const agent = new AdcClient("http://adc.test", "approval-agent-token", setup.fetcher);
+    return { ...setup, invocation, agent };
+  }
+
+  it("waits on the submitted invocation and reuses it after completion", async () => {
+    const { agent, node, capability, invocation, store } = await waitFixture();
+    const waiting = agent.invoke(invocation, { waitMs: 2000 });
+    const polled = await node.poll(capability, { waitMs: 2000 });
+    const dispatch = polled.dispatch!;
+    await node.acknowledge(dispatch.dispatchId, dispatch.leaseToken);
+    await node.complete({
+      dispatchId: dispatch.dispatchId,
+      leaseToken: dispatch.leaseToken,
+      result: {
+        schemaVersion: "0.1",
+        invocationId: invocation.invocationId,
+        attemptId: invocation.attemptId,
+        status: "succeeded",
+        output: { text: "ready" }
+      }
+    });
+    await expect(waiting).resolves.toMatchObject({
+      status: "succeeded",
+      output: { text: "ready" }
+    });
+    await expect(
+      agent.invoke(
+        {
+          ...invocation,
+          expiresAt: new Date(Date.now() - 1).toISOString()
+        },
+        { waitMs: 0 }
+      )
+    ).resolves.toMatchObject({ status: "succeeded" });
+    expect((await store.getDispatchByInvocation(invocation.invocationId))?.dispatchId).toBe(
+      dispatch.dispatchId
+    );
+    await expect(node.poll(capability)).resolves.toMatchObject({ dispatch: null });
+  });
+
+  it("returns completion from the HTTP MCP tool call", async () => {
+    const { app, node, paired, capability } = await waitFixture(["file.read"]);
+    const waiting = app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: {
+        authorization: "Bearer approval-agent-token",
+        accept: "application/json, text/event-stream"
+      },
+      payload: {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "file.read",
+          arguments: {
+            args: { rootId: "root_workspace", path: "README.md" },
+            target: { nodeId: paired.nodeId }
+          }
+        }
+      }
+    });
+    const dispatch = (await node.poll(capability, { waitMs: 2000 })).dispatch!;
+    expect(dispatch).toBeDefined();
+    await node.acknowledge(dispatch.dispatchId, dispatch.leaseToken);
+    await node.complete({
+      dispatchId: dispatch.dispatchId,
+      leaseToken: dispatch.leaseToken,
+      result: {
+        schemaVersion: "0.1",
+        invocationId: dispatch.invocation.invocationId,
+        attemptId: dispatch.invocation.attemptId,
+        status: "succeeded",
+        output: { text: "mcp-ready" }
+      }
+    });
+    const response = await waiting;
+    expect(response.statusCode).toBe(200);
+    expect(response.json().result.structuredContent).toMatchObject({
+      status: "succeeded",
+      output: { text: "mcp-ready" }
+    });
+  });
+
+  it("wait expiry keeps the task alive and task.wait resumes it", async () => {
+    const { agent, invocation, fetcher } = await waitFixture();
+    const queued = await agent.invoke(invocation, { waitMs: 10 });
+    expect(queued.status).toBe("queued");
+    const other = new AdcClient("http://adc.test", "other-agent-token", fetcher);
+    await expect(other.taskWait(queued.jobId!, 2000)).rejects.toMatchObject({ statusCode: 404 });
+    await expect(agent.taskWait(queued.jobId!, 0)).resolves.toMatchObject({ status: "queued" });
+    await expect(
+      agent.invoke(
+        buildInvocation({
+          context: {
+            accountId: invocation.accountId,
+            actorId: invocation.actor.id,
+            grantId: invocation.authorization.grantId,
+            nodeIds: ["node_placeholder"],
+            rootIds: []
+          },
+          tool: "task.wait",
+          args: { jobId: queued.jobId, waitMs: 10 },
+          source: "sdk"
+        })
+      )
+    ).resolves.toMatchObject({ status: "succeeded", output: { task: { status: "queued" } } });
+    await expect(agent.taskWait(queued.jobId!, 30_001)).rejects.toThrow();
+  });
+
+  it("denies a result when the grant is revoked during a wait", async () => {
+    const { agent, invocation, owner, node, capability } = await waitFixture();
+    const waiting = agent.invoke(invocation, { waitMs: 2000 });
+    const dispatch = (await node.poll(capability, { waitMs: 2000 })).dispatch!;
+    await node.acknowledge(dispatch.dispatchId, dispatch.leaseToken);
+    await owner.revokeAccess("grant_example");
+    await node.complete({
+      dispatchId: dispatch.dispatchId,
+      leaseToken: dispatch.leaseToken,
+      result: {
+        schemaVersion: "0.1",
+        invocationId: invocation.invocationId,
+        attemptId: invocation.attemptId,
+        status: "succeeded",
+        output: {}
+      }
+    });
+    await expect(waiting).rejects.toThrow();
+  });
+
+  it("holds an idle long poll and marks the supported response", async () => {
+    const { node, capability } = await fixture();
+    const startedAt = Date.now();
+
+    await expect(node.poll(capability, { waitMs: 40 })).resolves.toMatchObject({
+      dispatch: null,
+      longPoll: true
+    });
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(30);
+  });
+
+  it("releases a long poll as soon as work is queued", async () => {
+    const { app, owner, node, paired, capability } = await fixture();
+    await node.poll(capability);
+    await ownerRequest(app, "POST", "/api/v1/projects", {
+      projectId: "proj_long_poll",
+      label: "Long poll"
+    });
+    await ownerRequest(app, "POST", "/api/v1/projects/proj_long_poll/roots", {
+      rootId: "root_workspace",
+      nodeId: paired.nodeId,
+      label: "Workspace",
+      writable: true
+    });
+    await ownerRequest(app, "POST", "/api/v1/grants", {
+      grantId: "grant_long_poll",
+      projectId: "proj_long_poll",
+      actorId: "actor_long_poll",
+      profile: "read-only",
+      nodeIds: [paired.nodeId],
+      rootIds: ["root_workspace"],
+      allowedTools: ["file.read"]
+    });
+    const polling = node.poll(capability, { waitMs: 5_000 });
+    await new Promise((resolve) => setImmediate(resolve));
+    const now = new Date();
+    const invocation = InvocationSchema.parse({
+      schemaVersion: "0.1",
+      invocationId: createId("inv"),
+      attemptId: createId("att"),
+      accountId: "acct_primary",
+      actor: { type: "agent", id: "actor_long_poll" },
+      target: { nodeId: paired.nodeId },
+      authorization: {
+        projectId: "proj_long_poll",
+        rootIds: ["root_workspace"],
+        grantId: "grant_long_poll"
+      },
+      tool: "file.read",
+      args: { rootId: "root_workspace", path: "README.md" },
+      issuedAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + 60_000).toISOString(),
+      metadata: { source: "sdk" }
+    });
+
+    await expect(owner.invoke(invocation)).resolves.toMatchObject({ status: "queued" });
+    await expect(polling).resolves.toMatchObject({
+      dispatch: { invocation: { invocationId: invocation.invocationId } },
+      longPoll: true
+    });
+  });
+
+  it("marks legacy desktop nodes without a build ID as updateable", async () => {
+    const directory = await mkdtemp(resolve(tmpdir(), "adc-control-plane-release-"));
+    directories.push(directory);
+    const buildId = `sha256:${"b".repeat(64)}`;
+    await writeFile(
+      resolve(directory, "manifest-v2.json"),
+      JSON.stringify({
+        version: "0.1.1",
+        runtimeVersion: "24.21.0",
+        buildId
+      })
+    );
+    const { owner, node, capability, paired } = await fixture(undefined, {
+      directory,
+      publicUrl: "https://devices.example.com"
+    });
+
+    await expect(node.poll(capability)).resolves.toMatchObject({
+      update: {
+        state: "update_available",
+        currentBuildId: null,
+        latest: { version: "0.1.1", buildId }
+      }
+    });
+    await expect(owner.listNodes()).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          nodeId: paired.nodeId,
+          update: expect.objectContaining({
+            state: "update_available",
+            currentBuildId: null,
+            latest: expect.objectContaining({ version: "0.1.1", buildId })
+          })
+        })
+      ])
+    );
+  });
+
   it("accepts native Windows nodes", async () => {
     const { owner, fetcher } = await fixture();
     const pairing = await owner.createPairingCode();
@@ -336,7 +603,7 @@ describe("control plane", () => {
     const queued = await owner.invoke(invocation);
     expect(queued.status).toBe("queued");
 
-    await expect(node.poll(capability, { activeTaskCount: 6 })).resolves.toEqual({
+    await expect(node.poll(capability, { activeTaskCount: 6 })).resolves.toMatchObject({
       dispatch: null,
       maxConcurrency: 6
     });
@@ -885,7 +1152,7 @@ describe("control plane", () => {
       writable: true
     });
 
-    const createdAt = new Date(timestamp.getTime() - 60_000).toISOString();
+    const createdAt = new Date(timestamp.getTime() + 60_000).toISOString();
     const expiredAt = new Date(timestamp.getTime() - 1_000).toISOString();
     const validUntil = new Date(timestamp.getTime() + 60 * 60_000).toISOString();
     for (const eventId of [

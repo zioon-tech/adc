@@ -2,6 +2,175 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 import { Languages } from "lucide-react";
 
 export const zh = {
+  "List devices": "列出设备",
+  "Device status": "设备状态",
+  "List folders": "浏览目录",
+  "Read files": "读取文件",
+  "Search files": "搜索文件",
+  "Write files": "写入文件",
+  "Edit files": "编辑文件",
+  "Patch files": "应用补丁",
+  "Transfer files": "传输文件",
+  "Run commands": "运行命令",
+  "List templates": "查看命令模板",
+  "Run templates": "运行命令模板",
+  "Run tests": "运行测试",
+  "Task status": "任务状态",
+  "Task results": "任务结果",
+  "Wait for tasks": "等待任务",
+  "Cancel tasks": "取消任务",
+  Recipient: "接收对象",
+  Permissions: "访问权限",
+  Done: "完成",
+  "Rename project": "重命名项目",
+  "Delete project": "删除项目",
+  "Add folder": "添加目录",
+  "Edit folder": "编辑目录",
+  "Remove folder": "移除目录",
+  "Folder access": "目录权限",
+  "Open Agent access": "前往 Agent 授权",
+  "Device unavailable": "设备不可用",
+  "Search projects or folders": "搜索项目或目录",
+  "No matching projects": "没有匹配的项目",
+  "{count} Agent authorizations": "{count} 个 Agent 授权",
+  "Choose an exposed folder": "选择已开放的目录",
+  "Group exposed device folders into a project, then select that project when authorizing an Agent.": "将设备已开放的目录归入项目，再在 Agent 授权时选择该项目。",
+  "Folders stay on their devices. Adding one here does not upload files or grant Agent access.": "文件保留在原设备上；添加目录不会上传文件，也不会自动授予 Agent 访问权限。",
+  "Team devices are managed through member permissions and Agent access.": "团队设备通过成员权限和 Agent 授权管理。",
+  "Add a folder already exposed by a device to start using this project.": "添加设备已开放的目录，即可开始使用该项目。",
+  "No unassigned exposed folders. Add a folder on the device or choose another device.": "没有可添加的已开放目录，请在设备上开放新目录或选择其他设备。",
+  "Folder access is used by active Agent authorizations. Edit those authorizations before changing access or removing folders.": "目录正在被 Agent 授权使用；请先调整对应授权，再改变目录权限或移除目录。",
+  "Remove this folder from the project? Files on the device are kept.": "从项目中移除这个目录？设备上的文件会保留。",
+  "Delete this project and its folder group? Files on the devices are kept.": "删除项目及其目录分组？设备上的文件会保留。",
+  "Project ID is unavailable.": "项目 ID 已被占用或不可用。",
+  "Project changed. Refresh and try again.": "项目已发生变化，请刷新后重试。",
+  "Project folders changed. Refresh and try again.": "项目目录已发生变化，请刷新后重试。",
+  "Folder changed. Refresh and try again.": "目录已发生变化，请刷新后重试。",
+  "Folder is already bound to a project or device.": "该目录已经绑定到项目或设备。",
+  "A project with this name already exists.": "已存在同名项目。",
+  "A folder with this name already exists on this device.": "该设备已有同名项目目录。",
+  "Remove the affected Agent authorizations before changing or deleting this resource.": "请先移除或撤销使用此资源的 Agent 授权，再修改权限或删除。",
+  "Root must be advertised by the device with compatible access.": "只能添加设备已开放的目录，且权限不能超过设备允许的范围。",
+  Workspace: "工作空间",
+  "Access mode": "访问模式",
+  Copy: "复制",
+  "No activity": "暂无活动",
+  "Personal account": "个人账号",
+  Teams: "团队",
+  "Teams and sharing": "团队与共享",
+  Team: "团队",
+  Sharing: "共享",
+  "Sharing expires": "共享到期时间",
+  "Leave empty for no expiry. Wider access requires acceptance.": "留空表示不限期；扩大访问范围需要接收人接受。",
+  Share: "共享",
+  "Isolated execution": "隔离执行",
+  "Trusted host access": "受信任的宿主机访问",
+  "No folders selected": "未选择目录",
+  "Commands run without network access in a temporary container. Changes stay there; download artifacts to keep results.": "命令在没有网络访问的临时容器中运行。修改保留在容器内，需要下载产物才能保留结果。",
+  "I trust this person with host access. Revoking ADC access cannot remove other access or changes they created.": "我信任此用户访问宿主机。撤销 ADC 访问不能清除此用户建立的其他访问渠道或修改。",
+  "Expose a project folder on the device before sharing.": "请先在设备上开放项目目录。",
+  "Allowed template IDs": "允许的模板 ID",
+  "Comma-separated IDs": "用逗号分隔 ID",
+  "Edit sharing permission": "编辑共享权限",
+  "Share device": "共享设备",
+  "Device root": "设备根目录",
+  "You can select an exposed device root for the team. Member policies and Agent grants still limit access.": "可以把设备已开放的根目录选给团队，成员策略和 Agent 授权仍然限制实际访问范围。",
+  "External sharing uses selected folders. Choose a team to share a device root.": "外部共享使用指定目录；选择团队后，可以共享设备根目录。",
+  "For isolated execution, choose a smaller folder instead of a whole-device snapshot.": "隔离执行请使用较小目录，整盘数据不适合临时快照。",
+  "Expose a folder or device root locally before sharing it with the team.": "请先在设备本地开放目录或根目录，再共享给团队。",
+  "Choose at least one exposed folder or root.": "请至少选择一个设备已开放的目录或根目录。",
+  "Update this device to Connector 0.1.6 or newer to share its root with a team.": "共享根目录给团队需要将这台设备更新到 Connector 0.1.6 或更高版本。",
+  "{count} devices have Connector updates.": "有 {count} 台设备的 Connector 可以更新。",
+  "Update to {version}": "更新至 {version}",
+  "The release or device version could not be confirmed.": "暂时无法确认发布版本或设备版本，请刷新后重试。",
+  "Update status unknown": "更新状态待确认",
+  "Newer than published": "高于发布版本",
+  "Update Connector": "更新 Connector",
+  "Run the update on this device. Its identity, folders and existing permissions are preserved.": "在这台设备上执行更新，设备身份、目录和现有权限会保留。",
+  "This device is offline. The update remains available; reconnect it before checking the result.": "设备当前离线，更新提示仍会保留；设备重新连接后再核验结果。",
+  "Connector downloads are unavailable. Try again later.": "暂时无法获取 Connector 下载，请稍后重试。",
+  "The device list refreshes automatically after the upgraded Connector reconnects.": "更新后的 Connector 重新连接后，设备列表会自动刷新。",
+  "Team members use this device through their assigned policies.": "团队成员通过各自分配的策略使用此设备。",
+  "Update this device's Connector to 0.1.5 or newer before sharing.": "请先将这台设备的 Connector 更新到 0.1.5 或更高版本，再进行共享。",
+  "Enable local sharing on this device before continuing.": "请先在这台设备上启用本地共享。",
+  "Current Connector: {version}": "当前 Connector：{version}",
+  "Run this command on the device. This dialog updates automatically.": "在这台设备上执行以下命令，本窗口会自动更新状态。",
+  "Whole-device and protected folders cannot be shared. Add a specific project folder locally.": "整盘和受保护目录不能共享，请先在设备本地添加具体项目目录。",
+  "Choose at least one project folder to share.": "请至少选择一个项目目录进行共享。",
+  "Update the Connector and enable local device sharing first.": "请先更新这台设备的 Connector，并在本地启用共享。",
+  "Choose a project folder without device credentials or service configuration.": "请选择具体项目目录，不能包含设备凭据或服务配置。",
+  "Only the chosen account can accept this invitation.": "仅指定账号可以接受邀请。",
+  "Invitation created. Send this link to the recipient.": "邀请已创建，请将链接发送给接收人。",
+  "Invitation link": "邀请链接",
+  "Copy the invitation link manually.": "请手动复制邀请链接。",
+  "Confirm host trust before continuing.": "继续前请确认宿主机信任。",
+  "Share with": "共享给",
+  "External user": "外部用户",
+  "Recipient email": "接收人邮箱",
+  "Add device to team": "将设备加入团队",
+  "Create invitation": "创建邀请",
+  "Accept only after reviewing the account, device and permissions below.": "请核对以下账号、设备和权限后再接受邀请。",
+  "From account": "来源账号",
+  Role: "角色",
+  Admin: "管理员",
+  Member: "成员",
+  Owner: "所有者",
+  "Invitation expires": "邀请到期时间",
+  "Host access changes may remain after ADC access is revoked.": "撤销 ADC 访问后，宿主机上的修改可能仍然存在。",
+  "Accepting does not expand existing Agent access. Create or edit an authorization to use this device.": "接受邀请不会扩大已有 Agent 权限。使用此设备前，请创建或编辑 Agent 授权。",
+  "Invitation accepted.": "已接受邀请。",
+  "Invitation declined.": "已拒绝邀请。",
+  Accept: "接受",
+  Decline: "拒绝",
+  "Review invitation": "核对邀请",
+  "No expiry": "无到期时间",
+  Paused: "已暂停",
+  "Shared with account": "接收账号",
+  "Resume sharing?": "恢复共享？",
+  "Pause sharing?": "暂停共享？",
+  Resume: "恢复",
+  Pause: "暂停",
+  "Revoke sharing?": "撤销共享？",
+  "Leave shared device?": "退出共享设备？",
+  Leave: "退出",
+  "No shared devices": "暂无共享设备",
+  "Share a device": "共享设备",
+  Invitations: "邀请",
+  "Team invitation": "团队邀请",
+  "Permission change": "权限变更",
+  "Device invitation": "设备邀请",
+  Review: "核对",
+  "Revoke invitation?": "撤销邀请？",
+  "No invitations": "暂无邀请",
+  "Shared with me": "共享给我",
+  "Shared by this account": "此账号的对外共享",
+  "Shared device activity": "共享设备活动",
+  "New calls stop using removed permissions. Running tasks are checked on their next lease renewal.": "新请求立即停止使用已移除的权限。运行中的任务会在下次续租时复核。",
+  Confirm: "确认",
+  "Create team": "创建团队",
+  Selected: "已选择",
+  "Open team": "进入团队",
+  "Invite member": "邀请成员",
+  "Members receive only the devices and permissions assigned to them. They authorize their own Agents separately.": "成员只能使用分配给他们的设备和权限，并需单独为自己的 Agent 授权。",
+  "No device policy assigned": "未分配设备策略",
+  "Edit policy": "编辑策略",
+  "Remove member?": "移除成员？",
+  Remove: "移除",
+  "Leave team?": "退出团队？",
+  "Leave team": "退出团队",
+  "Choose a team above, or create one to manage collaboration.": "选择上方团队，或创建团队来管理协作。",
+  "Team name": "团队名称",
+  "Removing membership revokes that member's Agent connections and device access.": "移除成员会撤销该成员的 Agent 连接和设备访问。",
+  "Edit member policy": "编辑成员策略",
+  "Choose a device": "选择设备",
+  "Apply device policy": "应用设备策略",
+  "Zioon Account": "Zioon 账号",
+  "Zioon · Unified account service": "Zioon · 统一账号服务",
+  "One account for all Zioon services.": "一个账号，通行 Zioon 服务。",
+  "Sign in to continue to {product}.": "登录后继续进入 {product}。",
+  "Use a different account": "使用其他账号",
+  "Return to {product}": "返回 {product}",
+  "This sign-in request could not be verified. Return to the app and try again.": "无法验证此登录请求，请回到应用重新登录。",
   Manage: "管理",
   Edit: "编辑",
   Delete: "删除",
@@ -84,8 +253,6 @@ export const zh = {
   Architecture: "架构",
   Roadmap: "路线图",
   "Private device infrastructure for AI agents": "面向 AI Agent 的私有设备基础设施",
-  "Public preview · Private device infrastructure for AI agents":
-    "公网预览 · 面向 AI Agent 的私有设备基础设施",
   "Give any AI agent controlled access to the files, tools and environments already on your devices.":
     "让任何 AI Agent 在你的控制下，使用设备上已有的文件、工具和环境。",
   "Agents keep using MCP, CLI or SDK. ADC authorizes and routes each call; the selected Mac or Linux device runs the tool.":
@@ -237,22 +404,22 @@ export const zh = {
   "A complete personal device loop": "完整的个人设备闭环",
   "Accounts, macOS/Linux connectors, local MCP Providers, scoped grants, approvals, audit, MCP OAuth, CLI, Skill and self-hosting.":
     "账户、macOS/Linux 连接器、本地 MCP Provider、范围授权、审批、审计、MCP OAuth、CLI、Skill 与自部署。",
-  "Accounts, macOS/Linux/Windows connectors, local MCP Providers, scoped grants, approvals, audit, MCP OAuth, CLI, Skill and self-hosting.":
-    "账户、macOS/Linux/Windows 连接器、本地 MCP Provider、范围授权、审批、审计、MCP OAuth、CLI、Skill 与自部署。",
-  "Production hardening": "生产级加固",
+  "Accounts, macOS/Linux/Windows connectors, Android Mobile Node, local MCP Providers, scoped grants, approvals, audit, MCP OAuth, CLI, Skill and self-hosting.":
+    "账户、macOS/Linux/Windows 连接器、Android Mobile Node、本地 MCP Provider、范围授权、审批、审计、MCP OAuth、CLI、Skill 与自部署。",
+  "Reliability and operations": "可靠性与运维",
   "Signed releases, automatic updates, keychain storage, quotas, retention and external artifact storage.":
     "签名发布、自动升级、安全密钥存储、配额、保留策略和外部产物存储。",
   Later: "长期",
   "Teams and broader capabilities": "团队与更广泛的设备能力",
-  "Container isolation, team roles, SSO, SIEM export, Windows and additional local executors.":
-    "容器隔离、团队角色、SSO、SIEM 导出、Windows 与更多本地执行器。",
+  "Container isolation, team roles, SSO, SIEM export and additional local executors.":
+    "容器隔离、团队角色、SSO、SIEM 导出与更多本地执行器。",
   "See the roadmap": "查看路线图",
   "Hosted or self-hosted": "托管或自部署",
   "One product, the same trust model.": "同一个产品，同一套信任模型。",
   "Self-hosting is not a reduced edition. It uses the same accounts, authorization, approvals, audit and device software.":
     "自部署不是功能缩水版，它使用相同的账户、授权、审批、审计和设备软件。",
-  "Use the hosted preview now, or deploy the same application on your own infrastructure. Both use the same accounts, authorization, approvals, audit and device software.":
-    "现在即可使用托管预览，也可以在自己的基础设施上部署同一应用；两者使用相同的账户、授权、审批、审计和设备软件。",
+  "Use the official hosted service, or deploy the same application on your own infrastructure. Both use the same accounts, authorization, approvals, audit and device software.":
+    "使用官方托管服务，也可以在自己的基础设施上部署同一应用；两者使用相同的账户、授权、审批、审计和设备软件。",
   "Deploy it yourself": "自行部署",
   "Self-hosting guide": "自部署指南",
   "Questions that should have clear answers.": "重要问题，应该有明确答案。",
@@ -331,8 +498,10 @@ export const zh = {
     "MCP OAuth、Agent Token、CLI、SDK 与官方 Skill",
   "MCP OAuth, CLI connections, SDK and official Skill": "MCP OAuth、CLI 连接、SDK 与官方 Skill",
   "The same application for hosted and self-hosted deployment": "托管与自部署使用同一个完整应用",
-  "Hosted public preview and the same application for self-hosted deployment":
-    "托管公网预览与自部署使用同一个完整应用",
+  "Official hosted service and the same application for self-hosted deployment":
+    "官方托管服务与自部署使用同一个完整应用",
+  "Windows x64 connector and manually installed Android Mobile Node":
+    "Windows x64 连接器与手动安装的 Android Mobile Node",
   "Signed release packages and unattended updates": "签名发布包与无人值守升级",
   "Keychain and keyring-backed device identity": "由 Keychain 或 keyring 保护的设备身份",
   "External artifact storage, quotas and retention": "外部产物存储、配额与保留策略",
@@ -341,7 +510,7 @@ export const zh = {
   "Linux container isolation for higher-risk execution": "面向高风险执行的 Linux 容器隔离",
   "Team roles, shared device pools and approval workflows": "团队角色、共享设备池与审批工作流",
   "Enterprise SSO, SCIM and SIEM export": "企业 SSO、SCIM 与 SIEM 导出",
-  "Windows connector and additional local executors": "Windows 连接器与更多本地执行器",
+  "Additional local executors and device integrations": "更多本地执行器与设备集成",
   "Tool plugin and community Skill ecosystem": "工具插件与社区 Skill 生态",
   "What will not change": "长期不变的原则",
   "Device-side policy remains the final authority.": "设备侧策略始终拥有最终决定权。",
@@ -369,8 +538,8 @@ export const zh = {
   "A copied access key remains usable until it expires or is revoked.":
     "被复制的访问密钥在到期或撤销前仍然可用。",
   "Compromised device key": "设备密钥泄露",
-  "Every request uses an Ed25519 signature, timestamp and durable one-time nonce.":
-    "每个请求都使用 Ed25519 签名、时间戳和持久化一次性随机数。",
+  "Every device request uses an Ed25519 or Android Keystore P-256 signature, timestamp and one-time nonce.":
+    "每个设备请求都使用 Ed25519 或 Android Keystore P-256 签名、时间戳和一次性随机数。",
   "A stolen private key remains valid until the device is revoked.":
     "被盗私钥在设备撤销前仍然有效。",
   "Path escape": "路径逃逸",
@@ -390,7 +559,7 @@ export const zh = {
     "脱敏属于尽力防护，无法保证任意已授权内容都不包含敏感信息。",
   "Current assurance": "当前验证范围",
   "Verified in automation": "已通过自动化验证",
-  "Verified in automation and preview": "已通过自动化与公网预览验证",
+  "Verified in automation and deployment": "已通过自动化与部署验证",
   "Protocol schemas, policy decisions and adapter parity": "协议 Schema、策略决策与适配器一致性",
   "Real PostgreSQL migrations, locking, restart and account isolation":
     "真实 PostgreSQL 迁移、锁、重启与账户隔离",
@@ -402,9 +571,11 @@ export const zh = {
     "公网 HTTPS 部署、数据库就绪检查与重启恢复",
   "Not yet certified": "尚未完成认证",
   "External penetration testing and signed release provenance": "外部渗透测试与签名发布溯源",
-  "Production SMTP, real GitHub consent and public TLS deployment":
-    "生产 SMTP、真实 GitHub 授权与公网 TLS 部署",
-  "Production SMTP and real GitHub consent flows": "生产 SMTP 与真实 GitHub 授权流程",
+  "Hosted email verification and password recovery with real inbox delivery":
+    "托管服务邮箱验证、密码找回与真实收件箱投递",
+  "Real GitHub consent round trip": "真实 GitHub 授权完整链路",
+  "Selected Xiaomi/MIUI mobile capabilities; other Android models require validation":
+    "部分 Xiaomi/MIUI 移动端能力；其他 Android 机型需单独验证",
   "Linux systemd and every generated cross-platform archive":
     "Linux systemd 与全部跨平台安装包实机验证",
   "Hard filesystem, network and process isolation": "文件系统、网络与进程级硬隔离",
@@ -443,10 +614,8 @@ export const zh = {
   "Before you begin": "开始之前",
   "Source development requires Node.js 22 or newer. Installed connectors include their own Node.js runtime.":
     "源码开发需要 Node.js 22 或更高版本；安装版连接器已自带 Node.js 运行时。",
-  "The hosted preview requires an account and a supported macOS or glibc Linux device. Installed connectors include their own Node.js runtime; Node.js 22 is only required for source development.":
-    "使用托管预览只需要一个账户和受支持的 macOS 或 glibc Linux 设备。安装版连接器已自带 Node.js 运行时；只有源码开发需要 Node.js 22。",
-  "The hosted preview requires an account and a supported macOS, glibc Linux or Windows device. Installed connectors include their own Node.js runtime; Node.js 22 is only required for source development.":
-    "使用托管预览需要一个账户，以及受支持的 macOS、glibc Linux 或 Windows 设备。安装版连接器已自带 Node.js 运行时；只有源码开发需要 Node.js 22。",
+  "Create an account and connect a macOS, glibc Linux or Windows device, or install ADC Mobile Node on Android. Desktop connectors include their own Node.js runtime; Node.js 22 is only required for source development.":
+    "创建账户后，可连接 macOS、glibc Linux 或 Windows 设备，也可在 Android 上安装 ADC Mobile Node。桌面连接器已自带 Node.js 运行时；只有源码开发需要 Node.js 22。",
   "Create an account": "创建账户",
   "Open the console and sign in with email or GitHub.": "打开控制台，通过邮箱或 GitHub 登录。",
   "Open the console and use one of the sign-in methods enabled by this deployment.":
@@ -455,6 +624,8 @@ export const zh = {
     "打开「设备」，生成配对码，然后在 macOS 或 glibc Linux 上运行生成的命令。",
   "Open Devices, select the target platform, create a pairing code, and run the generated command.":
     "打开「设备」，选择目标平台、生成配对码，然后运行生成的命令。",
+  "Open Devices, select the target platform and create a pairing code. Run the generated command on a computer, or install the APK and enter the code in ADC Mobile Node on Android.":
+    "打开「设备」，选择目标平台并生成配对码。在电脑上运行生成的命令；Android 则安装 APK，并在 ADC Mobile Node 中输入配对码。",
   "Choose devices, folders, tools and an approval policy. Projects are optional.":
     "选择设备、目录、工具和审批策略；项目不是必选项。",
   "Connect a client": "连接客户端",
@@ -509,6 +680,7 @@ export const zh = {
   "Token-based MCP": "Token 模式 MCP",
   "Access-key MCP": "访问密钥模式 MCP",
   "Official Skill": "官方 Skill",
+  "Download official Skill ZIP": "下载官方 Skill ZIP",
   "Install the complete official Skill directory with your Agent host. It discovers live tools and devices, follows approvals and task results, and never reads device credentials.":
     "请通过 Agent 宿主安装完整的官方 Skill 目录。它会发现实时工具与设备、跟踪审批和任务结果，并且不会读取设备凭据。",
   "Tools use the same schemas and policy path across HTTP, CLI, MCP, SDK and Skill.":
@@ -549,16 +721,12 @@ export const zh = {
   "Trust model": "信任模型",
   "Management sessions administer an account. Agent credentials can only use their bound authorization.":
     "管理会话用于管理账户；Agent 凭据只能使用它绑定的授权。",
-  "Device requests are signed with a local Ed25519 key, timestamp and one-time nonce.":
-    "设备请求使用本地 Ed25519 密钥、时间戳和一次性随机数签名。",
   "Filesystem operations validate canonical paths and symlink boundaries again on the device.":
     "文件系统操作会在设备端再次校验规范路径和符号链接边界。",
   "Important limitation": "重要限制",
   "Restricted process mode is a guardrail, not a sandbox. Full device trust disables command and protected-path filters.":
     "受限进程模式只是防护栏，并非沙箱。完全信任模式会关闭命令和受保护路径过滤。",
   "Credential storage": "凭据存储",
-  "Device private keys currently use a mode-0600 file. Keychain and keyring support is not implemented.":
-    "设备私钥目前保存在权限为 0600 的文件中，尚未接入 Keychain 或 keyring。",
   "Deploy with Docker Compose": "使用 Docker Compose 部署",
   "Production requires HTTPS, PostgreSQL, a stable auth secret and working SMTP when email verification is enabled.":
     "生产环境需要 HTTPS、PostgreSQL、稳定的认证密钥；启用邮箱验证时还需要可用的 SMTP。",
@@ -585,13 +753,15 @@ export const zh = {
   "Tool is denied": "工具调用被拒绝",
   "Check the Agent tool list, device policy, writable folder and local access mode.":
     "检查 Agent 工具列表、设备策略、目录写权限和本地访问模式。",
+  "Update available": "有可用更新",
+  "Latest version: {version}": "最新版本：{version}",
+  "Version 0.1.3": "版本 0.1.3",
   "Version 0.1.0": "版本 0.1.0",
-  "Initial pre-release": "首个预发布版本",
   "Account isolation, device pairing, direct grants, approvals, receipts, MCP OAuth, CLI, Skill and installable connectors.":
     "提供账户隔离、设备配对、直接授权、审批、回执、MCP OAuth、CLI、Skill 和可安装连接器。",
   "Known limits": "已知限制",
-  "Windows, hard process isolation, signed packages, automatic updates, quotas and external artifact storage are not available yet.":
-    "暂不支持 Windows、进程硬隔离、签名安装包、自动更新、配额和外部产物存储。",
+  "Hard process isolation, signed desktop packages, unattended updates, quotas and external artifact storage are not available yet. Desktop updates use adc update; the hosted Android APK uses development signing and manual installation.":
+    "暂未提供进程硬隔离、桌面签名安装包、无人值守升级、配额和外部产物存储。桌面端通过 adc update 更新；托管站点的 Android APK 使用开发签名并需手动安装。",
   "Release notes describe behavior changes and required operator actions before upgrading.":
     "升级前请阅读发布说明，确认行为变化和必要的运维操作。",
   "How it works": "如何使用",
@@ -623,7 +793,7 @@ export const zh = {
     "将此地址添加到支持 OAuth 的 MCP 客户端。登录后选择授权；也可以使用 Agent Token 连接。",
   "CLI description": "在终端登录后直接调用。单设备授权自动选择设备，多设备时指定目标。",
   "Skill description":
-    "让 Agent 加载官方 Skill，使用 CLI 发现设备、读取文件和运行任务，沿用相同的权限与执行记录。",
+    "一条命令安装后，让 Agent 帮你开始使用 ADC。Skill 会引导登录、设备接入和授权，后续通过自然语言调用已授权的工具。",
   "Ready when you are.": "随时，开始连接。",
   "Give your agent a place to do real work.": "让 Agent 在你的设备上，完成真实的工作。",
   "Private devices. Shared possibilities.": "私有设备，无限可能。",
@@ -715,6 +885,15 @@ export const zh = {
   "Try another email": "尝试其他邮箱",
   "This reset link is missing its token. Request a new link.": "重置链接不完整，请重新申请。",
   "This link is invalid or expired. Please try again.": "此链接无效或已过期，请重试。",
+  "This sign-in request has expired. Start a new sign-in request to continue.":
+    "这次登录请求已过期，请重新发起登录。",
+  "Sign-in was cancelled. You can try again.": "登录已取消，可以重新登录。",
+  "This account is disabled. Contact the administrator.": "此账号已停用，请联系管理员。",
+  "The service could not open your workspace. Please try again shortly.":
+    "暂时无法打开你的工作区，请稍后重试。",
+  "Too many sign-in attempts. Please wait before trying again.": "登录尝试过于频繁，请稍后重试。",
+  "Sign-in could not finish. Please try again.": "登录未能完成，请重试。",
+  "Retry opening {product}": "重新进入 {product}",
   "This verification link is invalid or expired. Sign in to request a new one.":
     "此验证链接无效或已过期。请登录并重新发送验证邮件。",
   "GitHub sign-in could not finish. Verify your GitHub email and try again. Existing email accounts can link GitHub from Account.":
@@ -748,8 +927,14 @@ export const zh = {
     "在 Windows PowerShell 中运行此命令，无需预装 curl、shell 或 Node.js。",
   "Run this command inside WSL to connect the Linux environment, not the Windows host.":
     "在 WSL 内运行此命令；连接的是 Linux 环境，而不是 Windows 主机。",
+  "Download the Android APK, allow installation from this browser when Android asks, then enter these values in ADC Mobile Node.":
+    "下载 Android APK，按 Android 提示允许此浏览器安装应用，然后在 ADC Mobile Node 中输入这些信息。",
   "Installs the connector and starts it in the background. Your device will appear below automatically.":
     "安装连接器并在后台启动，设备会自动出现在下方。",
+  "This APK uses a development signing key and requires manual installation and updates.":
+    "此 APK 使用开发签名，安装与更新均需手动完成。",
+  "Download Android APK": "下载 Android APK",
+  "Android APK is not available on this installation.": "此站点暂未提供 Android APK。",
   "Device downloads are not available yet. Contact the installation administrator.":
     "设备安装包暂不可用，请联系站点管理员。",
   "Could not copy. Select and copy the command above.": "复制失败，请手动选择并复制上方命令。",
@@ -835,6 +1020,10 @@ export const zh = {
   "Connect command line": "连接命令行",
   "Checking this login request…": "正在检查登录请求…",
   "CLI connected. You can close this tab.": "CLI 已连接，可以关闭此页面。",
+  "CLI login approved. Return to your terminal to finish.": "CLI 登录已批准，请回到终端完成登录。",
+  "This CLI login request belongs to another account. Run adc login again in your own terminal.":
+    "此 CLI 登录请求属于其他账户。请在自己的终端重新运行 adc login。",
+  "Try again in {seconds} seconds.": "请等待 {seconds} 秒后重试。",
   "CLI login denied. You can close this tab.": "CLI 登录已拒绝，可以关闭此页面。",
   "This CLI login request is invalid or expired.": "此 CLI 登录请求无效或已过期。",
   "Confirm that this code matches the one shown in your terminal.":
@@ -954,7 +1143,7 @@ export const catalogs: Record<Locale, Record<Message, string>> = {
     "CLI description":
       "Sign in from your terminal and call tools directly. A single authorized device is selected automatically; specify a target for multiple devices.",
     "Skill description":
-      "Load the official Skill so your agent can discover devices, read files and run tasks through the CLI, with the same permissions and receipts."
+      "Install with one command, then ask your agent to get started with ADC. The Skill guides sign-in, device setup and access, then handles authorized tools through natural-language requests."
   }
 };
 function initialLocale(): Locale {
@@ -996,10 +1185,6 @@ export function LocaleProvider({
   activeLocale = locale;
   useEffect(() => {
     document.documentElement.lang = locale;
-    document.title =
-      locale === "zh-CN"
-        ? "Agent Device Cloud · AI Agent 私有设备基础设施"
-        : "Agent Device Cloud · Private device infrastructure for AI agents";
     try {
       localStorage.setItem("adc.locale", locale);
     } catch {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { InvocationSchema, type Invocation } from "@adc/protocol";
-import { evaluatePolicy, type PolicyContext } from "./index.ts";
+import { evaluatePolicy, requiresApproval, type PolicyContext } from "./index.ts";
 
 function invocation(tool = "file.read", args: Record<string, unknown> = {}): Invocation {
   return InvocationSchema.parse({
@@ -147,6 +147,70 @@ describe("evaluatePolicy", () => {
     ).toMatchObject({ outcome: "deny", reasonCode: "root.read_only" });
   });
 
+  it("allows a read-only transfer source but requires a writable destination", () => {
+    const args = {
+      source: {
+        nodeId: "node_macbook",
+        rootId: "root_workspace",
+        path: "model.bin"
+      },
+      destination: {
+        nodeId: "node_destination",
+        rootId: "root_destination",
+        path: "model.bin"
+      }
+    };
+    const transferContext = context({
+      account: { ...context().account, allowedTools: ["file.transfer"] },
+      agent: {
+        ...context().agent,
+        nodeIds: ["node_macbook", "node_destination"],
+        rootIds: ["root_workspace", "root_destination"],
+        allowedTools: ["file.transfer"],
+        approvalPolicy: "never"
+      },
+      node: {
+        ...context().node,
+        advertisedTools: ["file.transfer"],
+        roots: [{ rootId: "root_workspace", writable: false }]
+      }
+    });
+    const source = InvocationSchema.parse({
+      ...invocation(),
+      tool: "file.transfer",
+      args,
+      idempotencyKey: "transfer-source-policy",
+      authorization: {
+        ...invocation().authorization,
+        rootIds: ["root_workspace"]
+      }
+    });
+    expect(evaluatePolicy(transferContext, source)).toMatchObject({ outcome: "allow" });
+
+    const destination = InvocationSchema.parse({
+      ...source,
+      invocationId: "inv_transferdestination",
+      attemptId: "att_transferdestination",
+      target: { nodeId: "node_destination" },
+      authorization: {
+        ...source.authorization,
+        rootIds: ["root_destination"]
+      }
+    });
+    const destinationContext = {
+      ...transferContext,
+      node: {
+        ...transferContext.node,
+        nodeId: "node_destination",
+        roots: [{ rootId: "root_destination", writable: false }]
+      }
+    };
+    expect(evaluatePolicy(destinationContext, destination)).toMatchObject({
+      outcome: "deny",
+      reasonCode: "root.read_only"
+    });
+  });
+
   it("keeps account approval requirements above the Agent preference", () => {
     expect(
       evaluatePolicy(
@@ -180,5 +244,20 @@ describe("evaluatePolicy", () => {
         invocation(tool, { query: "is:open" })
       )
     ).toMatchObject({ outcome: "deny", reasonCode: "agent.capability_denied" });
+  });
+
+  it.each([
+    "device.navigation",
+    "device.vibrate",
+    "app.open",
+    "audio.volume.set",
+    "flashlight.set",
+    "ui.action",
+    "ui.gesture",
+    "shell.exec",
+    "command.template.run",
+    "test.run"
+  ] as const)("requires execute approval for %s", (tool) => {
+    expect(requiresApproval("execute", "workspace-write", tool)).toBe(true);
   });
 });

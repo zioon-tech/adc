@@ -17,6 +17,12 @@ function canonicalJson(value: unknown): string {
     .join(",")}}`;
 }
 
+function requestBodyHash(body: unknown): string {
+  return createHash("sha256")
+    .update(body instanceof Uint8Array ? body : canonicalJson(body))
+    .digest("hex");
+}
+
 export function nodeRequestPayload(input: {
   method: string;
   path: string;
@@ -24,7 +30,7 @@ export function nodeRequestPayload(input: {
   nonce: string;
   body?: unknown;
 }): string {
-  const bodyHash = createHash("sha256").update(canonicalJson(input.body)).digest("hex");
+  const bodyHash = requestBodyHash(input.body);
   return [input.method.toUpperCase(), input.path, input.timestamp, input.nonce, bodyHash].join(
     "\n"
   );

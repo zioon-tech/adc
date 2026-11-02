@@ -5,25 +5,33 @@ anonymous administration endpoint is created. Use the [README](../README.md) for
 
 ## Configuration
 
-| Variable                                           | Meaning                                                                                    |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `DATABASE_URL`                                     | Required PostgreSQL connection; Compose constructs this from its database password         |
-| `ADC_PUBLIC_URL`                                   | Exact public origin for cookies, CSRF checks, email callbacks and OAuth audience           |
-| `ADC_AUTH_SECRET`                                  | Stable random secret, at least 32 characters; keep with encrypted backups                  |
-| `ADC_REGISTRATION_ENABLED`                         | `false` closes new email and GitHub registrations; existing logins continue                |
-| `ADC_REQUIRE_EMAIL_VERIFICATION`                   | `true` requires verification before login and requires SMTP                                |
-| `ADC_SMTP_URL`, `ADC_SMTP_FROM`                    | Nodemailer SMTP transport and verified sender address                                      |
-| `ADC_OAUTH_DYNAMIC_REGISTRATION`                   | `true` allows MCP OAuth client registration; consent and a valid grant remain required     |
-| `ADC_GITHUB_CLIENT_ID`, `ADC_GITHUB_CLIENT_SECRET` | Optional GitHub OAuth App credentials; both required to enable GitHub login                |
-| `ADC_ANALYTICS_SCRIPT_URL`, `ADC_ANALYTICS_DOMAIN` | Optional Plausible script URL and site hostname; both empty disables browser analytics     |
-| `ADC_TRUSTED_PROXIES`                              | Comma-separated proxy addresses/CIDRs; never trust all public client addresses             |
-| `ADC_CONSOLE_DIR`                                  | Optional built console path; defaults to `apps/console/dist`                               |
-| `ADC_NODE_RELEASE_DIR`                             | Local downloadable client directory; defaults to `dist/node`                               |
-| `ADC_NODE_DOWNLOAD_URL`                            | Optional external release directory on a static website/CDN/GitHub Releases                |
-| `ADC_ASSET_DIR`                                    | Persistent content-addressed storage for image artifacts; required for screen capture      |
-| `HOST`, `PORT`                                     | Default API bind is `127.0.0.1:8787`; Compose uses its private network                     |
-| `ADC_NODE_CONFIG`                                  | Local device configuration override                                                        |
-| `ADC_CONFIG`                                       | Local CLI token configuration override; management session uses a separate `.session` file |
+| Variable                                                               | Meaning                                                                                    |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `DATABASE_URL`                                                         | Required PostgreSQL connection; Compose constructs this from its database password         |
+| `ADC_PUBLIC_URL`                                                       | Exact public origin for cookies, CSRF checks, email callbacks and OAuth audience           |
+| `ADC_AUTH_SECRET`                                                      | Stable random secret, at least 32 characters; keep with encrypted backups                  |
+| `ADC_REGISTRATION_ENABLED`                                             | `false` closes new email and GitHub registrations; existing logins continue                |
+| `ADC_REQUIRE_EMAIL_VERIFICATION`                                       | `true` requires verification before login and requires SMTP                                |
+| `ADC_SMTP_URL`, `ADC_SMTP_FROM`                                        | Nodemailer SMTP transport and verified sender address                                      |
+| `ADC_OAUTH_DYNAMIC_REGISTRATION`                                       | `true` allows MCP OAuth client registration; consent and a valid grant remain required     |
+| `ADC_GITHUB_CLIENT_ID`, `ADC_GITHUB_CLIENT_SECRET`                     | Optional GitHub OAuth App credentials; both required to enable GitHub login                |
+| `ADC_ANALYTICS_SCRIPT_URL`, `ADC_ANALYTICS_DOMAIN`                     | Optional Plausible script URL and site hostname; both empty disables browser analytics     |
+| `ADC_TRUSTED_PROXIES`                                                  | Comma-separated proxy addresses/CIDRs; never trust all public client addresses             |
+| `ADC_CONSOLE_DIR`                                                      | Optional built console path; defaults to `apps/console/dist`                               |
+| `ADC_NODE_RELEASE_DIR`                                                 | Local downloadable client directory; defaults to `dist/node`                               |
+| `ADC_NODE_DOWNLOAD_URL`                                                | Optional external release directory on a static website/CDN/GitHub Releases                |
+| `ADC_ANDROID_RELEASE_DIR`                                              | Verified Android manifest/APK directory; defaults to `dist/android`                        |
+| `ADC_SKILL_RELEASE_DIR`                                                | Official Skill archives and discovery indexes; defaults to `dist/skills`                   |
+| `ADC_ANDROID_RELEASE_HOST_DIR`                                         | Compose host directory mounted read-only as the Android release directory                  |
+| `ADC_ASSET_DIR`                                                        | Persistent content-addressed storage for image artifacts; required for screen capture      |
+| `ADC_TRANSFER_BACKEND`                                                 | `disabled` (default), `oss` (recommended) or explicit `local`                              |
+| `ADC_TRANSFER_DIR`                                                     | Persistent relay directory, used only by the local backend                                 |
+| `ADC_TRANSFER_MAX_BYTES`                                               | Maximum declared transfer size; defaults to 1 GiB                                          |
+| `ADC_TRANSFER_OSS_REGION`, `ADC_TRANSFER_OSS_BUCKET`                   | Region and private bucket for direct transfer                                              |
+| `ADC_TRANSFER_OSS_ACCESS_KEY_ID`, `ADC_TRANSFER_OSS_ACCESS_KEY_SECRET` | Restricted RAM credentials, stored only in the protected server environment                |
+| `HOST`, `PORT`                                                         | Default API bind is `127.0.0.1:8787`; Compose uses its private network                     |
+| `ADC_NODE_CONFIG`                                                      | Local device configuration override                                                        |
+| `ADC_CONFIG`                                                           | Local CLI token configuration override; management session uses a separate `.session` file |
 
 Use one hostname consistently. Changing the public origin invalidates existing OAuth audiences and
 requires reconnecting clients. Behind an existing reverse proxy, configure TLS there, forward to the
@@ -144,8 +152,11 @@ on persistent local storage; Unix config and ledger files use mode 0600. See
 Back up the whole ADC database: it includes users, password hashes, sessions, OAuth token state,
 pairing records, grants, dispatches, audit, artifact metadata and text artifacts. Back up
 `ADC_ASSET_DIR` with the same recovery point because image artifacts are content-addressed files
-there. Also back up `.env` securely and preserve device configurations/receipt state on their
-respective devices. Do not upload device private keys to the control plane.
+there. `ADC_TRANSFER_DIR` contains only in-flight native-transfer chunks; include it at the same
+recovery point only when preserving resumable in-flight work is required. Completed transfer chunks
+are removed after terminal reconciliation. Also back up `.env` securely and preserve device
+configurations/receipt state on their respective devices. Do not upload device private keys to the
+control plane.
 
 Example database backup, from the repository directory:
 
@@ -185,7 +196,9 @@ and re-pair devices when recovering from a security incident.
 
 Use `docker compose --env-file .env -f deploy/compose.yaml build` followed by
 `docker compose --env-file .env -f deploy/compose.yaml up -d`. Include the local override for a
-loopback installation. No published OCI image, automatic updater or downgrade migration is supplied.
+loopback installation. No published OCI image, unattended updater or downgrade migration is supplied.
+Desktop Connectors support explicit `adc update --check` / `adc update` with integrity verification
+and activation rollback.
 
 ## Migrating the early shared-token prototype
 
@@ -199,8 +212,13 @@ bootstrap endpoint that grants control of old data.
 
 Text artifacts currently use PostgreSQL blobs. PNG screen captures use `ADC_ASSET_DIR`, with only
 their metadata retained in PostgreSQL. Each artifact is capped at 25 MiB; account storage quotas,
-retention jobs and an S3 adapter are not implemented. Monitor both database and asset-directory disk
-usage. This release has one active execution per foreground daemon, no OS-enforced
-CPU/memory/network sandbox, and no multi-region service orchestration. The implementation tests run
+retention jobs and an S3 adapter are not implemented. File transfer supports direct private OSS
+with a pluggable storage interface. Configure a one-day lifecycle on the `transfers/` prefix;
+ADC retries cleanup after outstanding tickets expire. Each account admits at most eight active
+transfers. An explicit local backend still requires shared storage for multiple replicas. See
+[native node-to-node transfer](native-node-transfer.md). Monitor database, asset-directory and
+transfer-directory disk usage. Desktop daemons default to six concurrent tasks and apply the
+device's configured concurrency limit. There is no OS-enforced CPU/memory/network sandbox or
+multi-region service orchestration. The implementation tests run
 against real PostgreSQL; container image startup, TLS issuance and SMTP deliverability must also be
 verified in the target deployment.

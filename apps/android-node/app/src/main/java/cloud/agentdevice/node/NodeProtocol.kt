@@ -13,9 +13,16 @@ import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 
+data class NodeWakeRequest(
+    val url: String,
+    val headers: Map<String, String>
+)
+
 class NodeProtocol(
     private val store: NodeStore
 ) {
+    private var longPollSupported: Boolean? = null
+
     fun pair(controlPlaneUrl: String, code: String, label: String): NodeConfig {
         val body = JSONObject()
             .put("code", code)
@@ -31,12 +38,26 @@ class NodeProtocol(
         )
     }
 
-    fun poll(config: NodeConfig, capability: JSONObject): JSONObject {
-        val body = JSONObject()
+    fun poll(
+        config: NodeConfig,
+        capability: JSONObject,
+        waitForWake: Boolean = true
+    ): JSONObject {
+        val path = "/api/v1/nodes/${config.nodeId}/poll"
+        fun body() = JSONObject()
             .put("capability", capability)
             .put("activeTaskCount", 0)
             .put("claim", true)
-        return signedPost(config, "/api/v1/nodes/${config.nodeId}/poll", body)
+        if (waitForWake && longPollSupported != false) {
+            try {
+                return signedPost(config, path, body().put("waitMs", LONG_POLL_WAIT_MS))
+                    .also { longPollSupported = true }
+            } catch (error: NodeApiException) {
+                if (error.statusCode != 400 || error.code != "invalid_request") throw error
+                longPollSupported = false
+            }
+        }
+        return signedPost(config, path, body())
     }
 
     fun acknowledge(config: NodeConfig, dispatchId: String, leaseToken: String): JSONObject =
@@ -87,7 +108,36 @@ class NodeProtocol(
                 .put("dataBase64", Base64.encodeToString(artifact.data, Base64.NO_WRAP))
         )
 
+    fun wakeRequest(config: NodeConfig): NodeWakeRequest {
+        val path = "/api/v1/nodes/${config.nodeId}/events"
+        val scheme =
+            when {
+                config.controlPlaneUrl.startsWith("https://") -> "wss://"
+                config.controlPlaneUrl.startsWith("http://") -> "ws://"
+                else -> throw IllegalArgumentException("ADC Control Plane URL is invalid.")
+            }
+        val base = config.controlPlaneUrl.substringAfter("://").trimEnd('/')
+        return NodeWakeRequest(
+            url = "$scheme$base$path",
+            headers = signedHeaders(config, "GET", path, null, bodyPresent = false)
+        )
+    }
+
     private fun signedPost(config: NodeConfig, path: String, body: JSONObject): JSONObject {
+        return post(
+            "${config.controlPlaneUrl}$path",
+            body,
+            signedHeaders(config, "POST", path, body, bodyPresent = true)
+        )
+    }
+
+    private fun signedHeaders(
+        config: NodeConfig,
+        method: String,
+        path: String,
+        body: Any?,
+        bodyPresent: Boolean
+    ): Map<String, String> {
         val timestamp = DateTimeFormatter.ISO_INSTANT.format(Instant.now())
         val nonceBytes = ByteArray(18)
         java.security.SecureRandom().nextBytes(nonceBytes)
@@ -95,7 +145,7 @@ class NodeProtocol(
             nonceBytes,
             Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
         )
-        val payload = requestPayload("POST", path, timestamp, nonce, body)
+        val payload = requestPayload(method, path, timestamp, nonce, body, bodyPresent)
         val signer = Signature.getInstance("SHA256withECDSA")
         signer.initSign(store.privateKey())
         signer.update(payload.toByteArray(StandardCharsets.UTF_8))
@@ -103,15 +153,11 @@ class NodeProtocol(
             signer.sign(),
             Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
         )
-        return post(
-            "${config.controlPlaneUrl}$path",
-            body,
-            mapOf(
-                "x-adc-node-id" to config.nodeId,
-                "x-adc-timestamp" to timestamp,
-                "x-adc-nonce" to nonce,
-                "x-adc-signature" to signature
-            )
+        return mapOf(
+            "x-adc-node-id" to config.nodeId,
+            "x-adc-timestamp" to timestamp,
+            "x-adc-nonce" to nonce,
+            "x-adc-signature" to signature
         )
     }
 
@@ -135,11 +181,17 @@ class NodeProtocol(
         val response = if (text.isBlank()) JSONObject() else JSONObject(text)
         if (status !in 200..299) {
             val error = response.optJSONObject("error")
+            val details = error?.optJSONObject("details")
             throw NodeApiException(
                 status,
                 error?.optString("code", "internal") ?: "internal",
-                error?.optString("message", "ADC returned HTTP $status")
-                    ?: "ADC returned HTTP $status"
+                buildString {
+                    append(
+                        error?.optString("message", "ADC returned HTTP $status")
+                            ?: "ADC returned HTTP $status"
+                    )
+                    if (details != null) append(": ").append(details)
+                }
             )
         }
         return response
@@ -151,10 +203,14 @@ class NodeProtocol(
             path: String,
             timestamp: String,
             nonce: String,
-            body: Any?
+            body: Any?,
+            bodyPresent: Boolean = true
         ): String {
             val digest = MessageDigest.getInstance("SHA-256")
-                .digest(canonicalJson(body).toByteArray(StandardCharsets.UTF_8))
+                .digest(
+                    (if (bodyPresent) canonicalJson(body) else "")
+                        .toByteArray(StandardCharsets.UTF_8)
+                )
                 .joinToString("") { "%02x".format(it) }
             return "${method.uppercase()}\n$path\n$timestamp\n$nonce\n$digest"
         }
@@ -180,6 +236,7 @@ class NodeProtocol(
 
         internal fun canonicalString(value: String): String =
             JSONObject.quote(value)
+                .replace("\\/", "/")
                 .replace("\\u2028", "\u2028")
                 .replace("\\u2029", "\u2029")
 
@@ -218,6 +275,8 @@ class NodeProtocol(
 
         fun invocationId(prefix: String): String =
             "${prefix}_${UUID.randomUUID().toString().replace("-", "").lowercase()}"
+
+        private const val LONG_POLL_WAIT_MS = 10_000
     }
 }
 

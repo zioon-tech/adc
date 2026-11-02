@@ -13,13 +13,15 @@ describe("official Agent Device Cloud Skill", () => {
     expect(skill).toMatch(/^description: .+ Use (?:it )?when .+$/m);
     expect(skill).toContain("references/account-and-device-management.md");
     expect(skill).toContain("references/tool-invocation.md");
-
-    await expect(
-      readFile(resolve(skillDirectory, "references", "account-and-device-management.md"), "utf8")
-    ).resolves.not.toHaveLength(0);
-    await expect(
-      readFile(resolve(skillDirectory, "references", "tool-invocation.md"), "utf8")
-    ).resolves.not.toHaveLength(0);
+    expect(skill).toContain("references/getting-started.md");
+    const description = skill.match(/^description: (.+)$/m)![1]!;
+    expect(description.length).toBeLessThan(200);
+    expect(description).not.toMatch(/^["']|: |[<>]|TODO/);
+    for (const [, reference] of skill.matchAll(/\]\((references\/[^)]+)\)/g)) {
+      await expect(readFile(resolve(skillDirectory, reference!), "utf8")).resolves.not.toHaveLength(
+        0
+      );
+    }
   });
 
   it("keeps the documented built-in tool table aligned with the protocol", async () => {

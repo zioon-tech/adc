@@ -18,6 +18,31 @@ class TestSocket extends EventEmitter {
 }
 
 describe("NodeWakeHub", () => {
+  it("releases a long poll immediately when work is queued", async () => {
+    const hub = new NodeWakeHub({
+      heartbeatIntervalMs: 60_000,
+      touchPresence: async () => {}
+    });
+    const sequence = hub.wakeSequence("node_example");
+    const waiting = hub.wait("node_example", sequence, 10_000);
+
+    expect(hub.wake("node_example")).toBe(true);
+    await expect(waiting).resolves.toBe(true);
+    hub.close();
+  });
+
+  it("does not miss a wake between claim and waiter registration", async () => {
+    const hub = new NodeWakeHub({
+      heartbeatIntervalMs: 60_000,
+      touchPresence: async () => {}
+    });
+    const sequence = hub.wakeSequence("node_example");
+    expect(hub.wake("node_example")).toBe(false);
+
+    await expect(hub.wait("node_example", sequence, 10_000)).resolves.toBe(true);
+    hub.close();
+  });
+
   it("rejects a connection authenticated before credentials changed", () => {
     const hub = new NodeWakeHub({
       heartbeatIntervalMs: 60_000,

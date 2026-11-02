@@ -377,7 +377,11 @@ class MobileExecutionEngine(
             "notification.show",
             "ui.action",
             "ui.gesture",
-            "device.navigation"
+            "device.navigation",
+            "device.vibrate",
+            "app.open",
+            "audio.volume.set",
+            "flashlight.set"
         )
 
         fun sha256(value: Any?): String = sha256Text(NodeProtocol.canonicalJson(value))

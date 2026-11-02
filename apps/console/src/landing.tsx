@@ -168,7 +168,7 @@ adc connect ACCESS
 adc node list --json
 adc invoke file.read --node node_example \\
   --args '{"path":"/Users/me/work/README.md"}' --json`,
-    Skill: "skills/agent-device-cloud/SKILL.md\n\nadc node list --json"
+    Skill: `npx skills@latest add ${origin} --skill agent-device-cloud`
   };
 
   return (
@@ -178,9 +178,7 @@ adc invoke file.read --node node_example \\
       <main>
         <section className="hero product-hero">
           <div className="hero-copy">
-            <p className="eyebrow">
-              {t("Public preview · Private device infrastructure for AI agents")}
-            </p>
+            <p className="eyebrow">{t("Private device infrastructure for AI agents")}</p>
             <h1>Agent Device Cloud</h1>
             <p className="hero-statement">
               {t(
@@ -565,6 +563,12 @@ adc invoke file.read --node node_example \\
                 <pre>
                   <code>{snippets[method]}</code>
                 </pre>
+                {method === "Skill" ? (
+                  <a className="text-link" href="/downloads/skills/agent-device-cloud.zip" download>
+                    {t("Download official Skill ZIP")}
+                    <ArrowRight size={16} />
+                  </a>
+                ) : null}
               </div>
             </div>
           </div>
@@ -582,14 +586,14 @@ adc invoke file.read --node node_example \\
               <h3>{t("A complete personal device loop")}</h3>
               <p>
                 {t(
-                  "Accounts, macOS/Linux/Windows connectors, local MCP Providers, scoped grants, approvals, audit, MCP OAuth, CLI, Skill and self-hosting."
+                  "Accounts, macOS/Linux/Windows connectors, Android Mobile Node, local MCP Providers, scoped grants, approvals, audit, MCP OAuth, CLI, Skill and self-hosting."
                 )}
               </p>
             </article>
             <article>
               <i aria-hidden="true" />
               <span>{t("Next")}</span>
-              <h3>{t("Production hardening")}</h3>
+              <h3>{t("Reliability and operations")}</h3>
               <p>
                 {t(
                   "Signed releases, automatic updates, keychain storage, quotas, retention and external artifact storage."
@@ -602,7 +606,7 @@ adc invoke file.read --node node_example \\
               <h3>{t("Teams and broader capabilities")}</h3>
               <p>
                 {t(
-                  "Container isolation, team roles, SSO, SIEM export, Windows and additional local executors."
+                  "Container isolation, team roles, SSO, SIEM export and additional local executors."
                 )}
               </p>
             </article>
@@ -621,7 +625,7 @@ adc invoke file.read --node node_example \\
               <h2>{t("One product, the same trust model.")}</h2>
               <p>
                 {t(
-                  "Use the hosted preview now, or deploy the same application on your own infrastructure. Both use the same accounts, authorization, approvals, audit and device software."
+                  "Use the official hosted service, or deploy the same application on your own infrastructure. Both use the same accounts, authorization, approvals, audit and device software."
                 )}
               </p>
             </div>

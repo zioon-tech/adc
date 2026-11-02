@@ -258,6 +258,8 @@ describe("Agent Device Cloud golden path", () => {
 
     const audit = await owner.audit();
     expect(audit.map((event: any) => event.type)).toEqual([
+      "project.created",
+      "project.folder_added",
       "grant.saved",
       "dispatch.queued",
       "dispatch.completed",
@@ -269,8 +271,9 @@ describe("Agent Device Cloud golden path", () => {
       "task.cancel_requested",
       "dispatch.completed"
     ]);
-    expect((audit[1] as any).payload.policyDecision.outcome).toBe("allow");
-    expect((audit[1] as any).payload).toMatchObject({
+    const firstDispatch = audit.find((event: any) => event.type === "dispatch.queued") as any;
+    expect(firstDispatch.payload.policyDecision.outcome).toBe("allow");
+    expect(firstDispatch.payload).toMatchObject({
       nodeId: paired.nodeId,
       tool: "shell.exec",
       path: workspace

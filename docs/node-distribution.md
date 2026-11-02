@@ -17,6 +17,17 @@ On Windows 10/11 x64, select **Windows PowerShell** in the console. Its generate
 a Unix shell or a preinstalled Node.js. Selecting **WSL** installs the Linux connector inside WSL;
 that is a separate node and does not provide native Windows process or startup behavior.
 
+To use ADC from an Agent host before connecting a device, install just the public CLI:
+
+```sh
+curl -fsSL https://adc.zioon.tech/downloads/node/install.sh | sh -s -- --cli-only
+```
+
+For Windows, download the same origin's `install.ps1` and run it with `-CliOnly`.
+This installs the bundled runtime and launchers without pairing, creating device identity or
+starting a Connector. A later normal installation command pairs the device. Existing paired
+identity is preserved in CLI-only mode. Pairing and folder flags cannot be combined with this mode.
+
 For unattended setup, add `--label my-device --access none|home|full`, or
 `--label my-device --root-path /absolute/workspace`. The default folder ID
 is `root_workspace`; `--root-id root_other` overrides it. `--read-only` prevents write/execution
@@ -31,6 +42,20 @@ the saved release source, compares build IDs, downloads and verifies the current
 then reuses the installer without consuming a pairing code. Pairing, folders and receipt state are
 preserved. `--download-url` can override the saved source, and `--no-service` is available for
 foreground or isolated installations. Pairing to a different server is refused.
+
+The Control Plane compares every desktop Connector's advertised build ID with the current release.
+Devices running a legacy build that does not advertise an ID are shown as **Update available** in
+the console. Current Connectors also receive this status in their signed poll response and write one
+notice per available build to `adc-node logs`. Human, non-JSON `adc` commands read a local daily
+cache and start any network refresh in a detached process; MCP, CI and `--json` output never waits
+for or includes an update check. `ADC_NO_UPDATE_NOTIFIER=1` disables this convenience. Explicit
+`adc update --check --json` remains the deterministic automation interface.
+
+An old Connector cannot acquire behavior it does not contain, so the console is the discovery path
+for pre-0.1.1 nodes until they are upgraded. Very old Windows clients that reject a manifest
+containing ZIP metadata cannot self-update; rerun the current `install.ps1` command once. The
+pairing identity and local settings are reused.
+
 The installer serializes upgrades with a PID lock. If an earlier process was interrupted, the next
 run automatically removes the stale lock; a live installer PID is never interrupted.
 On macOS, startup falls back to loading the new plist if a stale launchd registration disappears
@@ -107,7 +132,7 @@ Build all five supported archives with a pinned official Node.js runtime:
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm build:node --download-url https://downloads.example.com/adc/v0.1.0
+pnpm build:node --download-url https://downloads.example.com/adc/v0.1.1
 ```
 
 Upload the contents of `dist/node/` unchanged to that directory:
@@ -116,26 +141,31 @@ Upload the contents of `dist/node/` unchanged to that directory:
 - `install.ps1`: generated Windows PowerShell installer.
 - `adc-<version>-<platform>-<arch>-<digest>.tar.gz`: macOS/Linux runtime and program payload.
 - `adc-<version>-win32-x64-<digest>.zip`: Windows runtime and program payload.
-- `manifest.json`: version, build ID, runtime, file names, sizes and SHA-256 values.
+- `manifest.json`: legacy-compatible Unix archive metadata used to bootstrap older clients.
+- `manifest-v2.json`: complete version, build ID, runtime and all platform archive metadata.
 - `SHA256SUMS`: archive checksums for manual verification.
 
 Then the public command is:
 
 ```sh
-curl -fsSL https://downloads.example.com/adc/v0.1.0/install.sh | sh -s -- \
+curl -fsSL https://downloads.example.com/adc/v0.1.1/install.sh | sh -s -- \
   --url https://devices.example.com --code 'PAIRING_CODE'
 ```
 
 For GitHub Releases, build with the immutable base
-`https://github.com/OWNER/REPO/releases/download/v0.1.0`, then attach all output files to that release.
+`https://github.com/OWNER/REPO/releases/download/v0.1.1`, then attach all output files to that release.
 The repository contains the build script, but does not publish files or create a release for you.
 Keep old archives accessible while cached installers may still reference them.
+
+Use an atomic directory switch when the host supports one. Otherwise upload content-addressed
+archives and `SHA256SUMS` first, then both installers, then `manifest-v2.json`, and publish
+`manifest.json` last. A manifest must never point at an installer or archive that is not reachable.
 
 Set `ADC_NODE_DOWNLOAD_URL` on the Control Plane to the published directory and restart it. The
 console will generate commands using that external installer and archive base. This setting declares
 the external release available; verify the uploaded URL before enabling it.
 
-Without a build-time base URL, pass `--download-url https://downloads.example.com/adc/v0.1.0` to the
+Without a build-time base URL, pass `--download-url https://downloads.example.com/adc/v0.1.1` to the
 installer. Without either override, it uses `--url ORIGIN` plus `/downloads/node`.
 Download URLs use HTTPS; loopback HTTP supports local development.
 
@@ -151,12 +181,49 @@ Archive hashes verify integrity; HTTPS establishes the distribution origin. `adc
 explicit and downloads the complete runtime-containing archive. Detached signatures, differential
 packages and unattended updates are not included.
 
+## Hosted ADC release distribution
+
+The production Control Plane at `https://adc.zioon.tech` uses this public Alibaba OSS directory:
+
+```text
+https://adc-zioon-downloads.oss-cn-shanghai.aliyuncs.com/node
+```
+
+`ADC_NODE_DOWNLOAD_URL` is set to that directory in the production service environment. The console
+therefore generates OSS installer URLs, and the published Unix and Windows installers embed the
+same archive/update source. The dedicated `adc-zioon-downloads` bucket is in `cn-shanghai`, uses
+Standard storage and public reads, and requires authenticated writes.
+
+Caddy redirects the exact published Node filenames under `/downloads/node/`, plus `/install.sh`
+and `/install.ps1`, to OSS with HTTP 302. Both the production domain and the legacy ADC `nip.io`
+origin support these redirects. Existing installation commands and saved update URLs continue to
+work. Unknown filenames still return 404. The application, pairing and other download routes
+continue to use the Control Plane.
+
+For subsequent releases:
+
+1. Build with `--download-url https://adc-zioon-downloads.oss-cn-shanghai.aliyuncs.com/node`.
+2. Upload and verify the content-addressed archives first; retain older archives for cached
+   installers. Set `Cache-Control: public, max-age=31536000, immutable` on archives and `no-cache`
+   on installers, manifests and `SHA256SUMS`.
+3. Publish the metadata and installers in the order described above. Check public availability,
+   full archive SHA-256 values, and HTTP Range responses before enabling the release.
+4. Add the new exact archive filenames to the Caddy redirect lists on both ADC origins, preserving
+   the existing names. Validate the Caddy configuration before reloading it.
+5. Verify both manifests, legacy installer URLs, the console's installation source and `/health`;
+   run an isolated CLI installation before considering publication complete.
+
+Keep a backup of `/etc/caddy/Caddyfile` and `/etc/agent-device-cloud/adc.env` before configuration
+changes. To revert the distribution switch, restore both files, restart `agent-device-cloud.service`
+and reload Caddy. The original server-side archives remain available for this rollback.
+
 ## Serve releases with the Control Plane
 
 `pnpm build:node` produces `dist/node`; the Control Plane serves:
 
 - `/install.sh`, `/install.ps1` and their `/downloads/node/` equivalents
 - `/downloads/node/manifest.json`
+- `/downloads/node/manifest-v2.json`
 - `/downloads/node/SHA256SUMS`
 - `/downloads/node/<archive-name>`
 

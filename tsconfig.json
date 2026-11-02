@@ -21,7 +21,8 @@
     "apps/**/*.tsx",
     "packages/**/*.ts",
     "tests/**/*.ts",
-    "scripts/**/*.ts"
+    "scripts/**/*.ts",
+    "plugins/**/*.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }

@@ -19,8 +19,13 @@ export interface PublicRouteMetadata {
 const text = (en: string, zh: string): LocalizedText => ({ en, "zh-CN": zh });
 
 const docs: Array<[string, string, string]> = [
-  ["", "Documentation", "Connect AI agents to governed tools on your own macOS and Linux devices."],
+  [
+    "",
+    "Documentation",
+    "Connect AI agents to governed tools on your computers and Android devices."
+  ],
   ["quickstart", "Get started", "Connect an account, device and Agent authorization."],
+  ["collaboration", "Teams and sharing", "Manage team membership and named device sharing with exact permissions."],
   ["use-cases", "Use cases", "Practical ways to run AI agent work on an existing device."],
   [
     "concepts",
@@ -31,7 +36,7 @@ const docs: Array<[string, string, string]> = [
   ["security", "Security", "Identity, authorization, local enforcement and known limitations."],
   ["connector", "Device connector", "Install, pair and operate the outbound device Connector."],
   ["integrations", "Integrations", "Connect MCP clients, the CLI, SDK and official Skill."],
-  ["tools", "Tool reference", "Built-in file, process, template and task tools."],
+  ["tools", "Tool reference", "Built-in desktop, Android, file, process and task tools."],
   [
     "api",
     "API and errors",
@@ -65,8 +70,8 @@ const baseRoutes: PublicRouteMetadata[] = [
       "Agent Device Cloud | AI Agent 安全设备访问"
     ),
     description: text(
-      "Give AI agents controlled access to files, tools and environments on your own macOS and Linux devices.",
-      "让 AI Agent 在明确授权、审批和审计下访问你自己的 macOS 与 Linux 设备。"
+      "Give AI agents controlled access to files and tools on macOS, Linux and Windows, and native capabilities on Android.",
+      "让 AI Agent 在明确授权、审批和审计下访问 macOS、Linux、Windows 上的文件与工具，以及 Android 原生能力。"
     ),
     kind: "website",
     keywords: [

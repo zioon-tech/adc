@@ -41,7 +41,7 @@ function jsonLd(metadata: PublicRouteMetadata) {
         "@type": "SoftwareApplication",
         name: SITE_NAME,
         applicationCategory: "DeveloperApplication",
-        operatingSystem: "macOS, Linux",
+        operatingSystem: "macOS, Linux, Windows, Android",
         url,
         description: metadata.description.en,
         offers: { "@type": "Offer", price: "0", priceCurrency: "USD" }

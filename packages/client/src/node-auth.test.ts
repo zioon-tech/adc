@@ -40,4 +40,27 @@ describe("node request proofs", () => {
       "e1c4eb1b358344b9f58ff65ea5ef3f986a5086b4b1c389720f01658640f70f59"
     ]);
   });
+
+  it("signs raw transfer chunks without JSON or base64 conversion", () => {
+    const pair = generateKeyPairSync("ed25519");
+    const privateKey = pair.privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+    const publicKey = pair.publicKey.export({ type: "spki", format: "pem" }).toString();
+    const request = {
+      method: "PUT",
+      path: "/api/v1/nodes/node_source/transfers/xfr_example/chunks/0",
+      timestamp: "2026-10-01T00:00:00.000Z",
+      nonce: "abcdefghijklmnop",
+      body: Buffer.from([0, 1, 2, 255])
+    };
+
+    const signature = signNodeRequest(privateKey, request);
+
+    expect(verifyNodeRequest(publicKey, signature, request)).toBe(true);
+    expect(
+      verifyNodeRequest(publicKey, signature, {
+        ...request,
+        body: Buffer.from([0, 1, 3, 255])
+      })
+    ).toBe(false);
+  });
 });

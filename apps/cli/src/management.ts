@@ -14,6 +14,7 @@ import {
 } from "@adc/client";
 import type { ToolId } from "@adc/protocol";
 import { importToken } from "./auth.ts";
+import { collaborationUsage, runCollaborationCommand } from "./collaboration.ts";
 
 type Flags = Map<string, string | true>;
 
@@ -25,9 +26,10 @@ const readTools = [
   "file.search",
   "command.template.list",
   "task.status",
-  "task.result"
+  "task.result",
+  "task.wait"
 ] as ToolId[];
-const writeTools = ["file.write", "file.edit", "file.patch"] as ToolId[];
+const writeTools = ["file.write", "file.edit", "file.patch", "file.transfer"] as ToolId[];
 const runTools = ["shell.exec", "command.template.run", "test.run", "task.cancel"] as ToolId[];
 const toolPresets: Record<string, ToolId[]> = {
   read: readTools,
@@ -61,8 +63,13 @@ export const managementUsage = `Account management:
   adc project list | create --name NAME
   adc project roots PROJECT
   adc project root-add PROJECT --device DEVICE --folder FOLDER [--name NAME] [--read-only]
+  adc project rename PROJECT --name NAME
+  adc project delete PROJECT --yes
+  adc project root-edit PROJECT --folder FOLDER [--name NAME] [--read-only | --writable]
+  adc project root-remove PROJECT --folder FOLDER --yes
 
-DEVICE, ACCESS, PROJECT, CONNECTION and FOLDER accept an exact ID or unambiguous name/path.`;
+DEVICE, ACCESS, PROJECT, CONNECTION and FOLDER accept an exact ID or unambiguous name/path.
+${collaborationUsage}`;
 
 export function isManagementCommand(
   domain: string | undefined,
@@ -70,7 +77,7 @@ export function isManagementCommand(
   flags: Flags
 ): boolean {
   if (!domain) return false;
-  if (["device", "access", "connect", "connection", "pat", "approval", "project"].includes(domain))
+  if (["device", "access", "connect", "connection", "pat", "approval", "project", "account", "team", "share", "invitation"].includes(domain))
     return true;
   if (domain === "audit") return true;
   return domain === "node" && (action === "pairing-code" || flags.has("session"));
@@ -171,6 +178,8 @@ function publicNode(node: ManagedNode) {
     revision: node.revision ?? 1,
     lastSeenAt: node.lastSeenAt ?? null,
     createdAt: node.createdAt,
+    version: node.capability?.nodeVersion ?? null,
+    update: node.update ?? null,
     accessMode: node.capability?.accessMode ?? "selected",
     policy: {
       rootAccess: "all",
@@ -318,16 +327,24 @@ async function accessSettings(
     throw new Error(
       "Project access requires selected folders; use --folders none or a folder list."
     );
+  if (selectedNodes.some(node => !!node.resourceAuthorization) && rootAccess === "all") {
+    rootAccess = "selected";
+    rootIds = availableRoots(selectedNodes).map(root => root.rootId);
+  }
 
   const preset = stringFlag(flags, "capabilities");
   if (preset && !toolPresets[preset])
     throw new Error("--capabilities must be read, write, run or templates");
   const explicitTools = csv(stringFlag(flags, "tools"));
-  const allowedTools = (explicitTools ??
+  let allowedTools = (explicitTools ??
     (preset ? toolPresets[preset] : undefined) ??
     (input.allowedTools as ToolId[] | undefined) ??
     defaults?.allowedTools ??
     toolPresets.read) as ToolId[];
+  if (selectedNodes.some(node => !!node.resourceAuthorization) && !explicitTools && !input.allowedTools && !defaults) {
+    allowedTools = allowedTools.filter(tool => ["device.list", "device.status", "task.status", "task.result", "task.wait", "task.cancel"].includes(tool) ||
+      selectedNodes.some(node => (node.effectiveCapability ?? node.capability)?.tools.some(entry => entry.name === tool)));
+  }
   const profile = (stringFlag(flags, "profile") ??
     input.profile ??
     (preset === "read" ? "read-only" : undefined) ??
@@ -354,7 +371,9 @@ async function accessSettings(
     rootAccess,
     rootIds,
     approvalPolicy,
-    allowedTools
+    allowedTools,
+    resourceBindings: selectedNodes.flatMap(node => node.resourceAuthorization?.bindingId ?
+      [{ nodeId: node.nodeId, bindingId: node.resourceAuthorization.bindingId }] : [])
   };
 }
 
@@ -414,6 +433,8 @@ export async function runManagementCommand(input: {
   url: string;
 }): Promise<{ handled: boolean; value?: unknown }> {
   const { domain, action, positionals, flags, client, url } = input;
+  const collaboration = await runCollaborationCommand(input);
+  if (collaboration.handled) return collaboration;
   if (domain === "device") {
     if (action === "add") {
       const pairing = await client.createPairingCode(
@@ -798,6 +819,28 @@ export async function runManagementCommand(input: {
   }
 
   if (domain === "project") {
+    if (action && ["rename", "delete", "root-edit", "root-remove"].includes(action)) {
+      const selector = positionals[2];
+      if (!selector) throw new Error("project name or ID is required");
+      const project = await resolveProject(client, selector);
+      if (action === "rename") return { handled: true, value: { schemaVersion: "0.1",
+        project: await client.updateProject(project.projectId, { label: requiredFlag(flags, "name"), revision: project.revision ?? 1 }) } };
+      if (action === "delete") {
+        if (!flags.has("yes")) throw new Error("Project deletion requires --yes. Device files are kept.");
+        return { handled: true, value: { schemaVersion: "0.1", ...await client.deleteProject(project.projectId, project.revision ?? 1) } };
+      }
+      const folders = await client.listProjectRoots(project.projectId);
+      const selectedRootId = resolveRootIds(folders, [requiredFlag(flags, "folder")])[0]!;
+      const root = folders.find(root => root.rootId === selectedRootId)!;
+      if (action === "root-remove") {
+        if (!flags.has("yes")) throw new Error("Folder removal requires --yes. Device files are kept.");
+        return { handled: true, value: { schemaVersion: "0.1", ...await client.removeProjectRoot(project.projectId, root.rootId, root.revision ?? 1) } };
+      }
+      if (flags.has("read-only") && flags.has("writable")) throw new Error("Choose --read-only or --writable.");
+      return { handled: true, value: { schemaVersion: "0.1", folder: await client.updateProjectRoot(project.projectId, root.rootId, {
+        label: stringFlag(flags, "name") ?? root.label, writable: flags.has("writable") || !flags.has("read-only") && root.writable, revision: root.revision ?? 1
+      }) } };
+    }
     if (action === "list") {
       return {
         handled: true,

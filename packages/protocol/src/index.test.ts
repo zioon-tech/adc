@@ -12,7 +12,8 @@ import {
   assertInvocationCurrent,
   isSideEffectTool,
   relativePathFromRoot,
-  rootForAbsolutePath
+  rootForAbsolutePath,
+  toolArgsJsonSchema
 } from "./index.ts";
 
 function invocation(overrides: Record<string, unknown> = {}) {
@@ -135,6 +136,60 @@ describe("InvocationSchema", () => {
     expect(isSideEffectTool("screen.capture")).toBe(false);
   });
 
+  it("validates native Android controls and richer UI selectors", () => {
+    const target = { nodeId: "node_android" };
+    const wait = InvocationSchema.parse(
+      invocation({
+        target,
+        tool: "ui.wait",
+        args: {
+          condition: "element",
+          selector: { ref: "w1/0/2", enabled: true }
+        }
+      })
+    );
+    expect(wait.args).toMatchObject({
+      state: "present",
+      timeoutMs: 10_000,
+      pollIntervalMs: 200
+    });
+    expect(
+      InvocationSchema.safeParse(
+        invocation({
+          target,
+          tool: "app.open",
+          args: { packageName: "com.android.settings" }
+        })
+      ).success
+    ).toBe(false);
+    expect(
+      InvocationSchema.parse({
+        ...invocation({
+          target,
+          tool: "app.open",
+          args: { packageName: "com.android.settings" }
+        }),
+        idempotencyKey: "open-settings-1"
+      }).args
+    ).toEqual({
+      packageName: "com.android.settings",
+      waitForForegroundMs: 5000
+    });
+    expect(
+      InvocationSchema.safeParse({
+        ...invocation({
+          target,
+          tool: "audio.volume.set",
+          args: { stream: "media", levelPercent: 101 }
+        }),
+        idempotencyKey: "volume-1"
+      }).success
+    ).toBe(false);
+    expect(isSideEffectTool("device.vibrate")).toBe(true);
+    expect(isSideEffectTool("flashlight.set")).toBe(true);
+    expect(isSideEffectTool("device.info.get")).toBe(false);
+  });
+
   it("accepts namespaced MCP tools and requires an idempotency key", () => {
     const custom = invocation({
       target: { nodeId: "node_macbook" },
@@ -209,6 +264,21 @@ describe("CapabilitySchema", () => {
     ).toMatchObject({ platform: "win32" });
   });
 
+  it("accepts a release build ID and rejects malformed values", () => {
+    const capability = {
+      schemaVersion: "0.1",
+      nodeId: "node_release",
+      tools: [],
+      roots: [],
+      platform: "linux",
+      nodeVersion: "0.1.1",
+      buildId: `sha256:${"a".repeat(64)}`,
+      advertisedAt: "2026-09-24T00:00:00.000Z"
+    };
+    expect(CapabilitySchema.parse(capability).buildId).toBe(capability.buildId);
+    expect(CapabilitySchema.safeParse({ ...capability, buildId: "latest" }).success).toBe(false);
+  });
+
   it("accepts a dynamic MCP tool with its original object schema", () => {
     const capability = CapabilitySchema.parse({
       schemaVersion: "0.1",
@@ -265,5 +335,23 @@ describe("CapabilitySchema", () => {
         ]
       }).success
     ).toBe(false);
+  });
+});
+
+describe("toolArgsJsonSchema", () => {
+  it("publishes UI selector and set_text constraints", () => {
+    const action = toolArgsJsonSchema("ui.action") as any;
+    expect(action.properties.selector.anyOf).toContainEqual({ required: ["text"] });
+    expect(action.allOf[0]).toMatchObject({
+      if: { properties: { action: { const: "set_text" } } },
+      then: { required: ["text"] },
+      else: { not: { required: ["text"] } }
+    });
+
+    const wait = toolArgsJsonSchema("ui.wait") as any;
+    const element = wait.oneOf.find(
+      (variant: any) => variant.properties.condition.const === "element"
+    );
+    expect(element.properties.selector.anyOf).toContainEqual({ required: ["resourceId"] });
   });
 });

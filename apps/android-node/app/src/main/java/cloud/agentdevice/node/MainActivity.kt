@@ -11,6 +11,7 @@ import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -25,15 +26,22 @@ import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import org.json.JSONObject
+import java.io.File
 import java.net.URI
+import java.time.Duration
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
     private val executor = Executors.newSingleThreadExecutor()
     private lateinit var store: NodeStore
     private lateinit var registry: CapabilityRegistry
+    private lateinit var updateManager: AndroidUpdateManager
     private lateinit var status: TextView
     private lateinit var capabilities: TextView
+    private lateinit var versionStatus: TextView
     private lateinit var urlInput: TextInputEditText
     private lateinit var codeInput: TextInputEditText
     private lateinit var labelInput: TextInputEditText
@@ -45,7 +53,27 @@ class MainActivity : AppCompatActivity() {
     private lateinit var notificationSwitch: MaterialSwitch
     private lateinit var screenCaptureSwitch: MaterialSwitch
     private lateinit var uiControlSwitch: MaterialSwitch
+    private lateinit var checkUpdateButton: MaterialButton
+    private lateinit var releaseNotesButton: MaterialButton
+    private lateinit var installUpdateButton: MaterialButton
+    private var latestRelease: AndroidRelease? = null
+    private var pendingUpdateApk: File? = null
+    private var checkedForUpdatesThisSession = false
+    private var updateBusy = false
     private var bindingSwitches = false
+
+    private val installPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            val apk = pendingUpdateApk ?: return@registerForActivityResult
+            if (updateManager.canRequestPackageInstalls()) {
+                pendingUpdateApk = null
+                launchVerifiedUpdate(apk)
+            } else {
+                versionStatus.text =
+                    "The update is verified. Allow installs from ADC Mobile Node, then tap Install update again."
+                setUpdateBusy(false)
+            }
+        }
 
     private val screenCaptureLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -81,6 +109,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         store = NodeStore(this)
         registry = CapabilityRegistry(this)
+        updateManager = AndroidUpdateManager(this)
         setContentView(buildContent())
         bindState()
         ContextCompat.registerReceiver(
@@ -106,6 +135,7 @@ class MainActivity : AppCompatActivity() {
         bindCapabilitySwitches()
         renderCapabilities()
         renderStoredStatus()
+        maybeCheckForUpdates()
     }
 
     override fun onPause() {
@@ -231,6 +261,37 @@ class MainActivity : AppCompatActivity() {
         capabilities = text("", 14f, Typeface.NORMAL)
         root.addView(card(capabilities))
 
+        root.addView(sectionTitle("Version & updates").withMargins(top = 24))
+        versionStatus = text("", 14f, Typeface.NORMAL)
+        checkUpdateButton = button("Check now") { checkForUpdates(showErrors = true) }
+        releaseNotesButton = button("Release notes") { showReleaseNotes() }.apply {
+            visibility = View.GONE
+        }
+        installUpdateButton = button("Install update") { downloadAndInstallUpdate() }.apply {
+            visibility = View.GONE
+        }
+        val versionActions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(
+                checkUpdateButton,
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    .apply { marginEnd = dp(6) }
+            )
+            addView(
+                releaseNotesButton,
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    .apply { marginStart = dp(6) }
+            )
+        }
+        val versionContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            addView(versionStatus)
+            addView(versionActions.withMargins(top = 12))
+            addView(installUpdateButton.withMargins(top = 8))
+        }
+        root.addView(card(versionContent))
+
         root.addView(
             button("Forget local pairing") { confirmForget() }.withMargins(top = 24)
         )
@@ -254,6 +315,7 @@ class MainActivity : AppCompatActivity() {
         bindCapabilitySwitches()
         renderStoredStatus()
         renderCapabilities()
+        renderInitialVersionStatus()
     }
 
     private fun pair() {
@@ -314,7 +376,8 @@ class MainActivity : AppCompatActivity() {
     private fun requestPhonePermissions() {
         val permissions = mutableListOf(
             Manifest.permission.ACCESS_COARSE_LOCATION,
-            Manifest.permission.ACCESS_FINE_LOCATION
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.CAMERA
         )
         if (Build.VERSION.SDK_INT >= 33) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
@@ -397,6 +460,191 @@ class MainActivity : AppCompatActivity() {
         capabilities.text = lines.joinToString("\n\n")
     }
 
+    private fun maybeCheckForUpdates() {
+        if (checkedForUpdatesThisSession || store.config() == null) return
+        val lastCheck =
+            try {
+                store.lastUpdateCheckAt()?.let(Instant::parse)
+            } catch (_: Exception) {
+                null
+            }
+        if (
+            lastCheck != null &&
+            Duration.between(lastCheck, Instant.now()) < AUTO_UPDATE_CHECK_INTERVAL
+        ) {
+            return
+        }
+        checkForUpdates(showErrors = false)
+    }
+
+    private fun checkForUpdates(showErrors: Boolean) {
+        if (updateBusy) return
+        val controlPlaneUrl =
+            store.config()?.controlPlaneUrl
+                ?: urlInput.text?.toString()?.trim()?.trimEnd('/').orEmpty()
+        checkedForUpdatesThisSession = true
+        latestRelease = null
+        pendingUpdateApk = null
+        releaseNotesButton.visibility = View.GONE
+        installUpdateButton.visibility = View.GONE
+        setUpdateBusy(true)
+        versionStatus.text = "${installedVersionLabel()}\nChecking for Android updates…"
+        executor.execute {
+            try {
+                val release = updateManager.check(controlPlaneUrl)
+                val checkedAt = Instant.now()
+                store.setLastUpdateCheckAt(checkedAt.toString())
+                runOnUiThread {
+                    latestRelease = release
+                    pendingUpdateApk = null
+                    renderRelease(release, checkedAt)
+                    setUpdateBusy(false)
+                }
+            } catch (error: Exception) {
+                val checkedAt = Instant.now()
+                store.setLastUpdateCheckAt(checkedAt.toString())
+                val message = error.message ?: "Update check failed."
+                runOnUiThread {
+                    latestRelease = null
+                    pendingUpdateApk = null
+                    releaseNotesButton.visibility = View.GONE
+                    installUpdateButton.visibility = View.GONE
+                    versionStatus.text =
+                        "${installedVersionLabel()}\nUnable to check: $message\nLast checked: ${formatTime(checkedAt)}"
+                    setUpdateBusy(false)
+                    if (showErrors) showError(message)
+                }
+            }
+        }
+    }
+
+    private fun renderInitialVersionStatus() {
+        if (!::versionStatus.isInitialized || updateBusy || latestRelease != null) return
+        val lastCheck =
+            try {
+                store.lastUpdateCheckAt()?.let(Instant::parse)
+            } catch (_: Exception) {
+                null
+            }
+        versionStatus.text = buildString {
+            append(installedVersionLabel())
+            append("\nTap Check now to query this ADC server.")
+            if (lastCheck != null) append("\nLast checked: ").append(formatTime(lastCheck))
+        }
+    }
+
+    private fun renderRelease(release: AndroidRelease?, checkedAt: Instant) {
+        releaseNotesButton.visibility = if (release == null) View.GONE else View.VISIBLE
+        val (_, currentVersionCode) = updateManager.currentVersion()
+        val updateAvailable =
+            release != null &&
+                AndroidUpdateManager.isUpdateAvailable(currentVersionCode, release.versionCode)
+        val compatible = release != null && release.minSdk <= Build.VERSION.SDK_INT
+        installUpdateButton.visibility =
+            if (updateAvailable && compatible) View.VISIBLE else View.GONE
+        versionStatus.text = buildString {
+            append(installedVersionLabel())
+            when {
+                release == null -> {
+                    append("\nThis ADC server has not published an Android release.")
+                }
+                !updateAvailable -> {
+                    append("\nYou are up to date.")
+                    append("\nPublished: ").append(formatTime(release.publishedAt))
+                }
+                !compatible -> {
+                    append("\nVersion ").append(release.versionName).append(" is available.")
+                    append("\nAndroid ").append(release.minSdk).append(" or later is required.")
+                }
+                else -> {
+                    append("\nVersion ").append(release.versionName).append(" is available")
+                    if (release.required) append(" (required)")
+                    append(".")
+                    append("\nPublished: ").append(formatTime(release.publishedAt))
+                }
+            }
+            append("\nLast checked: ").append(formatTime(checkedAt))
+        }
+    }
+
+    private fun showReleaseNotes() {
+        val release = latestRelease ?: return
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Version ${release.versionName}")
+            .setMessage(release.notesFor())
+            .setPositiveButton("Close", null)
+            .show()
+    }
+
+    private fun downloadAndInstallUpdate() {
+        if (updateBusy) return
+        val release = latestRelease ?: return
+        val existing = pendingUpdateApk
+        if (existing != null && existing.isFile) {
+            continueInstall(existing)
+            return
+        }
+        setUpdateBusy(true)
+        versionStatus.text =
+            "${installedVersionLabel()}\nDownloading and verifying version ${release.versionName}…"
+        executor.execute {
+            try {
+                val apk = updateManager.downloadAndVerify(release)
+                runOnUiThread {
+                    pendingUpdateApk = apk
+                    continueInstall(apk)
+                }
+            } catch (error: Exception) {
+                val message = error.message ?: "Unable to verify the Android update."
+                runOnUiThread {
+                    versionStatus.text = "${installedVersionLabel()}\nUpdate failed: $message"
+                    setUpdateBusy(false)
+                    showError(message)
+                }
+            }
+        }
+    }
+
+    private fun continueInstall(apk: File) {
+        if (!updateManager.canRequestPackageInstalls()) {
+            versionStatus.text =
+                "${installedVersionLabel()}\nThe update is verified. Allow installs from ADC Mobile Node to continue."
+            installPermissionLauncher.launch(updateManager.installPermissionIntent())
+            return
+        }
+        pendingUpdateApk = null
+        launchVerifiedUpdate(apk)
+    }
+
+    private fun launchVerifiedUpdate(apk: File) {
+        try {
+            versionStatus.text =
+                "${installedVersionLabel()}\nUpdate verified. Confirm installation in Android."
+            updateManager.launchInstaller(apk)
+        } catch (error: Exception) {
+            pendingUpdateApk = apk
+            val message = error.message ?: "Unable to open the Android package installer."
+            versionStatus.text = "${installedVersionLabel()}\n$message"
+            showError(message)
+        } finally {
+            setUpdateBusy(false)
+        }
+    }
+
+    private fun setUpdateBusy(busy: Boolean) {
+        updateBusy = busy
+        checkUpdateButton.isEnabled = !busy
+        releaseNotesButton.isEnabled = !busy
+        installUpdateButton.isEnabled = !busy
+    }
+
+    private fun installedVersionLabel(): String {
+        val (versionName, versionCode) = updateManager.currentVersion()
+        return "Installed: $versionName ($versionCode)"
+    }
+
+    private fun formatTime(value: Instant): String = UPDATE_TIME_FORMAT.format(value)
+
     private fun showError(message: String) {
         MaterialAlertDialogBuilder(this)
             .setTitle("Unable to continue")
@@ -439,6 +687,8 @@ class MainActivity : AppCompatActivity() {
             showText = false
             textOn = ""
             textOff = ""
+            isClickable = true
+            isFocusable = true
             isChecked = store.isCapabilityEnabled(group)
             setOnCheckedChangeListener { _, checked ->
                 if (bindingSwitches) return@setOnCheckedChangeListener
@@ -479,13 +729,15 @@ class MainActivity : AppCompatActivity() {
             setLineSpacing(0f, 1.12f)
         }
 
-    private fun card(content: TextView): MaterialCardView =
+    private fun card(content: View): MaterialCardView =
         MaterialCardView(this).apply {
             radius = dp(8).toFloat()
             strokeWidth = dp(1)
             strokeColor = 0xffd8dde8.toInt()
             setCardBackgroundColor(0xffffffff.toInt())
-            content.setPadding(dp(16), dp(14), dp(16), dp(14))
+            if (content.paddingLeft == 0 && content.paddingTop == 0) {
+                content.setPadding(dp(16), dp(14), dp(16), dp(14))
+            }
             addView(content)
         }
 
@@ -517,5 +769,9 @@ class MainActivity : AppCompatActivity() {
         private const val REQUEST_LOCATION = 101
         private const val REQUEST_NOTIFICATIONS = 102
         private const val REQUEST_PHONE_PERMISSIONS = 103
+        private val AUTO_UPDATE_CHECK_INTERVAL = Duration.ofHours(24)
+        private val UPDATE_TIME_FORMAT =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+                .withZone(ZoneId.systemDefault())
     }
 }

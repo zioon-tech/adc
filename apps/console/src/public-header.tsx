@@ -4,6 +4,10 @@ import { Brand } from "./auth-ui.tsx";
 import { LanguageSelector, useI18n } from "./i18n.tsx";
 
 export const repositoryUrl = "https://github.com/zionforge/agent-device-cloud";
+export const icpFiling = {
+  number: "赣ICP备2026025481号",
+  url: "https://beian.miit.gov.cn/"
+} as const;
 
 const navigation = [
   { label: "Product", path: "/" },
@@ -80,7 +84,12 @@ export function PublicFooter() {
           GitHub
         </a>
       </nav>
-      <LanguageSelector />
+      <div className="public-footer-meta">
+        <a href={icpFiling.url} target="_blank" rel="noreferrer">
+          {icpFiling.number}
+        </a>
+        <LanguageSelector />
+      </div>
     </footer>
   );
 }

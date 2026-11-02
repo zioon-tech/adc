@@ -8,21 +8,40 @@ import android.graphics.Rect
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
+import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
+import android.hardware.display.DisplayManager
 import org.json.JSONArray
 import org.json.JSONObject
+import java.time.Instant
+import java.time.format.DateTimeFormatter
 import java.util.ArrayDeque
+import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 class AdcAccessibilityService : AccessibilityService() {
+    private val snapshotSession = UUID.randomUUID().toString().replace("-", "").take(12)
+    private val snapshotRevision = AtomicLong()
+
+    @Volatile
+    private var lastEventAt = 0L
+
     override fun onServiceConnected() {
         active = this
+        snapshotRevision.incrementAndGet()
+        lastEventAt = SystemClock.elapsedRealtime()
         notifyCapabilityChanged()
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        snapshotRevision.incrementAndGet()
+        lastEventAt = SystemClock.elapsedRealtime()
+    }
 
     override fun onInterrupt() = Unit
 
@@ -32,7 +51,11 @@ class AdcAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
-    private fun inspect(maxDepth: Int, maxNodes: Int): JSONObject {
+    private fun inspect(maxDepth: Int, maxNodes: Int): JSONObject =
+        snapshot(maxDepth, maxNodes).json
+
+    private fun snapshot(maxDepth: Int, maxNodes: Int): UiSnapshot {
+        val revision = snapshotRevision.get()
         val root = rootInActiveWindow
             ?: throw CapabilityException(
                 "offline",
@@ -42,7 +65,7 @@ class AdcAccessibilityService : AccessibilityService() {
         val nodes = JSONArray()
         val packageName = root.packageName?.toString()
         val queue = ArrayDeque<QueuedNode>()
-        queue.add(QueuedNode(root, 0, null))
+        queue.add(QueuedNode(root, 0, null, "w${root.windowId}"))
         var truncated = false
         try {
             while (queue.isNotEmpty()) {
@@ -53,11 +76,18 @@ class AdcAccessibilityService : AccessibilityService() {
                 val current = queue.removeFirst()
                 val node = current.node
                 val id = nodes.length()
-                nodes.put(nodeJson(node, id, current.parentId, current.depth))
+                nodes.put(nodeJson(node, id, current.parentId, current.depth, current.ref))
                 if (current.depth < maxDepth) {
                     for (index in 0 until node.childCount) {
                         node.getChild(index)?.let {
-                            queue.add(QueuedNode(it, current.depth + 1, id))
+                            queue.add(
+                                QueuedNode(
+                                    it,
+                                    current.depth + 1,
+                                    id,
+                                    "${current.ref}/$index"
+                                )
+                            )
                         }
                     }
                 } else if (node.childCount > 0) {
@@ -68,22 +98,53 @@ class AdcAccessibilityService : AccessibilityService() {
         } finally {
             while (queue.isNotEmpty()) queue.removeFirst().node.recycle()
         }
-        return JSONObject()
+        val windowSnapshot = windowJson()
+        val content = JSONObject()
             .put("packageName", packageName ?: JSONObject.NULL)
-            .put("windowCount", windows.size)
+            .put("windowCount", windowSnapshot.length())
+            .put("windows", windowSnapshot)
+            .put("display", displayJson())
+            .put("bounds", boundsJson(rootBounds(nodes)))
             .put("nodes", nodes)
             .put("truncated", truncated)
+        val snapshotId = "uisnap_${snapshotSession}_$revision"
+        return UiSnapshot(
+            JSONObject(content.toString())
+                .put("snapshotId", snapshotId)
+                .put("observedAt", DateTimeFormatter.ISO_INSTANT.format(Instant.now())),
+            snapshotId,
+            packageName,
+            revision
+        )
     }
 
     private fun performAction(args: JSONObject): JSONObject {
         val selector = args.getJSONObject("selector")
         val requested = args.getString("action")
+        val before = snapshot(DEFAULT_MAX_DEPTH, DEFAULT_MAX_NODES)
+        selector.optString("snapshotId")
+            .takeIf(String::isNotBlank)
+            ?.let {
+                if (it != before.id) {
+                    throw CapabilityException(
+                        "conflict",
+                        "The UI changed after the referenced snapshot; inspect it again.",
+                        false
+                    )
+                }
+            }
         val matched = findNode(selector)
             ?: throw CapabilityException("not_found", "No visible UI element matched.", false)
+        val matchedSummary = nodeSummary(matched)
         try {
             val target =
                 if (requested == "click" || requested == "long_click") {
                     clickableNode(matched, requested == "long_click")
+                            ?: throw CapabilityException(
+                                "not_found",
+                                "The matched element has no clickable ancestor.",
+                                false
+                            )
                 } else {
                     AccessibilityNodeInfo.obtain(matched)
                 }
@@ -96,6 +157,7 @@ class AdcAccessibilityService : AccessibilityService() {
                         "scroll_forward" -> AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
                         "scroll_backward" -> AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
                         "set_text" -> AccessibilityNodeInfo.ACTION_SET_TEXT
+                        "clear_text" -> AccessibilityNodeInfo.ACTION_SET_TEXT
                         else -> throw CapabilityException(
                             "invalid_request",
                             "Unsupported accessibility action.",
@@ -103,11 +165,11 @@ class AdcAccessibilityService : AccessibilityService() {
                         )
                     }
                 val arguments =
-                    if (requested == "set_text") {
+                    if (requested == "set_text" || requested == "clear_text") {
                         Bundle().apply {
                             putCharSequence(
                                 AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
-                                args.getString("text")
+                                if (requested == "clear_text") "" else args.getString("text")
                             )
                         }
                     } else {
@@ -115,6 +177,16 @@ class AdcAccessibilityService : AccessibilityService() {
                     }
                 val performed =
                     onMainThread {
+                        if (
+                            selector.optString("snapshotId").isNotBlank() &&
+                            snapshotRevision.get() != before.revision
+                        ) {
+                            throw CapabilityException(
+                                "conflict",
+                                "The UI changed after the referenced snapshot; inspect it again.",
+                                false
+                            )
+                        }
                         if (arguments == null) {
                             target.performAction(action)
                         } else {
@@ -128,10 +200,21 @@ class AdcAccessibilityService : AccessibilityService() {
                         false
                     )
                 }
+                val after = waitForChangedSnapshot(
+                    before,
+                    args.optLong("postActionWaitMs", 500L).coerceIn(0L, 5_000L)
+                )
                 return JSONObject()
                     .put("performed", true)
                     .put("action", requested)
-                    .put("matched", nodeSummary(matched))
+                    .put("matched", matchedSummary)
+                    .put("beforeSnapshotId", before.id)
+                    .put("afterSnapshotId", after.id)
+                    .put("changed", before.id != after.id)
+                    .put(
+                        "foregroundPackage",
+                        after.packageName ?: JSONObject.NULL
+                    )
             } finally {
                 target.recycle()
             }
@@ -228,32 +311,49 @@ class AdcAccessibilityService : AccessibilityService() {
 
     private fun findNode(selector: JSONObject): AccessibilityNodeInfo? {
         val root = rootInActiveWindow ?: return null
-        val queue = ArrayDeque<AccessibilityNodeInfo>()
-        queue.add(root)
+        val queue = ArrayDeque<QueuedNode>()
+        queue.add(QueuedNode(root, 0, null, "w${root.windowId}"))
         val wantedIndex = selector.optInt("index", 0)
         var matchedIndex = 0
+        var nodeId = 0
         try {
             while (queue.isNotEmpty()) {
-                val node = queue.removeFirst()
-                if (matches(node, selector)) {
+                val current = queue.removeFirst()
+                val node = current.node
+                if (matches(node, selector, nodeId, current.ref)) {
                     if (matchedIndex == wantedIndex) {
-                        while (queue.isNotEmpty()) queue.removeFirst().recycle()
+                        while (queue.isNotEmpty()) queue.removeFirst().node.recycle()
                         return node
                     }
                     matchedIndex += 1
                 }
                 for (index in 0 until node.childCount) {
-                    node.getChild(index)?.let(queue::add)
+                    node.getChild(index)?.let {
+                        queue.add(
+                            QueuedNode(
+                                it,
+                                current.depth + 1,
+                                nodeId,
+                                "${current.ref}/$index"
+                            )
+                        )
+                    }
                 }
+                nodeId += 1
                 node.recycle()
             }
         } finally {
-            while (queue.isNotEmpty()) queue.removeFirst().recycle()
+            while (queue.isNotEmpty()) queue.removeFirst().node.recycle()
         }
         return null
     }
 
-    private fun matches(node: AccessibilityNodeInfo, selector: JSONObject): Boolean {
+    private fun matches(
+        node: AccessibilityNodeInfo,
+        selector: JSONObject,
+        nodeId: Int,
+        ref: String
+    ): Boolean {
         val contains = selector.optString("match", "exact") == "contains"
         fun field(name: String, actual: CharSequence?): Boolean {
             if (!selector.has(name)) return true
@@ -261,39 +361,59 @@ class AdcAccessibilityService : AccessibilityService() {
             val value = actual?.toString() ?: return false
             return if (contains) value.contains(expected, ignoreCase = true) else value == expected
         }
-        return field("resourceId", node.viewIdResourceName) &&
+        fun state(name: String, actual: Boolean): Boolean =
+            !selector.has(name) || selector.optBoolean(name) == actual
+        return (!selector.has("nodeId") || selector.optInt("nodeId", -1) == nodeId) &&
+            (!selector.has("ref") || selector.optString("ref") == ref) &&
+            field("resourceId", node.viewIdResourceName) &&
             field("text", if (node.isPassword) null else node.text) &&
             field("contentDescription", node.contentDescription) &&
             field("className", node.className) &&
-            field("packageName", node.packageName)
+            field("packageName", node.packageName) &&
+            (!selector.has("role") || selector.optString("role") == roleOf(node)) &&
+            state("clickable", node.isClickable) &&
+            state("longClickable", node.isLongClickable) &&
+            state("editable", node.isEditable) &&
+            state("scrollable", node.isScrollable) &&
+            state("enabled", node.isEnabled) &&
+            state("focused", node.isFocused) &&
+            state("selected", node.isSelected) &&
+            state("checked", node.isChecked)
     }
 
     private fun clickableNode(
         source: AccessibilityNodeInfo,
         longClick: Boolean
-    ): AccessibilityNodeInfo {
+    ): AccessibilityNodeInfo? {
         var current = AccessibilityNodeInfo.obtain(source)
-        repeat(12) {
+        while (true) {
             if (if (longClick) current.isLongClickable else current.isClickable) return current
-            val parent = current.parent ?: return current
+            val parent = current.parent
+            if (parent == null) {
+                current.recycle()
+                return null
+            }
             current.recycle()
             current = parent
         }
-        return current
     }
 
     private fun nodeJson(
         node: AccessibilityNodeInfo,
         id: Int,
         parentId: Int?,
-        depth: Int
+        depth: Int,
+        ref: String
     ): JSONObject {
         val bounds = Rect()
         node.getBoundsInScreen(bounds)
         return JSONObject()
             .put("id", id)
+            .put("nodeId", id)
+            .put("ref", ref)
             .put("parentId", parentId ?: JSONObject.NULL)
             .put("depth", depth)
+            .put("role", roleOf(node))
             .put("packageName", node.packageName?.toString() ?: JSONObject.NULL)
             .put("className", node.className?.toString() ?: JSONObject.NULL)
             .put("resourceId", node.viewIdResourceName ?: JSONObject.NULL)
@@ -332,6 +452,7 @@ class AdcAccessibilityService : AccessibilityService() {
         val bounds = Rect()
         node.getBoundsInScreen(bounds)
         return JSONObject()
+            .put("role", roleOf(node))
             .put("packageName", node.packageName?.toString() ?: JSONObject.NULL)
             .put("className", node.className?.toString() ?: JSONObject.NULL)
             .put("resourceId", node.viewIdResourceName ?: JSONObject.NULL)
@@ -345,6 +466,181 @@ class AdcAccessibilityService : AccessibilityService() {
                     .put("bottom", bounds.bottom)
             )
     }
+
+    private fun performWait(args: JSONObject, cancelled: () -> Boolean): JSONObject {
+        val condition = args.getString("condition")
+        val timeoutMs = args.optLong("timeoutMs", 10_000L).coerceIn(0L, 30_000L)
+        val pollIntervalMs =
+            args.optLong("pollIntervalMs", if (condition == "idle") 100L else 200L)
+                .coerceIn(50L, 1_000L)
+        val startedAt = SystemClock.elapsedRealtime()
+        val deadline = startedAt + timeoutMs
+        var lastSnapshot: UiSnapshot? = null
+        while (true) {
+            if (cancelled()) {
+                throw CapabilityException("cancelled", "Invocation was cancelled.", false)
+            }
+            val satisfied =
+                when (condition) {
+                    "element" -> {
+                        val found = findNode(args.getJSONObject("selector"))
+                        val present = found != null
+                        found?.recycle()
+                        present == (args.optString("state", "present") == "present")
+                    }
+                    "app" -> currentPackage() == args.getString("packageName")
+                    "idle" -> {
+                        val idleMs = args.optLong("idleMs", 500L).coerceIn(100L, 5_000L)
+                        SystemClock.elapsedRealtime() - lastEventAt >= idleMs
+                    }
+                    else -> throw CapabilityException(
+                        "invalid_request",
+                        "Unsupported UI wait condition.",
+                        false
+                    )
+                }
+            if (satisfied) {
+                lastSnapshot =
+                    try {
+                        snapshot(DEFAULT_MAX_DEPTH, DEFAULT_MAX_NODES)
+                    } catch (_: CapabilityException) {
+                        null
+                    }
+                return JSONObject()
+                    .put("satisfied", true)
+                    .put("condition", condition)
+                    .put("waitedMs", SystemClock.elapsedRealtime() - startedAt)
+                    .put("observedAt", DateTimeFormatter.ISO_INSTANT.format(Instant.now()))
+                    .apply {
+                        if (args.has("state")) put("state", args.getString("state"))
+                        if (lastSnapshot != null) {
+                            put("snapshotId", lastSnapshot.id)
+                            put(
+                                "foregroundPackage",
+                                lastSnapshot.packageName ?: JSONObject.NULL
+                            )
+                        }
+                    }
+            }
+            val remaining = deadline - SystemClock.elapsedRealtime()
+            if (remaining <= 0L) {
+                throw CapabilityException(
+                    "not_found",
+                    "The requested UI condition was not reached before timeout.",
+                    true
+                )
+            }
+            Thread.sleep(minOf(pollIntervalMs, remaining))
+        }
+    }
+
+    private fun waitForChangedSnapshot(before: UiSnapshot, waitMs: Long): UiSnapshot {
+        val deadline = SystemClock.elapsedRealtime() + waitMs
+        while (
+            snapshotRevision.get() == before.revision &&
+            SystemClock.elapsedRealtime() < deadline
+        ) {
+            val remaining = deadline - SystemClock.elapsedRealtime()
+            if (remaining > 0L) Thread.sleep(minOf(50L, remaining))
+        }
+        return try {
+            snapshot(DEFAULT_MAX_DEPTH, DEFAULT_MAX_NODES)
+        } catch (_: CapabilityException) {
+            before
+        }
+    }
+
+    private fun currentPackage(): String? {
+        val root = rootInActiveWindow ?: return null
+        return try {
+            root.packageName?.toString()
+        } finally {
+            root.recycle()
+        }
+    }
+
+    private fun displayJson(): JSONObject {
+        val metrics = resources.displayMetrics
+        val display = getSystemService(DisplayManager::class.java)
+            .getDisplay(Display.DEFAULT_DISPLAY)
+        return JSONObject()
+            .put("width", metrics.widthPixels)
+            .put("height", metrics.heightPixels)
+            .put("density", metrics.density.toDouble())
+            .put("densityDpi", metrics.densityDpi)
+            .put("rotation", display?.rotation ?: 0)
+            .put("refreshRateHz", display?.refreshRate?.toDouble() ?: JSONObject.NULL)
+    }
+
+    private fun windowJson(): JSONArray {
+        val currentWindows = windows
+        return try {
+            JSONArray().apply {
+                currentWindows.forEach { window ->
+                    val bounds = Rect()
+                    window.getBoundsInScreen(bounds)
+                    put(
+                        JSONObject()
+                            .put("id", window.id)
+                            .put("type", windowType(window.type))
+                            .put("layer", window.layer)
+                            .put("active", window.isActive)
+                            .put("focused", window.isFocused)
+                            .put("title", window.title?.toString() ?: JSONObject.NULL)
+                            .put("bounds", boundsJson(bounds))
+                    )
+                }
+            }
+        } finally {
+            @Suppress("DEPRECATION")
+            currentWindows.forEach { it.recycle() }
+        }
+    }
+
+    private fun rootBounds(nodes: JSONArray): Rect {
+        if (nodes.length() == 0) return Rect()
+        val bounds = nodes.getJSONObject(0).getJSONObject("bounds")
+        return Rect(
+            bounds.getInt("left"),
+            bounds.getInt("top"),
+            bounds.getInt("right"),
+            bounds.getInt("bottom")
+        )
+    }
+
+    private fun boundsJson(bounds: Rect): JSONObject =
+        JSONObject()
+            .put("left", bounds.left)
+            .put("top", bounds.top)
+            .put("right", bounds.right)
+            .put("bottom", bounds.bottom)
+
+    private fun roleOf(node: AccessibilityNodeInfo): String {
+        val className = node.className?.toString().orEmpty()
+        return when {
+            node.collectionItemInfo != null -> "list_item"
+            className.endsWith("Button") -> "button"
+            className.endsWith("CheckBox") -> "checkbox"
+            className.endsWith("Switch") -> "switch"
+            node.isEditable || className.endsWith("EditText") -> "edit_text"
+            className.endsWith("TextView") -> "text"
+            className.endsWith("ImageView") || className.endsWith("ImageButton") -> "image"
+            className.endsWith("RecyclerView") || className.endsWith("ListView") -> "list"
+            className.endsWith("WebView") -> "web_view"
+            className.endsWith("ViewGroup") || className.endsWith("Layout") -> "container"
+            else -> "unknown"
+        }
+    }
+
+    private fun windowType(type: Int): String =
+        when (type) {
+            AccessibilityWindowInfo.TYPE_APPLICATION -> "application"
+            AccessibilityWindowInfo.TYPE_INPUT_METHOD -> "input_method"
+            AccessibilityWindowInfo.TYPE_SYSTEM -> "system"
+            AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY -> "accessibility_overlay"
+            AccessibilityWindowInfo.TYPE_SPLIT_SCREEN_DIVIDER -> "split_screen_divider"
+            else -> "unknown"
+        }
 
     private fun requireCoordinates(x: Int, y: Int, width: Int, height: Int) {
         if (x !in 0 until width || y !in 0 until height) {
@@ -381,10 +677,21 @@ class AdcAccessibilityService : AccessibilityService() {
     private data class QueuedNode(
         val node: AccessibilityNodeInfo,
         val depth: Int,
-        val parentId: Int?
+        val parentId: Int?,
+        val ref: String
+    )
+
+    private data class UiSnapshot(
+        val json: JSONObject,
+        val id: String,
+        val packageName: String?,
+        val revision: Long
     )
 
     companion object {
+        private const val DEFAULT_MAX_DEPTH = 12
+        private const val DEFAULT_MAX_NODES = 500
+
         const val ACTION_CAPABILITY_CHANGED =
             "cloud.agentdevice.node.ACCESSIBILITY_CAPABILITY_CHANGED"
 
@@ -396,11 +703,16 @@ class AdcAccessibilityService : AccessibilityService() {
         fun inspect(maxDepth: Int, maxNodes: Int): JSONObject =
             requireService().inspect(maxDepth.coerceIn(1, 30), maxNodes.coerceIn(1, 1000))
 
+        fun wait(args: JSONObject, cancelled: () -> Boolean): JSONObject =
+            requireService().performWait(args, cancelled)
+
         fun action(args: JSONObject): JSONObject = requireService().performAction(args)
 
         fun gesture(args: JSONObject): JSONObject = requireService().performGesture(args)
 
         fun navigation(action: String): JSONObject = requireService().performNavigation(action)
+
+        fun currentPackage(): String? = active?.currentPackage()
 
         private fun requireService(): AdcAccessibilityService =
             active ?: throw CapabilityException(

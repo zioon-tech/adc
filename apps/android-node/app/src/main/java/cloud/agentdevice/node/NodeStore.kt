@@ -73,6 +73,12 @@ class NodeStore(context: Context) {
 
     fun lastError(): String? = preferences.getString("lastError", null)
 
+    fun setLastUpdateCheckAt(value: String) {
+        preferences.edit().putString("lastUpdateCheckAt", value).apply()
+    }
+
+    fun lastUpdateCheckAt(): String? = preferences.getString("lastUpdateCheckAt", null)
+
     fun isCapabilityEnabled(group: CapabilityGroup): Boolean =
         preferences.getBoolean(group.preferenceKey, group.defaultEnabled)
 

@@ -1,9 +1,10 @@
 {
   "name": "agent-device-cloud",
-  "version": "0.1.0",
+  "version": "0.1.6",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@9.14.2",
+  "volta": { "node": "22.18.0" },
   "pnpm": {
     "overrides": {
       "@better-auth/utils": "0.4.2"
@@ -13,9 +14,12 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "pnpm schema:check && tsc --noEmit && pnpm --filter @adc/console build",
+    "build": "pnpm schema:check && tsc --noEmit && pnpm build:skill && pnpm build:plugins && pnpm --filter @adc/console build",
     "build:node": "tsx scripts/build-node.ts",
-    "dev": "pnpm --filter @adc/console build && node --env-file-if-exists=.env --import tsx --watch apps/control-plane/src/main.ts",
+    "build:skill": "tsx scripts/build-skill.ts",
+    "build:plugins": "tsx scripts/build-plugins.ts",
+    "publish:android": "tsx scripts/publish-android-release.ts",
+    "dev": "pnpm build:skill && pnpm --filter @adc/console build && node --env-file-if-exists=.env --import tsx --watch apps/control-plane/src/main.ts",
     "start": "node --env-file-if-exists=.env --import tsx apps/control-plane/src/main.ts",
     "format:check": "prettier --check .",
     "lint": "eslint .",
@@ -33,6 +37,7 @@
     "@better-auth/oauth-provider": "1.7.5",
     "@fastify/static": "^10.1.4",
     "@modelcontextprotocol/sdk": "^1.30.1",
+    "ali-oss": "^6.23.0",
     "better-auth": "1.7.5",
     "diff": "^8.0.2",
     "fast-glob": "^3.3.3",
@@ -48,6 +53,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",
+    "@types/ali-oss": "^6.23.3",
     "@types/diff": "^7.0.2",
     "@types/node": "^24.5.2",
     "@types/nodemailer": "^7.0.0",

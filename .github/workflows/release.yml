@@ -1,0 +1,27 @@
+name: Production release
+on:
+  workflow_dispatch:
+    inputs:
+      component:
+        type: choice
+        options: [console-and-site, service]
+        required: true
+      ci-run:
+        description: Successful main-branch ADC CI run ID
+        type: string
+        required: true
+      check-only:
+        description: Validate cloud access, artifact and disk without switching
+        type: boolean
+        default: true
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+jobs:
+  release:
+    uses: zioon-tech/workflows/.github/workflows/deploy.yml@7d96b7d5386c9a33957ed4384d4491cc3bd048bb
+    with:
+      component: ${{ inputs.component }}
+      ci-run: ${{ inputs.ci-run }}
+      check-only: ${{ inputs.check-only }}

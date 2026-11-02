@@ -1,0 +1,20 @@
+{
+  "Version": "1",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["oss:ListObjects"],
+      "Resource": ["acs:oss:*:*:adc-zioon-transfers"],
+      "Condition": {
+        "StringLike": {
+          "oss:Prefix": ["transfers/*"]
+        }
+      }
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["oss:GetObject", "oss:PutObject", "oss:DeleteObject"],
+      "Resource": ["acs:oss:*:*:adc-zioon-transfers/transfers/*"]
+    }
+  ]
+}
