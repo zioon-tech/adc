@@ -62,8 +62,10 @@ function targetDescription(context: InvocationContext, tool: ToolId, nodeIds: st
   const targets = nodeIds.map((nodeId) => {
     const node = nodes.get(nodeId);
     if (!node) return nodeId;
-    const executor = tool === "shell.exec" ? `; shell: ${shellExecutor(node.platform)}` : "";
-    return `${nodeId} (${node.label}; platform: ${node.platform}${executor})`;
+    const isolated = node.access?.execution === "isolated";
+    const executor = tool === "shell.exec" ? `; shell: ${isolated ? "Bash in a temporary Linux container" : shellExecutor(node.platform)}` : "";
+    const access = node.access ? `; ${node.access.kind}; access: ${node.access.execution}${isolated ? "; no network; changes discarded; artifact output retained" : ""}` : "";
+    return `${nodeId} (${node.label}; platform: ${node.platform}${executor}${access})`;
   });
   return `Choose a device that advertises ${tool}. Available targets: ${targets.join(", ")}.`;
 }
@@ -443,7 +445,9 @@ function descriptionFor(tool: ToolName, context?: InvocationContext): string {
   const targetIds = new Set(nodeIdsForTool(context, tool) ?? []);
   const executors = (context.nodes ?? [])
     .filter((node) => targetIds.has(node.nodeId))
-    .map((node) => `${node.label} (${node.platform}: ${shellExecutor(node.platform)})`);
+    .map((node) => node.access?.execution === "isolated"
+      ? `${node.label} (temporary Linux container: Bash; no network; changes discarded, artifacts retained)`
+      : `${node.label} (${node.platform}: ${shellExecutor(node.platform)})`);
   return executors.length
     ? `${descriptions[tool]} Target executors: ${executors.join(", ")}. Use syntax for the selected target's shell.`
     : descriptions[tool];

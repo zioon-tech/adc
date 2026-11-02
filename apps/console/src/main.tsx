@@ -3,10 +3,10 @@ import {
   useCallback,
   useEffect,
   useState,
-  type ReactNode,
-  type FormEvent
+  type ReactNode
 } from "react";
 import { createRoot } from "react-dom/client";
+import { AccountApp } from "./account-app.tsx";
 import {
   Activity,
   BookOpen,
@@ -25,6 +25,8 @@ import {
   Settings,
   Smartphone,
   ShieldCheck,
+  Users,
+  Share2,
   X
 } from "lucide-react";
 import {
@@ -37,6 +39,7 @@ import {
   useNavigate
 } from "react-router-dom";
 import { AnalyticsEffects } from "./analytics.tsx";
+import { authNavigation, safeAuthReturnTo } from "./auth-navigation.ts";
 import {
   AccountSettings,
   AuthLayout,
@@ -51,15 +54,21 @@ import { Agents, OAuthConsent } from "./agents.tsx";
 import { Landing } from "./landing.tsx";
 import { Documentation } from "./docs.tsx";
 import { DeviceSettings } from "./device-settings.tsx";
+import { ConnectorUpdate } from "./connector-update.tsx";
+import type { NodeReleaseUpdate } from "../../../packages/client/src/index.ts";
 import { ConfirmAction } from "./dialog.tsx";
 import { LanguageSelector, LocaleProvider, useI18n, type Message } from "./i18n.tsx";
 import { Overview } from "./overview.tsx";
+import { Projects } from "./projects.tsx";
+import type { Accounts, Team, CollaborationScope } from "../../../packages/client/src/collaboration.ts";
+import { AccountSelector, Teams, Sharing, InvitationPage, ShareDialog } from "./collaboration.tsx";
 import { publicContentEntry } from "./public-content.ts";
 import { PublicContentRoute } from "./public-site.tsx";
 import "./styles.css";
 
 export interface NodeRecord {
   nodeId: string;
+  accountId?: string;
   label: string;
   platform: string;
   status: string;
@@ -74,11 +83,7 @@ export interface NodeRecord {
     maxConcurrency: number;
   };
   effectiveCapability?: NodeRecord["capability"];
-  update?: {
-    state: "current" | "update_available";
-    currentBuildId: string | null;
-    latest: { version: string; runtimeVersion: string; buildId: string };
-  };
+  update?: NodeReleaseUpdate;
   capability?: {
     tools: {
       name: string;
@@ -96,19 +101,9 @@ export interface NodeRecord {
     nodeVersion: string;
     buildId?: string;
     accessMode?: "none" | "selected" | "home" | "full";
+    collaboration?: { version: 1; trustedHost: boolean; isolation: "none" | "container" | "rootless-container" | "vm"; features?: "team-root-sharing"[]; roots?: { rootId: string; path: string }[] };
   };
-}
-interface ProjectRecord {
-  projectId: string;
-  label: string;
-}
-interface RootRecord {
-  rootId: string;
-  projectId: string;
-  nodeId: string;
-  path?: string;
-  label: string;
-  writable: boolean;
+  resourceAuthorization?: { bindingId?: string; scope: CollaborationScope };
 }
 interface AuditEvent {
   eventId: string;
@@ -134,23 +129,32 @@ type PageProps = {
   revision: number;
   refresh: () => void;
   onError: (value: string) => void;
+  accounts?: Accounts | undefined;
+  selectedTeam?: Team | undefined;
 };
+
+function ServerAuthRedirect({ to }: { to: string }) {
+  useEffect(() => { window.location.replace(to); }, [to]);
+  return null;
+}
 
 function App() {
   const { t } = useI18n();
   const [user, setUser] = useState<User | null>();
   const [revision, setRevision] = useState(0);
   const [error, setError] = useState("");
+  const [selectedAccount, setSelectedAccount] = useState("");
+  const [accounts, setAccounts] = useState<Accounts>();
   const location = useLocation();
   const navigate = useNavigate();
   const request = useCallback(async (path: string, init: RequestInit = {}) => {
     try {
-      return await apiRequest(path, init);
+      return await apiRequest(path, { ...init, headers: { ...init.headers, ...(selectedAccount ? { "x-adc-account": selectedAccount } : {}) } });
     } catch (error) {
       if ((error as Error & { status?: number }).status === 401) setUser(null);
       throw error;
     }
-  }, []);
+  }, [selectedAccount]);
   const loadUser = useCallback(async () => {
     const result = await apiRequest("/api/v1/me");
     if (result.kind !== "session") throw new Error("Sign in to manage your account.");
@@ -168,6 +172,17 @@ function App() {
       else setError(error.message);
     });
   }, [loadUser]);
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+    apiRequest("/api/v1/accounts").then(result => {
+      if (!active) return;
+      setAccounts(result);
+      if (selectedAccount && selectedAccount !== result.personalAccountId &&
+          !result.teams.some((team: Team) => team.accountId === selectedAccount)) setSelectedAccount("");
+    }).catch(error => { if (active) setError(error.message); });
+    return () => { active = false; };
+  }, [user, revision, selectedAccount]);
   // The public website remains usable while account services load.
   if (location.pathname === "/") return <Landing signedIn={!!user} />;
   if (location.pathname === "/docs" || location.pathname.startsWith("/docs/"))
@@ -186,7 +201,6 @@ function App() {
   if (user === undefined)
     return (
       <AuthLayout>
-        <Brand />
         {error ? (
           <>
             <p className="form-error" role="alert">
@@ -206,29 +220,31 @@ function App() {
   const publicPage = ["/login", "/register", "/forgot-password", "/reset-password"].includes(
     location.pathname
   );
-  const oauth = new URLSearchParams(location.search).has("sig");
-  const requestedReturnTo = new URLSearchParams(location.search).get("return_to");
-  const returnTo =
-    requestedReturnTo?.startsWith("/cli-login?") &&
-    !requestedReturnTo.includes("\\") &&
-    !requestedReturnTo.includes("\n")
-      ? requestedReturnTo
-      : undefined;
+  const { oauth, returnTo, hosted } = authNavigation(location.search);
   if (publicPage) {
     if (
       user &&
       ["/login", "/register"].includes(location.pathname) &&
       !oauth &&
+      !hosted &&
       !new URLSearchParams(location.search).has("error")
     )
-      return <Navigate to={returnTo ?? "/app"} replace />;
+      return returnTo?.startsWith("/api/")
+        ? <ServerAuthRedirect to={returnTo} />
+        : <Navigate to={returnTo ?? "/app"} replace />;
     return (
       <AuthPage
         currentUser={user}
+        onSwitchAccount={async () => {
+          await apiRequest("/api/auth/sign-out", { method: "POST", body: "{}" });
+          setUser(null);
+        }}
         onLogin={async (destination) => {
           await loadUser();
           setError("");
-          await navigate(destination ?? "/app");
+          const accepted = safeAuthReturnTo(destination ?? null);
+          if (accepted?.startsWith("/api/")) window.location.assign(accepted);
+          else await navigate(accepted ?? "/app");
         }}
       />
     );
@@ -241,19 +257,27 @@ function App() {
             ? `/login${location.search}`
             : location.pathname === "/cli-login"
               ? `/login?return_to=${encodeURIComponent(`/cli-login${location.search}`)}`
+              : location.pathname.startsWith("/invitations/")
+                ? `/login?return_to=${encodeURIComponent(location.pathname)}`
               : "/login"
         }
         replace
       />
     );
-  if (location.pathname === "/authorize") return <OAuthConsent request={request} />;
-  if (location.pathname === "/cli-login") return <CliLogin request={request} />;
+  if (location.pathname === "/authorize" || location.pathname === "/cli-login") return <div>
+    <AccountSelector accounts={accounts} value={selectedAccount} onChange={accountId => { setSelectedAccount(accountId); setError(""); }} />
+    {location.pathname === "/authorize" ? <OAuthConsent key={selectedAccount} request={request} teamSelected={!!accounts?.teams.some(team => team.accountId === selectedAccount)} /> : <CliLogin key={selectedAccount} request={request} />}
+  </div>;
   const refresh = () => setRevision((value) => value + 1);
-  const props = { request, revision, refresh, onError: setError };
+  const selectedTeam = accounts?.teams.find(team => team.accountId === selectedAccount);
+  const selectAccount = (accountId: string) => { setSelectedAccount(accountId); setError(""); refresh(); };
+  const props = { request, revision, refresh, onError: setError, accounts, selectedTeam };
   const navigation: [string, Message, ReactNode][] = [
     ["/app", "Overview", <LayoutDashboard />],
     ["/app/devices", "Devices", <Cable />],
     ["/app/agents", "Agent access", <Bot />],
+    ["/app/teams", "Teams", <Users />],
+    ["/app/sharing", "Sharing", <Share2 />],
     ["/app/approvals", "Approvals", <ShieldCheck />],
     ["/app/activity", "Activity", <Activity />],
     ["/app/projects", "Projects", <FolderRoot />],
@@ -263,6 +287,7 @@ function App() {
     <div className="shell">
       <aside className="sidebar">
         <Brand />
+        <AccountSelector accounts={accounts} value={selectedAccount} onChange={selectAccount} />
         <nav aria-label={t("Open console")}>
           {navigation.map(([to, label, icon]) => (
             <NavLink key={to} to={to} end={to === "/app"} title={t(label)}>
@@ -299,7 +324,7 @@ function App() {
             </button>
           </div>
         ) : null}
-        <Routes>
+        <Routes key={selectedAccount}>
           <Route
             path="/app"
             element={<Overview request={request} revision={revision} onError={setError} />}
@@ -307,6 +332,9 @@ function App() {
           <Route path="/app/devices" element={<Devices {...props} />} />
           <Route path="/app/projects" element={<Projects {...props} />} />
           <Route path="/app/agents" element={<Agents {...props} />} />
+          <Route path="/app/teams" element={<Teams {...props} selected={selectedTeam} select={selectAccount} />} />
+          <Route path="/app/sharing" element={<Sharing {...props} user={user} team={selectedTeam} />} />
+          <Route path="/invitations/:invitationId" element={<InvitationPage request={request} refresh={refresh} />} />
           <Route path="/app/approvals" element={<Access {...props} />} />
           <Route path="/app/activity" element={<Audit {...props} />} />
           <Route
@@ -399,11 +427,14 @@ function PaginationControls({
   );
 }
 
-function Devices({ request, revision, refresh, onError }: PageProps) {
+function Devices({ request, revision, refresh, onError, accounts, selectedTeam }: PageProps) {
   const { t, term, date } = useI18n();
   const [nodes, setNodes] = useState<NodeRecord[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [editing, setEditing] = useState<NodeRecord>();
+  const [sharing, setSharing] = useState<NodeRecord>();
+  const [updating, setUpdating] = useState<NodeRecord>();
+  const manager = !selectedTeam || selectedTeam.membership.role !== "member";
   const [action, setAction] = useState<{ node: NodeRecord; kind: "delete" | "revoke" }>();
   const [search, setSearch] = useState(""),
     [filter, setFilter] = useState("active");
@@ -508,12 +539,12 @@ function Devices({ request, revision, refresh, onError }: PageProps) {
       <PageHeader
         title={t("Devices")}
         count={nodes.length}
-        action={
+        action={manager ?
           <button className="primary" disabled={creating} onClick={createCode}>
             <CirclePlus size={16} />
             {t("Pair device")}
           </button>
-        }
+        : undefined}
       />
       <p className="description">
         {t("Folders are managed on the device and update here automatically.")}
@@ -680,6 +711,9 @@ function Devices({ request, revision, refresh, onError }: PageProps) {
           <option value="all">{t("All")}</option>
         </select>
       </div>
+      {nodes.some(node => node.update?.state === "update_available") ? <p className="notice" role="status">
+          {t("{count} devices have Connector updates.", { count: nodes.filter(node => node.update?.state === "update_available").length })}
+      </p> : null}
       <div className="device-grid">
         {visibleNodes.map((node) => (
           <article className="device-card" key={node.nodeId}>
@@ -691,15 +725,18 @@ function Devices({ request, revision, refresh, onError }: PageProps) {
               )}
               <div className="device-states">
                 {node.update?.state === "update_available" ? (
-                  <span
+                  <button
                     className="state pending"
+                    onClick={() => setUpdating(node)}
                     title={t("Latest version: {version}", {
                       version: node.update.latest.version
                     })}
                   >
-                    {t("Update available")}
-                  </span>
+                    {t("Update to {version}", { version: node.update.latest.version })}
+                  </button>
                 ) : null}
+                {node.platform !== "android" && (!node.update || node.update.state === "unknown") ? <span className="state pending" title={t("The release or device version could not be confirmed.")}>{t("Update status unknown")}</span> : null}
+                {node.update?.state === "ahead" ? <span className="state active">{t("Newer than published")}</span> : null}
                 <span
                   className={`state ${node.status === "revoked" ? "revoked" : node.online ? "active" : "offline"}`}
                 >
@@ -741,22 +778,25 @@ function Devices({ request, revision, refresh, onError }: PageProps) {
                 {node.lastSeenAt ? date(node.lastSeenAt) : t("Never")}
               </span>
               <div className="row-actions">
-                {node.status === "active" ? (
+                {node.status === "active" && manager && node.accountId === (selectedTeam?.accountId ?? accounts?.personalAccountId) ? (
                   <button className="secondary" onClick={() => setEditing(node)}>
                     {t("Manage")}
                   </button>
                 ) : null}
-                <button
+                {node.status === "active" && manager && node.accountId === (selectedTeam?.accountId ?? accounts?.personalAccountId) ? <button className="secondary" onClick={() => setSharing(node)}>{t("Share")}</button> : null}
+                {manager && node.accountId === (selectedTeam?.accountId ?? accounts?.personalAccountId) ? <button
                   className="secondary danger"
                   onClick={() => setAction({ node, kind: "delete" })}
                 >
                   {t("Delete")}
-                </button>
+                </button> : <NavLink className="secondary" to="/app/sharing">{t("Sharing")}</NavLink>}
               </div>
             </div>
           </article>
         ))}
       </div>
+      {sharing ? <ShareDialog node={sharing} request={request} teams={accounts?.teams ?? []} onClose={() => setSharing(undefined)} onSaved={refresh} /> : null}
+      {updating ? <ConnectorUpdate node={updating} request={request} onClose={() => setUpdating(undefined)} /> : null}
       {loaded && nodes.length > 0 && !visibleNodes.length ? (
         <Empty icon={<Cable />} label={t("No matching devices")} />
       ) : null}
@@ -809,188 +849,6 @@ function Devices({ request, revision, refresh, onError }: PageProps) {
           </div>
         </div>
       </details>
-    </section>
-  );
-}
-function Projects({ request, revision, refresh, onError }: PageProps) {
-  const { t } = useI18n();
-  const [projects, setProjects] = useState<ProjectRecord[]>([]),
-    [roots, setRoots] = useState<RootRecord[]>([]),
-    [nodes, setNodes] = useState<NodeRecord[]>([]);
-  const [creating, setCreating] = useState(false),
-    [adding, setAdding] = useState(""),
-    [nodeId, setNodeId] = useState(""),
-    [busy, setBusy] = useState(false);
-  useEffect(() => {
-    let active = true;
-    Promise.all([request("/api/v1/projects?include=roots"), request("/api/v1/nodes")])
-      .then(([p, n]) => {
-        if (active) {
-          setProjects(p.projects);
-          setNodes(n.nodes);
-          setRoots(p.roots);
-        }
-      })
-      .catch((error) => {
-        if (active) onError(error.message);
-      });
-    return () => {
-      active = false;
-    };
-  }, [request, revision, onError]);
-  const submit = async (event: FormEvent<HTMLFormElement>, projectId?: string) => {
-    event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    setBusy(true);
-    try {
-      await request(projectId ? `/api/v1/projects/${projectId}/roots` : "/api/v1/projects", {
-        method: "POST",
-        body: JSON.stringify(
-          projectId
-            ? {
-                rootId: data.get("rootId"),
-                nodeId,
-                label: data.get("label"),
-                writable: data.get("writable") === "on"
-              }
-            : { label: data.get("label") }
-        )
-      });
-      setCreating(false);
-      setAdding("");
-      refresh();
-    } catch (error) {
-      onError((error as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <section className="page">
-      <PageHeader
-        title={t("Projects & folders")}
-        count={projects.length}
-        action={
-          <button className="primary" onClick={() => setCreating(true)}>
-            <CirclePlus size={16} />
-            {t("New project")}
-          </button>
-        }
-      />
-      <p className="description">
-        {t("Optional groups for existing workflows. Authorize devices directly from Agent access.")}
-      </p>
-      {creating ? (
-        <form className="inline-form" onSubmit={(event) => submit(event)}>
-          <input
-            name="label"
-            aria-label={t("Project name")}
-            placeholder={t("Project name")}
-            maxLength={128}
-            required
-          />
-          <button className="primary" disabled={busy}>
-            {t("Create")}
-          </button>
-          <button className="secondary" type="button" onClick={() => setCreating(false)}>
-            {t("Cancel")}
-          </button>
-        </form>
-      ) : null}
-      <div className="project-list">
-        {projects.map((project) => (
-          <div className="project-row" key={project.projectId}>
-            <div className="project-title">
-              <FolderRoot size={19} />
-              <strong>{project.label}</strong>
-              <code>{project.projectId}</code>
-              <button
-                className="icon-button"
-                aria-label={t("Add authorized root")}
-                onClick={() => {
-                  setAdding(project.projectId);
-                  setNodeId("");
-                }}
-              >
-                <CirclePlus size={16} />
-              </button>
-            </div>
-            {adding === project.projectId ? (
-              <form
-                className="inline-form root-form"
-                onSubmit={(event) => submit(event, project.projectId)}
-              >
-                <select
-                  required
-                  aria-label={t("Device")}
-                  value={nodeId}
-                  onChange={(event) => setNodeId(event.target.value)}
-                >
-                  <option value="" disabled>
-                    {t("Device")}
-                  </option>
-                  {nodes
-                    .filter((node) => node.status === "active")
-                    .map((node) => (
-                      <option key={node.nodeId} value={node.nodeId}>
-                        {node.label}
-                      </option>
-                    ))}
-                </select>
-                <select
-                  name="rootId"
-                  aria-label={t("Device folder")}
-                  key={nodeId}
-                  required
-                  defaultValue=""
-                >
-                  <option value="" disabled>
-                    {t("Advertised device folder")}
-                  </option>
-                  {nodes
-                    .find((node) => node.nodeId === nodeId)
-                    ?.capability?.roots.map((root) => (
-                      <option key={root.rootId} value={root.rootId}>
-                        {root.path ?? root.label} ({t(root.writable ? "Write" : "Read")})
-                      </option>
-                    ))}
-                </select>
-                <input
-                  name="label"
-                  aria-label={t("Folder label")}
-                  placeholder={t("Folder label")}
-                  maxLength={128}
-                  required
-                />
-                <label className="checkbox">
-                  <input name="writable" type="checkbox" />
-                  {t("Writable")}
-                </label>
-                <button className="primary" disabled={busy}>
-                  {t("Add")}
-                </button>
-                <button className="secondary" type="button" onClick={() => setAdding("")}>
-                  {t("Cancel")}
-                </button>
-              </form>
-            ) : null}
-            <div className="root-list">
-              {roots
-                .filter((root) => root.projectId === project.projectId)
-                .map((root) => (
-                  <div className="root-row" key={`${root.nodeId}:${root.rootId}`}>
-                    <FolderRoot size={16} />
-                    <span>{root.label}</span>
-                    <code>{root.path ?? root.rootId}</code>
-                    <span>{nodes.find((node) => node.nodeId === root.nodeId)?.label}</span>
-                    <span className="state">{t(root.writable ? "Write" : "Read")}</span>
-                  </div>
-                ))}
-            </div>
-          </div>
-        ))}
-        {!projects.length ? <Empty icon={<FolderRoot />} label={t("No projects")} /> : null}
-      </div>
     </section>
   );
 }
@@ -1290,7 +1148,7 @@ createRoot(document.getElementById("root")!).render(
     <LocaleProvider>
       <BrowserRouter>
         <AnalyticsEffects />
-        <App />
+        {document.querySelector('meta[name="zioon-account-app"]') ? <AccountApp /> : <App />}
       </BrowserRouter>
     </LocaleProvider>
   </StrictMode>

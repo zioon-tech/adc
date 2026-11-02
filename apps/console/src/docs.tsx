@@ -27,12 +27,15 @@ import { useI18n, type Message } from "./i18n.tsx";
 import { PublicFooter, PublicHeader, repositoryUrl } from "./public-header.tsx";
 import { HarnessPlugins } from "./harness-plugins.tsx";
 import { CodeBlock } from "./docs-code.tsx";
+import { CollaborationDocs } from "./collaboration-docs.tsx";
+import { isConsoleToolVisible, showCloudFileTransfers } from "./file-transfer-visibility.ts";
 
 export type DocsPageId =
   | "overview"
   | "quickstart"
   | "use-cases"
   | "concepts"
+  | "collaboration"
   | "architecture"
   | "connector"
   | "integrations"
@@ -56,6 +59,7 @@ export const docsPages: Array<{
   { id: "quickstart", title: "Get started", icon: Rocket, group: "Start" },
   { id: "use-cases", title: "Use cases", icon: BriefcaseBusiness, group: "Start" },
   { id: "concepts", title: "Core concepts", icon: Network, group: "Understand" },
+  { id: "collaboration", title: "Teams and sharing", icon: Network, group: "Understand" },
   { id: "architecture", title: "Architecture", icon: Boxes, group: "Understand" },
   { id: "security", title: "Security", icon: ShieldCheck, group: "Understand" },
   { id: "connector", title: "Device connector", icon: Laptop, group: "Build" },
@@ -74,6 +78,7 @@ const docsSummaries: Partial<Record<DocsPageId, Message>> = {
   quickstart: "Connect your first device",
   "use-cases": "Real work, on the machine that is ready for it.",
   concepts: "How authorization works",
+  collaboration: "Teams and sharing",
   architecture: "One control plane. Execution remains local.",
   security: "Trust model",
   connector: "Install and pair",
@@ -1114,7 +1119,7 @@ function ToolReference() {
     <>
       <PageIntro
         eyebrow={t("Tool reference")}
-        title={t("{count} built-in tools", { count: documentedTools.length })}
+        title={t("{count} built-in tools", { count: documentedTools.filter(isConsoleToolVisible).length })}
         description={t(
           "Tools use the same schemas and policy path across HTTP, CLI, MCP, SDK and Skill."
         )}
@@ -1130,7 +1135,7 @@ function ToolReference() {
           </thead>
           <tbody>
             {groups.flatMap((group) =>
-              group.tools.map((tool) => (
+              group.tools.filter(isConsoleToolVisible).map((tool) => (
                 <tr key={tool}>
                   <td>
                     <code>{tool}</code>
@@ -1153,7 +1158,7 @@ function ToolReference() {
           "Devices may also register namespaced MCP Provider tools. Their original input schema is exposed to the Agent, they default to execution risk, and they appear only after explicit authorization."
         )}
       </p>
-      <Section id="file-transfer" title={copy("Transfer between devices", "在设备之间传输文件")}>
+      {showCloudFileTransfers ? <Section id="file-transfer" title={copy("Transfer between devices", "在设备之间传输文件")}>
         <p>
           {copy(
             "file.transfer copies one regular file between two authorized desktop devices. The source folder may be read-only; the destination folder must be writable. ADC relays verified binary chunks through its own persistent transfer directory, requires independent approval when write approval is enabled, and never requires TOS, S3 or another object-storage service.",
@@ -1172,7 +1177,7 @@ function ToolReference() {
             "该命令返回一个传输任务。使用其 transferId 或 jobId 继续执行 adc transfer wait、status 或 cancel。0.1 版本不会覆盖已有目标文件，也不支持复制目录。"
           )}
         </p>
-      </Section>
+      </Section> : null}
       <Section id="task-wait" title={copy("Wait for an existing task", "等待已有任务")}>
         <p>
           {copy(
@@ -2464,6 +2469,7 @@ function Changelog() {
 }
 
 function DocContent({ page }: { page: DocsPageId }) {
+  if (page === "collaboration") return <CollaborationDocs />;
   if (page === "overview") return <DocumentationOverview />;
   if (page === "quickstart") return <Quickstart />;
   if (page === "use-cases") return <UseCases />;

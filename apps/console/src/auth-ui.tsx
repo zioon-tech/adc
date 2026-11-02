@@ -1,5 +1,5 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { Cable, Github, LoaderCircle, MailCheck, RotateCw } from "lucide-react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Cable, CircleUserRound, Github, LoaderCircle, MailCheck, RotateCw } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { analyticsEventForRequest, trackAnalytics } from "./analytics.tsx";
 import { LanguageSelector, translateError, useI18n, type Message } from "./i18n.tsx";
@@ -15,6 +15,7 @@ interface ApiRequestError extends Error {
   status: number;
   code?: string;
   rawMessage: string;
+  retryAfter?: number;
 }
 interface AuthConfig {
   registrationEnabled: boolean;
@@ -52,9 +53,18 @@ export function authQueryError(
     ["TOKEN_EXPIRED", "INVALID_TOKEN", "USER_NOT_FOUND", "INVALID_USER"].includes(error)
   )
     return "This verification link is invalid or expired. Sign in to request a new one.";
-  return mode === "login"
-    ? "GitHub sign-in could not finish. Verify your GitHub email and try again. Existing email accounts can link GitHub from Account."
-    : "This link is invalid or expired. Please try again.";
+  if (mode !== "login") return "This link is invalid or expired. Please try again.";
+  if (error === "invalid_login_transaction")
+    return "This sign-in request has expired. Start a new sign-in request to continue.";
+  if (error === "login_cancelled") return "Sign-in was cancelled. You can try again.";
+  if (error === "account_disabled") return "This account is disabled. Contact the administrator.";
+  if (["account_service_unavailable", "workspace_unavailable"].includes(error))
+    return "The service could not open your workspace. Please try again shortly.";
+  if (["login_rate_limited", "too_many_login_requests"].includes(error))
+    return "Too many sign-in attempts. Please wait before trying again.";
+  if (error === "social_login_failed" || /github|oauth|email_not_found|unable_to_link_account/i.test(error))
+    return "GitHub sign-in could not finish. Verify your GitHub email and try again. Existing email accounts can link GitHub from Account.";
+  return "Sign-in could not finish. Please try again.";
 }
 
 export async function apiRequest(path: string, init: RequestInit = {}) {
@@ -68,10 +78,16 @@ export async function apiRequest(path: string, init: RequestInit = {}) {
     const rawMessage =
       body.error?.message ?? body.message ?? body.error_description ?? `HTTP ${response.status}`;
     const error = new Error(translateError(rawMessage));
+    const retryHeader = response.headers.get("retry-after") ?? response.headers.get("x-retry-after");
+    const retrySeconds = retryHeader === null ? NaN : /^\d+$/.test(retryHeader)
+      ? Number(retryHeader) : (Date.parse(retryHeader) - Date.now()) / 1000;
     Object.assign(error, {
       status: response.status,
-      code: body.error?.code ?? body.code,
-      rawMessage
+      code: body.error?.code ?? body.code ?? (typeof body.error === "string" ? body.error : undefined),
+      rawMessage,
+      ...(response.status === 429 ? {
+        retryAfter: Number.isFinite(retrySeconds) ? Math.max(0, Math.ceil(retrySeconds)) : 60
+      } : {})
     });
     throw error;
   }
@@ -88,14 +104,18 @@ export function Brand() {
   );
 }
 export function AuthLayout({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
+  const { t } = useI18n();
   return (
     <div className="auth-layout">
       <header className="public-header">
-        <Brand />
+        <div className="brand" aria-label={t("Zioon Account")}>
+          <CircleUserRound size={25} strokeWidth={1.5} aria-hidden="true" />
+          <span>{t("Zioon Account")}</span>
+        </div>
         <LanguageSelector />
       </header>
       <main className={`login ${wide ? "consent" : ""}`}>{children}</main>
-      <footer className="auth-footer">Agent Device Cloud</footer>
+      <footer className="auth-footer">{t("Zioon · Unified account service")}</footer>
     </div>
   );
 }
@@ -104,19 +124,69 @@ export function CliLogin({ request }: { request: Request }) {
   const { t } = useI18n();
   const location = useLocation();
   const userCode = new URLSearchParams(location.search).get("user_code") ?? "";
-  const [status, setStatus] = useState<"loading" | "pending" | "approved" | "denied">("loading");
+  const invalidRequestMessage = t("This CLI login request is invalid or expired.");
+  const [status, setStatus] = useState<
+    "loading" | "pending" | "approved" | "denied" | "error" | "invalid" | "other-account"
+  >("loading");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const [retryAt, setRetryAt] = useState(0);
+  const [remaining, setRemaining] = useState(0);
+  const deciding = useRef(false);
+  const currentCode = useRef(userCode);
+  currentCode.current = userCode;
   useEffect(() => {
+    let active = true;
+    setError("");
+    setRetryAt(0);
+    setRemaining(0);
     if (!userCode) {
-      setError(t("This CLI login request is invalid or expired."));
+      setStatus("invalid");
       return;
     }
+    setStatus("loading");
     request(`/api/auth/device?user_code=${encodeURIComponent(userCode)}`)
-      .then((result) => setStatus(result.status))
-      .catch((error) => setError(error.message));
-  }, [request, t, userCode]);
+      .then((result) => {
+        if (!active) return;
+        // The provider includes client_id only for the account owning this
+        // request. An approved code alone does not prove this account logged in.
+        if (result.client_id !== "adc-cli") {
+          setStatus("other-account");
+        } else if (["pending", "approved", "denied"].includes(result.status)) {
+          setStatus(result.status);
+        } else {
+          setStatus("invalid");
+        }
+      })
+      .catch((error: ApiRequestError) => {
+        if (!active) return;
+        if (["invalid_request", "expired_token"].includes(error.code ?? "")) {
+          setStatus("invalid");
+          return;
+        }
+        setStatus("error");
+        setError(error.message);
+        if (error.status === 429) {
+          const seconds = error.retryAfter ?? 60;
+          setRemaining(seconds);
+          setRetryAt(Date.now() + seconds * 1000);
+        }
+      });
+    return () => { active = false; };
+    // The translated string is stable across renders; useI18n's t function is
+    // recreated on every render and must not trigger another network request.
+  }, [request, userCode, attempt, invalidRequestMessage]);
+  useEffect(() => {
+    if (!retryAt) return;
+    const update = () => setRemaining(Math.max(0, Math.ceil((retryAt - Date.now()) / 1000)));
+    update();
+    const timer = window.setInterval(update, 1000);
+    return () => window.clearInterval(timer);
+  }, [retryAt]);
   const decide = async (decision: "approve" | "deny") => {
+    if (deciding.current || remaining > 0) return;
+    deciding.current = true;
     setBusy(true);
     setError("");
     try {
@@ -124,10 +194,23 @@ export function CliLogin({ request }: { request: Request }) {
         method: "POST",
         body: JSON.stringify({ userCode })
       });
+      if (currentCode.current !== userCode) return;
       setStatus(decision === "approve" ? "approved" : "denied");
     } catch (error) {
-      setError((error as Error).message);
+      if (currentCode.current !== userCode) return;
+      const failure = error as ApiRequestError;
+      if (["invalid_request", "expired_token"].includes(failure.code ?? "")) {
+        setStatus("invalid");
+      } else {
+        setError(failure.message);
+        if (failure.status === 429) {
+          const seconds = failure.retryAfter ?? 60;
+          setRemaining(seconds);
+          setRetryAt(Date.now() + seconds * 1000);
+        }
+      }
     } finally {
+      deciding.current = false;
       setBusy(false);
     }
   };
@@ -146,7 +229,7 @@ export function CliLogin({ request }: { request: Request }) {
       ) : status === "approved" ? (
         <>
           <p className="notice" role="status">
-            {t("CLI connected. You can close this tab.")}
+            {t("CLI login approved. Return to your terminal to finish.")}
           </p>
           <code>{userCode}</code>
         </>
@@ -154,6 +237,20 @@ export function CliLogin({ request }: { request: Request }) {
         <p className="description" role="status">
           {t("CLI login denied. You can close this tab.")}
         </p>
+      ) : status === "invalid" || status === "other-account" ? (
+        <p className="description" role="status">
+          {status === "other-account"
+            ? t("This CLI login request belongs to another account. Run adc login again in your own terminal.")
+            : invalidRequestMessage}
+        </p>
+      ) : status === "error" ? (
+        <>
+          {remaining > 0 ? <p className="description" role="status">
+            {t("Try again in {seconds} seconds.", { seconds: remaining })}
+          </p> : null}
+          <button className="secondary" disabled={remaining > 0}
+            onClick={() => setAttempt((value) => value + 1)}>{t("Retry")}</button>
+        </>
       ) : (
         <>
           <p className="description">
@@ -163,13 +260,16 @@ export function CliLogin({ request }: { request: Request }) {
             <code>{userCode}</code>
           </div>
           <div className="row-actions">
-            <button className="primary" disabled={busy} onClick={() => void decide("approve")}>
+            <button className="primary" disabled={busy || remaining > 0} onClick={() => void decide("approve")}>
               {t("Connect CLI")}
             </button>
-            <button className="secondary" disabled={busy} onClick={() => void decide("deny")}>
+            <button className="secondary" disabled={busy || remaining > 0} onClick={() => void decide("deny")}>
               {t("Deny")}
             </button>
           </div>
+          {remaining > 0 ? <p className="description" role="status">
+            {t("Try again in {seconds} seconds.", { seconds: remaining })}
+          </p> : null}
         </>
       )}
     </AuthLayout>
@@ -178,15 +278,19 @@ export function CliLogin({ request }: { request: Request }) {
 
 export function AuthPage({
   onLogin,
+  onSwitchAccount,
+  onPasswordReset,
   currentUser
 }: {
   onLogin: (returnTo?: string) => Promise<void>;
+  onSwitchAccount: () => Promise<void>;
+  onPasswordReset?: () => void;
   currentUser: User | null;
 }) {
   const { t } = useI18n();
   const location = useLocation();
   const params = new URLSearchParams(location.search);
-  const { oauth, oauthSearch, returnTo, authSearch } = authNavigation(location.search);
+  const { oauth, oauthSearch, returnTo, authSearch, hosted, recoverySearch } = authNavigation(location.search);
   const mode =
     location.pathname === "/register"
       ? "register"
@@ -205,6 +309,18 @@ export function AuthPage({
   const [resendCooldown, setResendCooldown] = useState(0);
   const [resetEmail, setResetEmail] = useState("");
   const [passwordResetComplete, setPasswordResetComplete] = useState(false);
+  const [loginContext, setLoginContext] = useState<{ name: string; cancelUrl?: string }>();
+  const [contextError, setContextError] = useState(false);
+  useEffect(() => {
+    if (!hosted || !returnTo) return;
+    let active = true;
+    setLoginContext(undefined);
+    setContextError(false);
+    apiRequest(`/api/v1/zioon/login-context${new URL(returnTo, window.location.origin).search}`)
+      .then((context) => { if (active) setLoginContext(context); })
+      .catch(() => { if (active) setContextError(true); });
+    return () => { active = false; };
+  }, [hosted, returnTo]);
   useEffect(() => {
     apiRequest("/api/v1/auth/config")
       .then(setConfig)
@@ -228,7 +344,8 @@ export function AuthPage({
     );
     return () => window.clearInterval(timer);
   }, [resendCooldown > 0]);
-  const callbackURL = `${window.location.origin}${oauth ? `/login${oauthSearch}` : (returnTo ?? "/app")}`;
+  const callbackURL = `${window.location.origin}${oauth ? `/login${oauthSearch}` : (returnTo ??
+    (document.querySelector('meta[name="zioon-account-app"]') ? "/account" : "/app"))}`;
   const verificationCallbackURL = `${window.location.origin}${
     oauth
       ? `/login${oauthSearch}&verification=1`
@@ -293,7 +410,7 @@ export function AuthPage({
       if (mode === "forgot") {
         await apiRequest("/api/auth/request-password-reset", {
           method: "POST",
-          body: JSON.stringify({ email, redirectTo: `${window.location.origin}/reset-password` })
+          body: JSON.stringify({ email, redirectTo: `${window.location.origin}/reset-password${recoverySearch}` })
         });
         setResetEmail(email);
       } else if (mode === "reset") {
@@ -303,6 +420,7 @@ export function AuthPage({
           method: "POST",
           body: JSON.stringify({ token: params.get("token"), newPassword: password })
         });
+        onPasswordReset?.();
         setPasswordResetComplete(true);
       } else {
         try {
@@ -344,7 +462,7 @@ export function AuthPage({
     });
   };
   const disabled =
-    !config ||
+    !config || (hosted && !loginContext) ||
     (mode === "register" && !config.registrationEnabled) ||
     (mode === "forgot" && !config.passwordResetEnabled);
   const title: Record<typeof mode, Message> = {
@@ -388,7 +506,11 @@ export function AuthPage({
         ? t("You can now sign in with your new password.")
         : invalidResetLink
           ? t("Request a new password reset link to continue.")
-          : t("Your devices, connected to your agents.");
+          : hosted
+            ? loginContext
+              ? t("Sign in to continue to {product}.", { product: loginContext.name })
+              : t("Checking this login request…")
+            : t("One account for all Zioon services.");
   return (
     <AuthLayout>
       {githubPending ? (
@@ -399,6 +521,11 @@ export function AuthPage({
       ) : null}
       <h1>{t(pageTitle)}</h1>
       <p className="description">{description}</p>
+      {contextError ? (
+        <p className="form-error" role="alert">
+          {t("This sign-in request could not be verified. Return to the app and try again.")}
+        </p>
+      ) : null}
       {queryError ? (
         <p className="form-error" role="alert">
           {t(queryError)}
@@ -414,7 +541,7 @@ export function AuthPage({
           {t(notice)}
         </p>
       ) : null}
-      {config && disabled ? (
+      {config && disabled && !(hosted && !loginContext) ? (
         <p className="description">{t("This option is disabled on this installation.")}</p>
       ) : null}
       {verificationEmail ? (
@@ -488,29 +615,41 @@ export function AuthPage({
           <button className="text-link" type="button" onClick={() => setResetEmail("")}>
             {t("Try another email")}
           </button>
-          <Link className="secondary" to={`/login${authSearch}`}>
+          <Link className="secondary" to={`/login${recoverySearch}`}>
             {t("Back to sign in")}
           </Link>
         </div>
       ) : passwordResetComplete ? (
         <div className="auth-completion">
-          <Link className="primary" to={`/login${authSearch}`}>
+          <Link className="primary" to={`/login${recoverySearch}`}>
             {t("Sign in")}
           </Link>
         </div>
       ) : invalidResetLink ? (
         <div className="auth-completion">
-          <Link className="primary" to={`/forgot-password${authSearch}`}>
+          <Link className="primary" to={`/forgot-password${recoverySearch}`}>
             {t("Request a new reset link")}
           </Link>
-          <Link className="text-link" to={`/login${authSearch}`}>
+          <Link className="text-link" to={`/login${recoverySearch}`}>
             {t("Back to sign in")}
           </Link>
         </div>
-      ) : currentUser && oauth ? (
-        <button className="primary" disabled={busy} onClick={() => action(() => continueOAuth())}>
-          {t("Continue as {name}", { name: currentUser.name })}
-        </button>
+      ) : currentUser && (oauth || hosted) && (mode === "login" || mode === "register") ? (
+        <div className="auth-account-choice">
+          <div className="auth-current-account">
+            <span className="avatar" aria-hidden="true">{currentUser.name.slice(0, 1).toUpperCase()}</span>
+            <div><strong>{currentUser.name}</strong><span>{currentUser.email}</span></div>
+          </div>
+          <button className="primary" disabled={busy || disabled}
+            onClick={() => action(() => oauth ? continueOAuth() : onLogin(returnTo))}>
+            {busy ? <LoaderCircle className="button-spinner" size={17} aria-hidden="true" /> : null}
+            {t(busy ? "Please wait…" : queryError && hosted ? "Retry opening {product}" : "Continue as {name}",
+              { name: currentUser.name, product: loginContext?.name || "" })}
+          </button>
+          <button className="text-link" disabled={busy} onClick={() => action(onSwitchAccount)}>
+            {t("Use a different account")}
+          </button>
+        </div>
       ) : (
         <>
           {(mode === "login" || mode === "register") && config?.githubEnabled ? (
@@ -568,15 +707,22 @@ export function AuthPage({
           </form>
         </>
       )}
-      {!completed ? (
+      {!completed && !(currentUser && (oauth || hosted)) ? (
         <div className="auth-links">
-          {mode !== "login" ? <Link to={`/login${authSearch}`}>{t("Sign in")}</Link> : null}
+          {mode !== "login" ? <Link to={`/login${mode === "forgot" || mode === "reset" ? recoverySearch : authSearch}`}>{t("Sign in")}</Link> : null}
           {mode === "login" && config?.registrationEnabled ? (
             <Link to={`/register${authSearch}`}>{t("Create account")}</Link>
           ) : null}
           {mode === "login" && config?.passwordResetEnabled ? (
-            <Link to={`/forgot-password${authSearch}`}>{t("Forgot password?")}</Link>
+            <Link to={`/forgot-password${recoverySearch}`}>{t("Forgot password?")}</Link>
           ) : null}
+        </div>
+      ) : null}
+      {hosted && loginContext?.cancelUrl ? (
+        <div className="auth-return">
+          <a className="text-link" href={loginContext.cancelUrl}>
+            {t("Return to {product}", { product: loginContext.name })}
+          </a>
         </div>
       ) : null}
     </AuthLayout>
@@ -744,7 +890,8 @@ export function AccountSettings({
                     method: "POST",
                     body: JSON.stringify({
                       provider: "github",
-                      callbackURL: `${window.location.origin}/app/settings`,
+                      callbackURL: `${window.location.origin}${
+                        document.querySelector('meta[name="zioon-account-app"]') ? "/account" : "/app/settings"}`,
                       errorCallbackURL: `${window.location.origin}/login`,
                       disableRedirect: true
                     })

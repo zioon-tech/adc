@@ -1,4 +1,5 @@
 import type { Locale } from "./i18n.tsx";
+import { showCloudFileTransfers } from "./file-transfer-visibility.ts";
 
 export interface LocalizedText {
   en: string;
@@ -35,7 +36,7 @@ export function localize(value: LocalizedText, locale: Locale): string {
   return value[locale];
 }
 
-export const publicContent: PublicContentEntry[] = [
+const contentEntries: PublicContentEntry[] = [
   {
     path: "/updates/connector-0-1-4",
     kind: "Product update",
@@ -994,6 +995,10 @@ adc invoke file.read --node node_example \\
     ]
   }
 ];
+
+export const publicContent = contentEntries.filter(
+  (entry) => showCloudFileTransfers || entry.path !== "/updates/connector-0-1-4"
+);
 
 export const listedPublicContent = publicContent.filter((entry) => entry.listed);
 

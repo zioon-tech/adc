@@ -13,6 +13,7 @@ import {
   CommandTemplateSchema,
   ControlPlaneUrlSchema,
   McpProviderConfigSchema,
+  SharingConfigSchema,
   accessRoots,
   configPath,
   localFolder,
@@ -62,6 +63,7 @@ Usage:
   adc-node setup --url ORIGIN --code CODE [--label NAME] [--root-path FOLDER]
                  [--access none|selected|home|full] [--root-id ID] [--read-only] [--no-service]
   adc-node access [none|selected|home|full] [--read-only]
+  adc-node sharing [on|off] [--trusted-host on|off] [--isolation none|docker] [--image PINNED_IMAGE]
   adc-node roots list
   adc-node roots add FOLDER [--root-id ID] [--label NAME] [--read-only]
   adc-node roots remove ROOT_ID
@@ -278,6 +280,25 @@ async function main(): Promise<void> {
       console.log("Paired. Start in the foreground with adc-node run.");
     return;
   }
+  if (command === "sharing") {
+    const config = await loadConfig();
+    const mode = process.argv[3];
+    if (!mode) { console.log(JSON.stringify(config.sharing, null, 2)); return; }
+    if (!["on", "off"].includes(mode)) throw new Error("Use sharing on or off.");
+    const args = argumentsMap(process.argv.slice(4));
+    const trustedHost = args.get("trusted-host");
+    if (trustedHost && !["on", "off"].includes(trustedHost)) throw new Error("Use --trusted-host on or off.");
+    const sharing = SharingConfigSchema.parse({
+      ...config.sharing, enabled: mode === "on",
+      ...(trustedHost ? { trustedHost: trustedHost === "on" } : {}),
+      ...(args.get("isolation") ? { isolation: args.get("isolation") } : {}),
+      ...(args.get("image") ? { image: args.get("image") } : {})
+    });
+    if (sharing.isolation === "docker" && !sharing.image) throw new Error("Supply an installed image pinned with @sha256:digest.");
+    await saveConfig(ConfigSchema.parse({ ...config, sharing }));
+    console.log(JSON.stringify({ sharing, reload: "automatic" }, null, 2));
+    return;
+  }
   if (command === "access") {
     const config = await loadConfig();
     const modeArg = process.argv[3];
@@ -308,10 +329,6 @@ async function main(): Promise<void> {
     const value = process.argv[4];
     if (!value) throw new Error("Supply a folder path to add, or a root ID to remove.");
     if (action === "add") {
-      if (config.accessMode === "full")
-        throw new Error(
-          "Full trust already exposes all folders. Use adc-node access selected to choose folders."
-        );
       const args = argumentsMap(process.argv.slice(5));
       const root = await localFolder(value, {
         ...(args.get("root-id") ? { rootId: args.get("root-id")! } : {}),
@@ -323,7 +340,7 @@ async function main(): Promise<void> {
       if (config.roots.some((item) => item.rootId === root.rootId && item.path !== root.path))
         throw new Error("This root ID already refers to another folder.");
       config.roots = [...config.roots.filter((item) => item.rootId !== root.rootId), root];
-      config.accessMode = "selected";
+      if (config.accessMode !== "full") config.accessMode = "selected";
     } else if (action === "remove") {
       if (!config.roots.some((root) => root.rootId === value))
         throw new Error("Folder ID was not found.");

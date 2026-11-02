@@ -25,6 +25,7 @@ const docs: Array<[string, string, string]> = [
     "Connect AI agents to governed tools on your computers and Android devices."
   ],
   ["quickstart", "Get started", "Connect an account, device and Agent authorization."],
+  ["collaboration", "Teams and sharing", "Manage team membership and named device sharing with exact permissions."],
   ["use-cases", "Use cases", "Practical ways to run AI agent work on an existing device."],
   [
     "concepts",

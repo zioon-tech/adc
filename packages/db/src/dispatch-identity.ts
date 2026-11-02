@@ -18,6 +18,10 @@ export function invocationInputHash(invocation: Invocation): string {
         accountId: invocation.accountId,
         actor: invocation.actor,
         authorization: invocation.authorization,
+        delegation: invocation.delegation ? (() => {
+          const { expiresAt: _expiry, ...stable } = invocation.delegation;
+          return stable;
+        })() : undefined,
         tool: invocation.tool,
         args: invocation.args,
         target: invocation.target,

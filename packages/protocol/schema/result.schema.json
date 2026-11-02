@@ -24,7 +24,7 @@
       "$ref": "#/$defs/__schema6"
     },
     "jobId": {
-      "$ref": "#/$defs/__schema7"
+      "$ref": "#/$defs/__schema11"
     }
   },
   "required": [
@@ -129,55 +129,7 @@
           "pattern": "^node_[a-z0-9][a-z0-9_-]{2,127}$"
         },
         "tool": {
-          "anyOf": [
-            {
-              "type": "string",
-              "enum": [
-                "device.list",
-                "device.status",
-                "device.battery.get",
-                "device.info.get",
-                "device.network.get",
-                "device.storage.get",
-                "device.vibrate",
-                "device.navigation",
-                "app.open",
-                "display.status",
-                "audio.status",
-                "audio.volume.set",
-                "flashlight.status",
-                "flashlight.set",
-                "location.get",
-                "notification.show",
-                "screen.capture",
-                "ui.inspect",
-                "ui.wait",
-                "ui.action",
-                "ui.gesture",
-                "file.list",
-                "file.read",
-                "file.search",
-                "file.write",
-                "file.edit",
-                "file.patch",
-                "file.transfer",
-                "shell.exec",
-                "command.template.list",
-                "command.template.run",
-                "test.run",
-                "task.status",
-                "task.result",
-                "task.wait",
-                "task.cancel"
-              ]
-            },
-            {
-              "type": "string",
-              "minLength": 12,
-              "maxLength": 255,
-              "pattern": "^mcp\\.[a-z0-9][a-z0-9_-]{1,63}\\.[a-z0-9][a-z0-9_-]{0,63}\\.[a-f0-9]{8}$"
-            }
-          ]
+          "$ref": "#/$defs/__schema7"
         },
         "terminalStatus": {
           "type": "string",
@@ -234,6 +186,120 @@
             "type": "string",
             "pattern": "^artifact_[a-f0-9]{32}\\.(?:log|png)$"
           }
+        },
+        "delegation": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "requesterAccountId": {
+              "$ref": "#/$defs/__schema8"
+            },
+            "requesterUserId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "resourceAccountId": {
+              "$ref": "#/$defs/__schema8"
+            },
+            "bindingId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "bindingRevision": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "bindingKind": {
+              "type": "string",
+              "const": "team"
+            },
+            "membershipRevision": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "grantRevision": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "scope": {
+              "type": "object",
+              "properties": {
+                "roots": {
+                  "maxItems": 64,
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/__schema9"
+                  }
+                },
+                "allowedTools": {
+                  "minItems": 1,
+                  "maxItems": 256,
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/__schema7"
+                  }
+                },
+                "execution": {
+                  "default": "read-only",
+                  "type": "string",
+                  "enum": [
+                    "read-only",
+                    "trusted-host",
+                    "isolated"
+                  ]
+                },
+                "approvalPolicy": {
+                  "default": "never",
+                  "type": "string",
+                  "enum": [
+                    "never",
+                    "writes",
+                    "execute",
+                    "always"
+                  ]
+                },
+                "templateIds": {
+                  "default": [],
+                  "maxItems": 64,
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/__schema10"
+                  }
+                }
+              },
+              "required": [
+                "roots",
+                "allowedTools",
+                "execution",
+                "approvalPolicy",
+                "templateIds"
+              ],
+              "additionalProperties": false
+            },
+            "expiresAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+            }
+          },
+          "required": [
+            "version",
+            "requesterAccountId",
+            "requesterUserId",
+            "resourceAccountId",
+            "grantRevision",
+            "scope",
+            "expiresAt"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -256,6 +322,89 @@
       "additionalProperties": false
     },
     "__schema7": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "device.list",
+            "device.status",
+            "device.battery.get",
+            "device.info.get",
+            "device.network.get",
+            "device.storage.get",
+            "device.vibrate",
+            "device.navigation",
+            "app.open",
+            "display.status",
+            "audio.status",
+            "audio.volume.set",
+            "flashlight.status",
+            "flashlight.set",
+            "location.get",
+            "notification.show",
+            "screen.capture",
+            "ui.inspect",
+            "ui.wait",
+            "ui.action",
+            "ui.gesture",
+            "file.list",
+            "file.read",
+            "file.search",
+            "file.write",
+            "file.edit",
+            "file.patch",
+            "file.transfer",
+            "shell.exec",
+            "command.template.list",
+            "command.template.run",
+            "test.run",
+            "task.status",
+            "task.result",
+            "task.wait",
+            "task.cancel"
+          ]
+        },
+        {
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 255,
+          "pattern": "^mcp\\.[a-z0-9][a-z0-9_-]{1,63}\\.[a-z0-9][a-z0-9_-]{0,63}\\.[a-f0-9]{8}$"
+        }
+      ]
+    },
+    "__schema8": {
+      "type": "string",
+      "pattern": "^acct_[a-z0-9][a-z0-9_-]{2,127}$"
+    },
+    "__schema9": {
+      "type": "object",
+      "properties": {
+        "rootId": {
+          "type": "string",
+          "pattern": "^root_[a-z0-9][a-z0-9_-]{2,127}$"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32767
+        },
+        "writable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "rootId",
+        "path",
+        "writable"
+      ],
+      "additionalProperties": false
+    },
+    "__schema10": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "__schema11": {
       "type": "string",
       "pattern": "^job_[a-z0-9][a-z0-9_-]{2,127}$"
     }

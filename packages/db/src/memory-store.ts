@@ -197,12 +197,48 @@ export class MemoryStore implements Store {
     return true;
   }
 
-  async putProject(project: ProjectRecord): Promise<void> {
+  async putProject(project: ProjectRecord, createOnly = false, audit?: AuditEvent): Promise<void> {
     const existing = this.projects.get(project.projectId);
-    if (existing && existing.accountId !== project.accountId) {
+    if (existing && (createOnly || existing.deletedAt || existing.accountId !== project.accountId)) {
       throw new ProtocolError("conflict", "Project ID is unavailable.", false);
     }
-    this.projects.set(project.projectId, clone(project));
+    this.projectNameAvailable(project.accountId, project.projectId, project.label);
+    this.projects.set(project.projectId, { ...clone(project), revision: existing ? (existing.revision ?? 1) + 1 : 1 });
+    if (audit) this.audit.push(clone(audit));
+  }
+
+  private projectNameAvailable(accountId: string, projectId: string, label: string) {
+    if ([...this.projects.values()].some(p => p.accountId === accountId && p.projectId !== projectId && !p.deletedAt && p.label === label))
+      throw new ProtocolError("conflict", "A project with this name already exists.", false);
+  }
+
+  private activeProject(accountId: string, projectId: string, revision?: number) {
+    const project = this.projects.get(projectId);
+    if (!project || project.accountId !== accountId || project.deletedAt || revision !== undefined && (project.revision ?? 1) !== revision)
+      throw new ProtocolError("conflict", "Project changed. Refresh and try again.", false);
+    return project;
+  }
+
+  private assertProjectUnused(projectId: string, rootId?: string) {
+    if ([...this.grants.values()].some(g => g.projectId === projectId && !g.revokedAt && !g.deletedAt && (!rootId || g.rootIds.includes(rootId))))
+      throw new ProtocolError("conflict", "Remove the affected Agent authorizations before changing or deleting this resource.", false);
+  }
+
+  async updateProject(accountId: string, projectId: string, label: string, revision: number, audit: AuditEvent): Promise<ProjectRecord> {
+    const project = this.activeProject(accountId, projectId, revision);
+    this.projectNameAvailable(accountId, projectId, label);
+    Object.assign(project, { label, revision: revision + 1 });
+    this.audit.push(clone(audit));
+    return clone(project);
+  }
+
+  async deleteProject(accountId: string, projectId: string, revision: number, audit: AuditEvent): Promise<void> {
+    const project = this.activeProject(accountId, projectId, revision);
+    this.assertProjectUnused(projectId);
+    Object.assign(project, { deletedAt: audit.createdAt, revision: revision + 1 });
+    for (const root of this.roots.values()) if (root.projectId === projectId && !root.deletedAt)
+      Object.assign(root, { deletedAt: audit.createdAt, revision: (root.revision ?? 1) + 1 });
+    this.audit.push(clone(audit));
   }
 
   async updateNode(
@@ -260,45 +296,81 @@ export class MemoryStore implements Store {
 
   async getProject(projectId: string): Promise<ProjectRecord | undefined> {
     const project = this.projects.get(projectId);
-    return project ? clone(project) : undefined;
+    return project && !project.deletedAt ? clone(project) : undefined;
   }
 
   async listProjects(accountId: string): Promise<ProjectRecord[]> {
     return [...this.projects.values()]
-      .filter((project) => project.accountId === accountId)
+      .filter((project) => project.accountId === accountId && !project.deletedAt)
       .map((project) => clone(project));
   }
 
-  async putRoot(root: RootBindingRecord): Promise<void> {
+  async putRoot(root: RootBindingRecord, createOnly = false, audit?: AuditEvent): Promise<RootBindingRecord> {
     const existing = this.roots.get(root.rootId);
-    if (existing && (existing.projectId !== root.projectId || existing.nodeId !== root.nodeId)) {
+    const project = this.projects.get(root.projectId);
+    if (!project || project.deletedAt) throw new ProtocolError("conflict", "Project changed. Refresh and try again.", false);
+    if (existing && (existing.nodeId !== root.nodeId || !existing.deletedAt && (createOnly || existing.projectId !== root.projectId))) {
       throw new ProtocolError(
         ErrorCodes.CONFLICT,
         "root id is already bound to another project or device",
         false
       );
     }
-    this.roots.set(root.rootId, clone(root));
+    if (existing && (existing.deletedAt || existing.writable !== root.writable)) this.assertProjectUnused(existing.projectId, root.rootId);
+    this.rootNameAvailable(root);
+    this.roots.set(root.rootId, { ...clone(root), revision: existing ? (existing.revision ?? 1) + 1 : 1 });
+    if (audit) this.audit.push(clone(audit));
+    return clone(this.roots.get(root.rootId)!);
+  }
+
+  private rootNameAvailable(root: RootBindingRecord) {
+    if ([...this.roots.values()].some(r => r.projectId === root.projectId && r.nodeId === root.nodeId && r.rootId !== root.rootId && !r.deletedAt && r.label === root.label))
+      throw new ProtocolError("conflict", "A folder with this name already exists on this device.", false);
+  }
+
+  private activeRoot(accountId: string, projectId: string, rootId: string, revision: number) {
+    this.activeProject(accountId, projectId);
+    const root = this.roots.get(rootId);
+    if (!root || root.projectId !== projectId || root.deletedAt || (root.revision ?? 1) !== revision)
+      throw new ProtocolError("conflict", "Folder changed. Refresh and try again.", false);
+    return root;
+  }
+
+  async updateRoot(accountId: string, projectId: string, rootId: string, changes: { label: string; writable: boolean }, revision: number, audit: AuditEvent): Promise<RootBindingRecord> {
+    const root = this.activeRoot(accountId, projectId, rootId, revision);
+    if (root.writable !== changes.writable) this.assertProjectUnused(projectId, rootId);
+    this.rootNameAvailable({ ...root, ...changes });
+    Object.assign(root, clone(changes), { revision: revision + 1 });
+    this.audit.push(clone(audit));
+    return clone(root);
+  }
+
+  async deleteRoot(accountId: string, projectId: string, rootId: string, revision: number, audit: AuditEvent): Promise<void> {
+    const root = this.activeRoot(accountId, projectId, rootId, revision);
+    this.assertProjectUnused(projectId, rootId);
+    Object.assign(root, { deletedAt: audit.createdAt, revision: revision + 1 });
+    this.audit.push(clone(audit));
   }
 
   async listRoots(projectId: string): Promise<RootBindingRecord[]> {
     return [...this.roots.values()]
-      .filter((root) => root.projectId === projectId)
+      .filter((root) => root.projectId === projectId && !root.deletedAt && !this.projects.get(projectId)?.deletedAt)
       .map((root) => clone(root));
   }
 
   async listRootsForAccount(accountId: string): Promise<RootBindingRecord[]> {
     const projectIds = new Set(
       [...this.projects.values()]
-        .filter((project) => project.accountId === accountId)
+        .filter((project) => project.accountId === accountId && !project.deletedAt)
         .map((project) => project.projectId)
     );
     return [...this.roots.values()]
-      .filter((root) => projectIds.has(root.projectId))
+      .filter((root) => projectIds.has(root.projectId) && !root.deletedAt)
       .map((root) => clone(root));
   }
 
   async putGrant(grant: AgentGrantRecord, createOnly = false): Promise<void> {
+    this.validateProjectGrant(grant);
     const existing = this.grants.get(grant.grantId);
     if (
       existing &&
@@ -340,6 +412,7 @@ export class MemoryStore implements Store {
     revision: number,
     audit: AuditEvent
   ): Promise<AgentGrantRecord> {
+    this.validateProjectGrant(grant);
     const existing = this.grants.get(grant.grantId);
     if (
       !existing ||
@@ -353,6 +426,15 @@ export class MemoryStore implements Store {
     this.grants.set(grant.grantId, updated);
     this.audit.push(clone(audit));
     return clone(updated);
+  }
+
+  private validateProjectGrant(grant: AgentGrantRecord) {
+    if (!grant.projectId) return;
+    this.activeProject(grant.accountId, grant.projectId);
+    if (grant.rootAccess === "all" || grant.rootIds.some(rootId => {
+      const root = this.roots.get(rootId);
+      return !root || root.deletedAt || root.projectId !== grant.projectId || !grant.nodeIds.includes(root.nodeId);
+    })) throw new ProtocolError("conflict", "Project folders changed. Refresh and try again.", false);
   }
 
   async deleteGrant(

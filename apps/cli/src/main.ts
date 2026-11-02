@@ -211,7 +211,15 @@ async function main(): Promise<void> {
     : "token" in config
       ? config.token
       : { cookie: config.cookie };
-  const client = new AdcClient(config.url, credential);
+  let client = new AdcClient(config.url, credential);
+  const account = stringFlag(flags, "account");
+  if (management && account) {
+    const accounts = await client.accounts();
+    const matches = accounts.teams.filter(team => team.accountId === account || team.name === account);
+    if (account === accounts.personalAccountId || account === "personal") client = client.withAccount(accounts.personalAccountId);
+    else if (matches.length === 1) client = client.withAccount(matches[0]!.accountId);
+    else throw new Error("--account must select your personal account or an exact team ID/unambiguous name.");
+  }
 
   if (management) {
     const result = await runManagementCommand({

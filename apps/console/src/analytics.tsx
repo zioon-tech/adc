@@ -57,6 +57,15 @@ const productRoutes = new Set([
   "/app/settings"
 ]);
 
+const accountRoutes = new Set([
+  "/login",
+  "/register",
+  "/forgot-password",
+  "/reset-password",
+  "/authorize",
+  "/cli-login"
+]);
+
 const campaignParameters = [
   "utm_source",
   "utm_medium",
@@ -190,7 +199,7 @@ function upsertCanonical(href: string | undefined): void {
 
 export function AnalyticsEffects() {
   const location = useLocation();
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const lastTrackedPath = useRef<string | undefined>(undefined);
 
   useEffect(() => {
@@ -219,10 +228,29 @@ export function AnalyticsEffects() {
       upsertMeta('meta[property="og:url"]', { property: "og:url", content: canonical });
       upsertCanonical(canonical);
     } else {
-      document.title = `${SITE_NAME} · Console`;
+      const account = accountRoutes.has(pathname);
+      document.title = account ? t("Zioon Account") : `${SITE_NAME} · Console`;
+      const description = account
+        ? t("One account for all Zioon services.")
+        : "Private device infrastructure for AI agents.";
+      upsertMeta('meta[name="description"]', { name: "description", content: description });
+      upsertMeta('meta[property="og:title"]', {
+        property: "og:title",
+        content: document.title
+      });
+      upsertMeta('meta[property="og:description"]', {
+        property: "og:description",
+        content: description
+      });
       upsertMeta('meta[name="robots"]', { name: "robots", content: "noindex,nofollow" });
       upsertCanonical(undefined);
     }
+    upsertMeta('meta[name="application-name"]', {
+      name: "application-name",
+      content: accountRoutes.has(pathname) ? t("Zioon Account") : SITE_NAME
+    });
+    const icon = document.head.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (icon) icon.href = accountRoutes.has(pathname) ? "/account-favicon.svg" : "/favicon.svg";
   }, [locale, location.pathname]);
 
   useEffect(() => {

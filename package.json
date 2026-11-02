@@ -1,9 +1,10 @@
 {
   "name": "agent-device-cloud",
-  "version": "0.1.4",
+  "version": "0.1.6",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@9.14.2",
+  "volta": { "node": "22.18.0" },
   "pnpm": {
     "overrides": {
       "@better-auth/utils": "0.4.2"

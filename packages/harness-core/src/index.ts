@@ -7,12 +7,16 @@ import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { JsonSchemaType } from "@modelcontextprotocol/sdk/validation/types.js";
 
 export const ADC_ORIGIN = "https://adc.zioon.tech";
-export const PLUGIN_VERSION = "0.1.2";
+export const PLUGIN_VERSION = "0.1.4";
 export const WORKFLOW_GUIDANCE =
   "Discover ADC devices and live tool schemas before use. Select the intended device and its platform. " +
   "Use adc_read for read-only tools and adc_invoke for side effects with a stable idempotencyKey. " +
   "Wait on existing invocation/job identities; never resubmit on timeout or unknown_outcome. " +
   "Human approval is independent: open the ADC review link and inspect the same invocation afterwards.";
+export const COLLABORATION_GUIDANCE =
+  "Team and shared devices need a separate human-created Agent authorization. " +
+  "Use only currently discovered devices and exact folders. Isolated access has no network, " +
+  "discards workspace changes and retains bounded artifacts. Do not switch to account credentials after a denial.";
 
 export interface Device {
   nodeId: string;
@@ -135,7 +139,8 @@ export function createSdkTransport(
     async status(signal) {
       const me = await clientFor(signal).me();
       if (me.kind !== "agent") throw new Error("A scoped ADC connection is required.");
-      return { connected: true, origin, access: me.grant.name };
+      return { connected: true, origin, access: me.grant.name, accountId: me.context.accountId,
+        devices: me.context.nodes, collaborationGuidance: COLLABORATION_GUIDANCE };
     },
     async discover(signal) {
       const client = clientFor(signal);

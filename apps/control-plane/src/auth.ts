@@ -31,7 +31,9 @@ export interface AuthenticationOptions {
   requireEmailVerification?: boolean;
   sendMail?: (mail: AuthMail) => Promise<void>;
   allowDynamicClientRegistration?: boolean;
-  github?: { clientId: string; clientSecret: string };
+  github?: { clientId: string; clientSecret: string; redirectURI?: string };
+  trustedOrigins?: string[];
+  sharedCookieDomain?: string;
 }
 
 /** Authentication is identical for managed and self-hosted installations. */
@@ -87,12 +89,12 @@ export function createAuthentication(options: AuthenticationOptions) {
     prefix: { opaqueAccessToken: "adc_oat_", refreshToken: "adc_ort_" }
   };
   const auth = betterAuth({
-    appName: "Agent Device Cloud",
+    appName: "Zioon Account",
     baseURL: origin,
     basePath: "/api/auth",
     secret: options.secret,
     database: options.pool,
-    trustedOrigins: [origin],
+    trustedOrigins: [origin, ...(options.trustedOrigins ?? [])],
     socialProviders: options.github
       ? {
           github: {
@@ -120,9 +122,9 @@ export function createAuthentication(options: AuthenticationOptions) {
             sendResetPassword: async ({ user, url }: { user: { email: string }; url: string }) => {
               await options.sendMail!({
                 to: user.email,
-                subject: "Reset your Agent Device Cloud password",
+                subject: "Reset your Zioon account password",
                 text: [
-                  "Reset your Agent Device Cloud password using this link:",
+                  "Reset your Zioon account password using this link:",
                   url,
                   "",
                   "This link expires in 1 hour.",
@@ -148,9 +150,9 @@ export function createAuthentication(options: AuthenticationOptions) {
             }) => {
               await options.sendMail!({
                 to: user.email,
-                subject: "Verify your Agent Device Cloud email",
+                subject: "Verify your Zioon account email",
                 text: [
-                  "Verify your email to finish creating your Agent Device Cloud account:",
+                  "Verify your email to finish creating your Zioon account:",
                   url,
                   "",
                   "This link expires in 1 hour.",
@@ -187,6 +189,9 @@ export function createAuthentication(options: AuthenticationOptions) {
       window: 60,
       max: 60,
       customRules: {
+        // Device authorization otherwise defaults to five status checks per IP
+        // over the full ten-minute code lifetime, including valid page revisits.
+        "/device": { window: 60, max: 60 },
         "/sign-in/email": { window: 60, max: 10 },
         "/sign-up/email": { window: 60, max: 5 },
         "/request-password-reset": { window: 10 * 60, max: 3 },
@@ -197,7 +202,10 @@ export function createAuthentication(options: AuthenticationOptions) {
       // Startup runs the migration validator under a PostgreSQL advisory lock
       // before accepting HTTP traffic; disable the library's racing background check.
       database: { validateSchema: false },
-      cookiePrefix: "adc",
+      cookiePrefix: options.sharedCookieDomain ? "zioon" : "adc",
+      ...(options.sharedCookieDomain ? {
+        crossSubDomainCookies: { enabled: true, domain: options.sharedCookieDomain }
+      } : {}),
       useSecureCookies: origin.startsWith("https:"),
       defaultCookieAttributes: { httpOnly: true, sameSite: "lax", path: "/" },
       // The HTTP adapter supplies a server-derived address, never an arbitrary client header.
@@ -242,8 +250,18 @@ export function createAuthentication(options: AuthenticationOptions) {
     getOAuthServerConfig: (input: { headers: Headers }) => Promise<AuthServerMetadata>;
     verifyAdcAccessToken: (input: { body: { token: string } }) => Promise<ActiveAccessTokenPayload>;
   };
+  // Read old ADC cookies only for a verified migration on the ADC hostname.
+  const legacyAuth = options.sharedCookieDomain ? betterAuth({
+    ...auth.options,
+    advanced: {
+      ...auth.options.advanced,
+      cookiePrefix: "adc",
+      crossSubDomainCookies: { enabled: false }
+    }
+  }) : null;
   return {
     auth,
+    legacyAuth,
     origin,
     issuer: `${origin}/api/auth`,
     resource: `${origin}/mcp`,

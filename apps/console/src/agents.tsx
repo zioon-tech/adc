@@ -1,10 +1,11 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { CirclePlus, Clipboard, ShieldCheck, X } from "lucide-react";
 import { AuthLayout, type Request } from "./auth-ui.tsx";
 import { useI18n, type Message } from "./i18n.tsx";
 import type { NodeRecord } from "./main.tsx";
 import { ConfirmAction, Dialog } from "./dialog.tsx";
+import { isConsoleToolVisible } from "./file-transfer-visibility.ts";
 
 interface Grant {
   grantId: string;
@@ -59,8 +60,8 @@ const fileTools = ["file.write", "file.edit", "file.patch", "file.transfer"];
 const runTools = ["shell.exec", "command.template.run", "test.run", "task.cancel"];
 const levels: [string, Message, string[]][] = [
   ["read", "Read only", readTools],
-  ["write", "Read & write", [...readTools, ...fileTools]],
-  ["run", "Read, write & run", [...readTools, ...fileTools, ...runTools]],
+  ["write", "Read & write", [...readTools, ...fileTools].filter(isConsoleToolVisible)],
+  ["run", "Read, write & run", [...readTools, ...fileTools, ...runTools].filter(isConsoleToolVisible)],
   [
     "templates",
     "Approved templates only",
@@ -84,19 +85,25 @@ export function Agents({
   request,
   revision,
   refresh,
-  onError
+  onError,
+  selectedTeam
 }: {
   request: Request;
   revision: number;
   refresh: () => void;
   onError: (error: string) => void;
+  selectedTeam?: import("../../../packages/client/src/collaboration.ts").Team | undefined;
 }) {
   const { t, date } = useI18n();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const requestedProject = selectedTeam ? null : new URLSearchParams(location.search).get("project");
   const [grants, setGrants] = useState<Grant[]>([]),
     [credentials, setCredentials] = useState<Credential[]>([]),
     [bindings, setBindings] = useState<Binding[]>([]);
   const [projects, setProjects] = useState<Project[]>([]),
     [nodes, setNodes] = useState<NodeRecord[]>([]);
+  const requestedProjectId = projects.some(project => project.projectId === requestedProject) ? requestedProject : null;
   const [creating, setCreating] = useState(false),
     [token, setToken] = useState(""),
     [busy, setBusy] = useState(false);
@@ -106,6 +113,15 @@ export function Agents({
   const [search, setSearch] = useState(""),
     [filter, setFilter] = useState("active");
   const [notice, setNotice] = useState<Message>();
+  useEffect(() => {
+    if (requestedProject && projects.some(p => p.projectId === requestedProject) &&
+        new URLSearchParams(location.search).get("authorize") === "1") {
+      setCreating(true);
+      const params = new URLSearchParams(location.search);
+      params.delete("authorize");
+      void navigate(`${location.pathname}?${params}`, { replace: true });
+    }
+  }, [location.pathname, location.search, requestedProject, projects, navigate]);
   const visibleGrants = grants.filter(
     (grant) =>
       (filter === "all" || (filter === "active" ? !grant.revokedAt : !!grant.revokedAt)) &&
@@ -115,7 +131,7 @@ export function Agents({
     let active = true;
     Promise.all(
       ["grants", "credentials", "oauth/bindings", "projects", "nodes"].map((path) =>
-        request(`/api/v1/${path}`)
+        path === "projects" && selectedTeam ? Promise.resolve({ projects: [] }) : request(`/api/v1/${path}`)
       )
     )
       .then(([g, c, b, p, n]) => {
@@ -133,7 +149,7 @@ export function Agents({
     return () => {
       active = false;
     };
-  }, [request, revision, onError]);
+  }, [request, revision, onError, selectedTeam]);
   const revoke = async (path: string, body: object = {}) => {
     if (!window.confirm(t("Revoke this access? Existing connections using it will stop working.")))
       return;
@@ -197,6 +213,7 @@ export function Agents({
         <GrantForm
           key={editing?.grantId ?? "new"}
           {...(editing ? { initial: editing } : {})}
+          {...(!editing && requestedProjectId ? { initialProjectId: requestedProjectId } : {})}
           request={request}
           projects={projects}
           nodes={nodes}
@@ -558,7 +575,8 @@ export function GrantForm({
   onError,
   onClose,
   onCreated,
-  initial
+  initial,
+  initialProjectId
 }: {
   request: Request;
   projects: Project[];
@@ -567,9 +585,10 @@ export function GrantForm({
   onClose: () => void;
   onCreated: () => void;
   initial?: Grant;
+  initialProjectId?: string;
 }) {
   const { t } = useI18n();
-  const [projectId, setProjectId] = useState(initial?.projectId ?? ""),
+  const [projectId, setProjectId] = useState(initial?.projectId ?? initialProjectId ?? ""),
     [roots, setRoots] = useState<Root[]>([]);
   const [level, setLevel] = useState(
       initial
@@ -614,6 +633,8 @@ export function GrantForm({
     };
   }, [request, projectId, nodes, onError]);
   const available = roots.filter((root) => nodeIds.includes(root.nodeId));
+  const delegated = nodes.some(node => nodeIds.includes(node.nodeId) && !!node.resourceAuthorization);
+  useEffect(() => { if (delegated) setRootAccess("selected"); }, [delegated]);
   const presetToolIds = new Set([...readTools, ...fileTools, ...runTools]);
   const nativeById = new Map<string, { name: string; title: string; nodeIds: Set<string> }>();
   const customById = new Map<
@@ -671,7 +692,7 @@ export function GrantForm({
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    if (!projectId && !nodeIds.length) {
+    if (!nodeIds.length) {
       setFormError(t("Choose one or more devices."));
       return;
     }
@@ -690,7 +711,11 @@ export function GrantForm({
           rootIds: rootAccess === "all" ? [] : selectedRoots,
           approvalPolicy: approval,
           ...(initial ? { revision: initial.revision ?? 1 } : {}),
-          allowedTools: tools
+          allowedTools: delegated ? tools.filter(tool =>
+            ["device.list", "device.status", "task.status", "task.result", "task.wait", "task.cancel"].includes(tool) ||
+            nodes.some(node => nodeIds.includes(node.nodeId) && node.capability?.tools.some(entry => entry.name === tool))) : tools,
+          resourceBindings: nodes.filter(node => nodeIds.includes(node.nodeId) && node.resourceAuthorization?.bindingId)
+            .map(node => ({ nodeId: node.nodeId, bindingId: node.resourceAuthorization!.bindingId! }))
         })
       });
       onCreated();
@@ -815,6 +840,7 @@ export function GrantForm({
                   name="rootAccess"
                   value="all"
                   checked={rootAccess === "all"}
+                  disabled={delegated}
                   onChange={() => setRootAccess("all")}
                 />
                 {t("All exposed folders")}
@@ -898,7 +924,9 @@ export function GrantForm({
         <details className="advanced-permissions">
           <summary>{t("Tool permissions")}</summary>
           <div className="checkbox-grid">
-            {[...readTools, ...fileTools, ...runTools].map((tool) => (
+            {[...readTools, ...fileTools, ...runTools]
+              .filter((tool) => isConsoleToolVisible(tool) || tools.includes(tool))
+              .map((tool) => (
               <label className="checkbox" key={tool}>
                 <input
                   type="checkbox"
@@ -998,7 +1026,7 @@ export function GrantForm({
             </>
           ) : null}
         </details>
-        {projects.length ? (
+        {projects.length || projectId ? (
           <label className="project-choice">
             {t("Project (optional)")}
             <select
@@ -1009,6 +1037,9 @@ export function GrantForm({
               }}
             >
               <option value="">{t("Direct device access")}</option>
+              {projectId && !projects.some(project => project.projectId === projectId) ? (
+                <option value={projectId}>{projectId} · {t("Unavailable")}</option>
+              ) : null}
               {projects.map((project) => (
                 <option key={project.projectId} value={project.projectId}>
                   {project.label}
@@ -1020,7 +1051,7 @@ export function GrantForm({
         <div className="row-actions form-actions">
           <button
             className="primary"
-            disabled={busy || (!projectId && !nodeIds.length) || !tools.length}
+            disabled={busy || !nodeIds.length || !tools.length}
           >
             {t(initial ? "Save changes" : "Authorize agent")}
           </button>
@@ -1033,7 +1064,7 @@ export function GrantForm({
   );
 }
 
-export function OAuthConsent({ request }: { request: Request }) {
+export function OAuthConsent({ request, teamSelected = false }: { request: Request; teamSelected?: boolean }) {
   const { t } = useI18n();
   const location = useLocation();
   const clientId = new URLSearchParams(location.search).get("client_id") ?? "";
@@ -1054,7 +1085,7 @@ export function OAuthConsent({ request }: { request: Request }) {
     Promise.all([
       request(`/api/auth/oauth2/public-client?client_id=${encodeURIComponent(clientId)}`),
       request("/api/v1/grants"),
-      request("/api/v1/projects"),
+      teamSelected ? Promise.resolve({ projects: [] }) : request("/api/v1/projects"),
       request("/api/v1/nodes")
     ])
       .then(async ([client, body, projects, nodes]) => {

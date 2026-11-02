@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import type { Accounts, DeviceShare, Invitation, InvitationCreated, Team, TeamMember } from "./collaboration.ts";
+export type { Accounts, DeviceShare, Invitation, InvitationCreated, Team, TeamMember, TeamRole, CollaborationScope } from "./collaboration.ts";
 import {
   ControlPlaneTools,
   ErrorSchema,
@@ -20,6 +22,7 @@ import {
   type ToolCapability,
   type ToolId
 } from "@adc/protocol";
+import type { CollaborationScope, Delegation } from "@adc/protocol";
 
 type Fetch = typeof globalThis.fetch;
 
@@ -35,6 +38,7 @@ export interface InvocationContext {
     description?: string;
     platform: NodePlatform;
     lastSeenAt?: string;
+    access?: { kind: "shared" | "team"; bindingId?: string; execution: CollaborationScope["execution"] };
   }>;
   allowedTools?: ToolId[];
   toolNodeIds?: Partial<Record<ToolId, string[]>>;
@@ -76,11 +80,18 @@ export interface NodeReleaseSummary {
   buildId: string;
 }
 
-export interface NodeReleaseUpdate {
-  state: "current" | "update_available";
+export type NodeReleaseUpdate = {
+  state: "current" | "update_available" | "ahead";
   currentBuildId: string | null;
+  currentVersion?: string;
   latest: NodeReleaseSummary;
-}
+} | {
+  state: "unknown";
+  currentBuildId: string | null;
+  currentVersion?: string;
+  reason: "release_unavailable" | "version_unreported" | "build_unreported";
+  latest?: NodeReleaseSummary;
+};
 
 export interface ManagedNode {
   nodeId: string;
@@ -99,6 +110,8 @@ export interface ManagedNode {
   deletedAt?: string;
   online: boolean;
   update?: NodeReleaseUpdate;
+  resourceClass?: "physical" | "managed" | "platform";
+  resourceAuthorization?: Delegation;
 }
 
 export interface AccessSettings {
@@ -110,6 +123,7 @@ export interface AccessSettings {
   rootIds: string[];
   approvalPolicy?: ApprovalPolicy;
   allowedTools: ToolId[];
+  resourceBindings?: Array<{ nodeId: string; bindingId: string }>;
 }
 
 export interface AgentAccess extends AccessSettings {
@@ -158,6 +172,7 @@ export interface Project {
   accountId: string;
   label: string;
   createdAt: string;
+  revision?: number;
 }
 
 export interface ProjectRoot {
@@ -168,6 +183,7 @@ export interface ProjectRoot {
   label: string;
   writable: boolean;
   createdAt: string;
+  revision?: number;
 }
 
 export interface PendingApproval {
@@ -345,19 +361,21 @@ export class AdcClient {
   constructor(
     baseUrl: string,
     private readonly credential: string | { cookie: string } | { sessionToken: string },
-    private readonly fetcher: Fetch = fetch
+    private readonly fetcher: Fetch = fetch,
+    private readonly selectedAccountId?: string
   ) {
     this.baseUrl = baseUrl.replace(/\/+$/, "");
   }
 
   private headers(): Record<string, string> {
-    if (typeof this.credential === "string") return { authorization: `Bearer ${this.credential}` };
+    const selection = this.selectedAccountId ? { "x-adc-account": this.selectedAccountId } : {};
+    if (typeof this.credential === "string") return { authorization: `Bearer ${this.credential}`, ...selection };
     if ("sessionToken" in this.credential)
       return {
         authorization: `Bearer ${this.credential.sessionToken}`,
-        origin: new URL(this.baseUrl).origin
+        origin: new URL(this.baseUrl).origin, ...selection
       };
-    return { cookie: this.credential.cookie, origin: new URL(this.baseUrl).origin };
+    return { cookie: this.credential.cookie, origin: new URL(this.baseUrl).origin, ...selection };
   }
 
   private async request(path: string, init: RequestInit = {}): Promise<unknown> {
@@ -478,6 +496,63 @@ export class AdcClient {
     return response.nodes;
   }
 
+  /** Account selection is checked against the authenticated human's membership. */
+  withAccount(accountId: string): AdcClient {
+    return new AdcClient(this.baseUrl, this.credential, this.fetcher, accountId);
+  }
+
+  async accounts(): Promise<Accounts> {
+    return await this.request("/api/v1/accounts") as Accounts;
+  }
+  async createTeam(name: string): Promise<Team> {
+    return await this.request("/api/v1/teams", { method: "POST", body: JSON.stringify({ name }) }) as Team;
+  }
+  async teamMembers(accountId: string): Promise<TeamMember[]> {
+    return (await this.request(`/api/v1/teams/${encodeURIComponent(accountId)}/members`) as { members: TeamMember[] }).members;
+  }
+  async teamDevices(accountId: string): Promise<ManagedNode[]> {
+    return (await this.request(`/api/v1/teams/${encodeURIComponent(accountId)}/devices`) as { nodes: ManagedNode[] }).nodes;
+  }
+  async updateTeamMember(accountId: string, userId: string, input: Pick<TeamMember, "revision" | "role" | "state" | "rules"> & { acknowledgeHostTrust?: boolean }): Promise<TeamMember> {
+    return await this.request(`/api/v1/teams/${encodeURIComponent(accountId)}/members/${encodeURIComponent(userId)}`,
+      { method: "PATCH", body: JSON.stringify(input) }) as TeamMember;
+  }
+  async inviteTeamMember(accountId: string, email: string, role: "member" | "admin" = "member"): Promise<InvitationCreated> {
+    return await this.request(`/api/v1/teams/${encodeURIComponent(accountId)}/invitations`,
+      { method: "POST", body: JSON.stringify({ email, role }) }) as InvitationCreated;
+  }
+  async leaveTeam(accountId: string, revision: number): Promise<unknown> {
+    return this.request(`/api/v1/teams/${encodeURIComponent(accountId)}/leave`, { method: "POST", body: JSON.stringify({ revision }) });
+  }
+  async linkTeamDevice(accountId: string, input: { nodeId: string; scope: CollaborationScope; acknowledgeHostTrust?: boolean }): Promise<DeviceShare> {
+    return await this.request(`/api/v1/teams/${encodeURIComponent(accountId)}/devices`, { method: "POST", body: JSON.stringify(input) }) as DeviceShare;
+  }
+  async inviteDeviceShare(nodeId: string, input: { email: string; scope: CollaborationScope; durationDays?: number | null; acknowledgeHostTrust?: boolean }): Promise<InvitationCreated> {
+    return await this.request(`/api/v1/nodes/${encodeURIComponent(nodeId)}/share-invitations`, { method: "POST", body: JSON.stringify(input) }) as InvitationCreated;
+  }
+  async invitations(): Promise<Invitation[]> {
+    return (await this.request("/api/v1/share-invitations") as { invitations: Invitation[] }).invitations;
+  }
+  async invitation(invitationId: string, token?: string): Promise<Invitation> {
+    return await this.request(`/api/v1/share-invitations/${encodeURIComponent(invitationId)}${token ? `?token=${encodeURIComponent(token)}` : ""}`) as Invitation;
+  }
+  async respondInvitation(invitationId: string, revision: number, decision: "accept" | "decline" | "revoke", token?: string): Promise<{ invitation: Invitation; binding?: DeviceShare }> {
+    return await this.request(`/api/v1/share-invitations/${encodeURIComponent(invitationId)}/${decision}`,
+      { method: "POST", body: JSON.stringify({ revision, ...(token ? { token } : {}) }) }) as { invitation: Invitation; binding?: DeviceShare };
+  }
+  async deviceShares(direction: "received" | "owned" = "received"): Promise<DeviceShare[]> {
+    return (await this.request(`/api/v1/device-shares?direction=${direction}`) as { shares: DeviceShare[] }).shares;
+  }
+  async updateDeviceShare(bindingId: string, input: { revision: number; scope?: CollaborationScope; expiresAt?: string | null; state?: "active" | "paused"; acknowledgeHostTrust?: boolean }): Promise<DeviceShare | InvitationCreated> {
+    return await this.request(`/api/v1/device-shares/${encodeURIComponent(bindingId)}`, { method: "PATCH", body: JSON.stringify(input) }) as DeviceShare | InvitationCreated;
+  }
+  async endDeviceShare(bindingId: string, revision: number, action: "revoke" | "leave"): Promise<DeviceShare> {
+    return await this.request(`/api/v1/device-shares/${encodeURIComponent(bindingId)}/${action}`, { method: "POST", body: JSON.stringify({ revision }) }) as DeviceShare;
+  }
+  async sharedDeviceActivity(): Promise<unknown[]> {
+    return (await this.request("/api/v1/device-shares/activity") as { activity: unknown[] }).activity;
+  }
+
   async nodeInstallation(): Promise<NodeInstallation> {
     return (await this.request("/api/v1/node-installation")) as NodeInstallation;
   }
@@ -523,6 +598,18 @@ export class AdcClient {
     })) as Project;
   }
 
+  async updateProject(projectId: string, input: { label: string; revision: number }): Promise<Project> {
+    return await this.request(`/api/v1/projects/${encodeURIComponent(projectId)}`, {
+      method: "PATCH", body: JSON.stringify(input)
+    }) as Project;
+  }
+
+  async deleteProject(projectId: string, revision: number): Promise<{ deleted: boolean }> {
+    return await this.request(`/api/v1/projects/${encodeURIComponent(projectId)}`, {
+      method: "DELETE", body: JSON.stringify({ revision })
+    }) as { deleted: boolean };
+  }
+
   async listProjectRoots(projectId: string): Promise<ProjectRoot[]> {
     const response = (await this.request(
       `/api/v1/projects/${encodeURIComponent(projectId)}/roots`
@@ -538,6 +625,18 @@ export class AdcClient {
       method: "POST",
       body: JSON.stringify(input)
     })) as ProjectRoot;
+  }
+
+  async updateProjectRoot(projectId: string, rootId: string, input: { label: string; writable: boolean; revision: number }): Promise<ProjectRoot> {
+    return await this.request(`/api/v1/projects/${encodeURIComponent(projectId)}/roots/${encodeURIComponent(rootId)}`, {
+      method: "PATCH", body: JSON.stringify(input)
+    }) as ProjectRoot;
+  }
+
+  async removeProjectRoot(projectId: string, rootId: string, revision: number): Promise<{ deleted: boolean }> {
+    return await this.request(`/api/v1/projects/${encodeURIComponent(projectId)}/roots/${encodeURIComponent(rootId)}`, {
+      method: "DELETE", body: JSON.stringify({ revision })
+    }) as { deleted: boolean };
   }
 
   async createPairingCode(ttlSeconds = 600): Promise<{ code: string; expiresAt: string }> {

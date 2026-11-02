@@ -1,7 +1,7 @@
 ---
 name: agent-device-cloud
 description: Set up and operate Agent Device Cloud through public CLIs. Use when asked to get started with ADC, connect devices, manage access, invoke device tools, or track tasks.
-version: 0.4.0
+version: 0.4.2
 requirements:
   cli: "adc >=0.1.0 <0.2.0"
   protocol: "0.1"
@@ -11,6 +11,14 @@ requirements:
 
 Use only the public `adc` and documented `adc-node` commands. Never inspect stored credentials,
 device identity files, Connector state, or private poll, lease, ACK, receipt, and wake endpoints.
+
+For explicitly requested team, membership, invitation or named device sharing management, read
+[collaboration.md](references/collaboration.md). Sharing does not create a virtual network.
+Team/shared devices require a separate human-created Agent grant; accepting an invitation never
+expands an existing grant. Discover the current execution mode before every shared-device workflow.
+Isolated execution uses Bash in a temporary Linux container with no network and discards workspace
+changes. Read command-log artifacts to retain bounded output. Never request account credentials
+or use owner authority to bypass a revoked relationship.
 
 ## Choose The Authority
 

@@ -35,6 +35,38 @@ interface PublicManifest {
 
 const publicOriginPlaceholder = "__ADC_PUBLIC_ORIGIN__";
 
+const accountRoutes = new Set([
+  "/login",
+  "/register",
+  "/forgot-password",
+  "/reset-password",
+  "/authorize",
+  "/cli-login"
+]);
+
+function accountTemplate(template: string): string {
+  return template
+    .replace(/<title>[\s\S]*?<\/title>/, "<title>Zioon Account</title>")
+    .replace(
+      /<meta\s+(?:name|property)="(?:application-name|description|keywords|robots|og:[^"]+|twitter:[^"]+)"[^>]*>/g,
+      ""
+    )
+    .replace(/<link\b(?=[^>]*\brel="(?:manifest|alternate)")[^>]*>/g, "")
+    .replace(/(<link\b[^>]*\brel="icon"[^>]*\bhref=")[^"]+(")/, "$1/account-favicon.svg$2")
+    .replace(/(<meta\s+name="theme-color"\s+content=")[^"]+(")/, "$1#ffffff$2")
+    .replace(
+      "</head>",
+      [
+        '<meta name="application-name" content="Zioon Account" />',
+        '<meta name="description" content="One account for all Zioon services." />',
+        '<meta name="robots" content="noindex,nofollow" />',
+        '<meta property="og:title" content="Zioon Account" />',
+        '<meta property="og:description" content="One account for all Zioon services." />',
+        "</head>"
+      ].join("\n    ")
+    );
+}
+
 function normalizePath(pathname: string): string {
   if (pathname === "/") return pathname;
   return pathname.replace(/\/+$/, "");
@@ -114,7 +146,7 @@ export class PublicSite {
     const template = this.templates.get(normalized) ?? this.appShell;
     const isPublic = this.templates.has(normalized);
     const tracking = analyticsConfigurationTag(analytics);
-    const html = template
+    const html = (accountRoutes.has(normalized) ? accountTemplate(template) : template)
       .replaceAll(publicOriginPlaceholder, origin)
       .replace("</head>", tracking ? `    ${tracking}\n  </head>` : "</head>");
     return { html, isPublic };

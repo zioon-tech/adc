@@ -79,7 +79,10 @@ async function zipEntries(directory: string, parts: string[] = []): Promise<Zipp
 try {
   const bundled = await build({
     absWorkingDir: root,
-    entryPoints: { adc: "apps/cli/src/main.ts", "adc-node": "apps/node/src/main.ts" },
+    entryPoints: {
+      adc: "apps/cli/src/main.ts", "adc-node": "apps/node/src/main.ts",
+      "collaboration-worker": "apps/node/src/collaboration-worker.ts"
+    },
     outdir: resolve(staging, "lib"),
     outExtension: { ".js": ".mjs" },
     bundle: true,
@@ -139,7 +142,7 @@ try {
     `Bundled Node.js ${runtime.version}: see licenses/Node-LICENSE\n\n${notices.sort().join("\n")}\n`
   );
   const buildHash = createHash("sha256").update(JSON.stringify(runtime));
-  for (const name of ["adc.mjs", "adc-node.mjs"]) {
+  for (const name of ["adc.mjs", "adc-node.mjs", "collaboration-worker.mjs"]) {
     buildHash.update(name);
     buildHash.update(await readFile(resolve(staging, "lib", name)));
   }
@@ -216,6 +219,7 @@ try {
     archives[target] = { file, sha256, bytes: (await stat(temporary)).size };
     await rename(temporary, resolve(output, file));
     console.log(`Built ${file}`);
+    await rm(payload, { recursive: true, force: true });
   }
   const template = await readFile(resolve(root, "deploy/install.sh"), "utf8");
   const installer = template.replace("@ADC_DOWNLOAD_URL@", quote(downloadURL)).replace(

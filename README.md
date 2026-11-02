@@ -1,5 +1,8 @@
 # Agent Device Cloud
 
+Teams and named external device sharing use the same policy, dispatch and receipt path across
+website, CLI, SDK, MCP and plugins. See [collaboration workflows and boundaries](docs/collaboration.md).
+
 Agent Device Cloud is private device infrastructure for AI agents. It gives MCP clients, coding
 agents, Skills and automation controlled access to capabilities on devices you own. Desktop Nodes
 provide governed files, tools and environments on macOS, Linux and Windows. The Android Mobile Node

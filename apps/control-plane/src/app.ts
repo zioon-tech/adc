@@ -22,7 +22,7 @@ import {
   type Store,
   type TransferRecord
 } from "@adc/db";
-import { evaluatePolicy, sha256 } from "@adc/policy";
+import { evaluatePolicy, requiresApproval, sha256 } from "@adc/policy";
 import { createMcpServer } from "@adc/mcp-adapter";
 import {
   ArtifactIdSchema,
@@ -42,6 +42,7 @@ import {
   assertInvocationCurrent,
   createId,
   isBuiltinTool,
+  isSideEffectTool,
   type AdcError,
   type Invocation,
   type InvocationResult,
@@ -55,6 +56,8 @@ import {
   type Principal
 } from "./access.ts";
 import { registerAccountRoutes } from "./account-routes.ts";
+import { CollaborationAuthorization, principalUserId } from "./collaboration.ts";
+import { registerCollaborationRoutes } from "./collaboration-routes.ts";
 import {
   defaultNodeAccessPolicy,
   effectiveCapability,
@@ -65,8 +68,9 @@ import {
   validateGrantResources
 } from "./resource-management.ts";
 import {
-  distributionInfo,
+  currentNodeDistributionInfo,
   latestNodeRelease,
+  nodeReleaseUpdate,
   registerDistributionRoutes,
   type NodeDistribution,
   type NodeReleaseSummary
@@ -103,14 +107,6 @@ export interface ControlPlaneOptions {
   transferStore?: TransferBlobStore;
   directTransferStore?: DirectTransferStore;
   maxTransferBytes?: number;
-}
-
-function nodeReleaseUpdate(buildId: string | undefined, latest: NodeReleaseSummary) {
-  return {
-    state: buildId === latest.buildId ? ("current" as const) : ("update_available" as const),
-    currentBuildId: buildId ?? null,
-    latest
-  };
 }
 
 function invocationPath(invocation: Invocation, node: NodeRecord | undefined): string | undefined {
@@ -210,8 +206,9 @@ async function auditView(
 async function approvalView(
   store: Store,
   accountId: string,
-  approvals: ApprovalRecord[]
-): Promise<Array<ApprovalRecord & { path?: string }>> {
+  approvals: ApprovalRecord[],
+  requesterUserId?: string
+) {
   const transferNodeIds = approvals.flatMap((approval) => {
     const parsed = FileTransferArgsSchema.safeParse(approval.invocation.args);
     return approval.invocation.tool === "file.transfer" && parsed.success
@@ -232,6 +229,20 @@ async function approvalView(
     const path =
       transferPath(approval.invocation, nodes) ??
       invocationPath(approval.invocation, nodes.get(approval.nodeId));
+    if (approval.accountId !== accountId || (requesterUserId && approval.invocation.delegation?.requesterUserId !== requesterUserId)) {
+      const args = approval.invocation.args as Record<string, unknown>;
+      return {
+        approvalId: approval.approvalId, accountId, nodeId: approval.nodeId,
+        status: approval.status, createdAt: approval.createdAt, expiresAt: approval.expiresAt,
+        requiredConsents: approval.requiredConsents, consents: approval.consents,
+        invocation: {
+          invocationId: approval.invocation.invocationId, tool: approval.invocation.tool,
+          args: Object.fromEntries(Object.entries(args).filter(([key]) =>
+            ["rootId", "path", "cwd", "command", "templateId", "timeoutMs"].includes(key)))
+        },
+        contentHash: sha256(args), ...(path ? { path } : {})
+      };
+    }
     return { ...approval, ...(path ? { path } : {}) };
   });
 }
@@ -486,6 +497,21 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
   const nodeAccounts = new WeakMap<FastifyRequest, string>();
   const nodeWakeGenerations = new WeakMap<FastifyRequest, number>();
   const accountOf = (request: FastifyRequest) => principals.get(request)!.accountId;
+  const collaboration = options.access.collaboration
+    ? new CollaborationAuthorization(options.store, options.access.collaboration, now) : undefined;
+  const grantNodes = (grant: AgentGrantRecord) => collaboration
+    ? collaboration.grantNodes(grant) : options.store.listNodes(grant.accountId);
+  const userNodes = async (actor: Principal) => {
+    const userId = principalUserId(actor);
+    return collaboration && userId ? collaboration.nodes(actor.accountId, userId)
+      : options.store.listNodes(actor.accountId);
+  };
+  const assertGrantManager = (request: FastifyRequest, grant: AgentGrantRecord) => {
+    const actor = principals.get(request)!;
+    if (actor.kind !== "agent" && actor.team &&
+        grant.responsibleUserId !== principalUserId(actor))
+      throw new ProtocolError("denied", "Manage only your own Agent authorizations.", false);
+  };
 
   async function cleanupTransfer(transferId: string): Promise<void> {
     try {
@@ -650,6 +676,9 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
     ) {
       return apiError(reply, 403, ErrorCodes.DENIED, "This personal access token is read-only.");
     }
+    if (principal.team?.membership.role === "member" &&
+        !/^\/api\/v1\/(?:me|node-installation(?:\?|$)|nodes(?:\?|$)|overview(?:\?|$)|approvals(?:\/|\?|$)|grants(?:\/|\?|$)|credentials(?:\/|\?|$)|oauth\/bindings(?:\/|\?|$))/.test(request.url))
+      return apiError(reply, 403, ErrorCodes.DENIED, "Team administration requires an owner or admin.");
   }
 
   async function dispatchAuthorized(
@@ -667,11 +696,18 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
       grant.accountId !== invocation.accountId ||
       grant.actorId !== invocation.actor.id ||
       !node ||
-      node.accountId !== invocation.accountId ||
+      (!collaboration && node.accountId !== invocation.accountId) ||
       (grant.projectId && grant.projectId !== invocation.authorization.projectId)
     )
       return false;
     const decision = await policyFor(invocation, grant, node);
+    if (invocation.delegation && decision.outcome === "approval_required" && !approving) {
+      const approval = await options.store.getApprovalByInvocation(invocation.invocationId);
+      if (!approval || approval.status !== "approved" ||
+          approval.requiredConsents?.some((required) => !approval.consents?.some((consent) =>
+            consent.accountId === required.accountId && (!required.userId || required.userId === consent.userId))))
+        return false;
+    }
     return (
       decision.outcome === "allow" ||
       (decision.outcome === "approval_required" &&
@@ -684,6 +720,18 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
     grant: AgentGrantRecord,
     node: NonNullable<Awaited<ReturnType<Store["getNode"]>>>
   ): Promise<PolicyDecision> {
+    if (collaboration) {
+      const authorized = await collaboration.authorizeInvocation(invocation, grant, node);
+      if (!authorized || node.resourceClass === "platform") {
+        const unsigned = {
+          outcome: "deny" as const, reasonCode: "resource.authorization_changed",
+          explanation: "Device sharing, membership or execution permissions are unavailable.",
+          evaluatedLayers: ["account", "agent", "node", "root", "capability"] as const, profile: grant.profile
+        };
+        return { ...unsigned, evaluatedLayers: [...unsigned.evaluatedLayers], decisionHash: sha256(unsigned) };
+      }
+      node = authorized;
+    }
     const capability = effectiveCapability(node);
     const roots = grant.projectId
       ? await options.store.listRoots(grant.projectId)
@@ -698,7 +746,9 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
             ])
           ],
           deniedTools: [],
-          approvalRequiredTools: [],
+          approvalRequiredTools: invocation.delegation &&
+            requiresApproval(invocation.delegation.scope.approvalPolicy, "workspace-write", invocation.tool)
+              ? [invocation.tool] : [],
           unattendedAllowed: grant.profile === "unattended"
         },
         agent: {
@@ -928,17 +978,42 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
     accountOf,
     now,
     disconnectNode: (nodeId) => wakeHub.disconnect(nodeId, "device removed"),
-    wakeNode
+    wakeNode,
+    authorizeGrant: assertGrantManager,
+    ...(collaboration ? { grantResources: async (request: FastifyRequest, body: z.infer<typeof GrantSettingsSchema>, previous?: AgentGrantRecord) => ({
+      ...await collaboration.validateGrant(principals.get(request)!, body, body.resourceBindings, previous),
+      nodes: await userNodes(principals.get(request)!)
+    }) } : {})
   });
   registerAccountRoutes(app, {
     access: options.access,
     store: options.store,
     requireSession: requireOwner,
     requireAuthenticated,
-    principal: (request) => principals.get(request)!
+    principal: (request) => principals.get(request)!,
+    ...(collaboration ? { collaboration, grantNodes, assertGrantManager } : {})
+  });
+  if (collaboration) registerCollaborationRoutes(app, {
+    authorization: collaboration, requireAuthenticated,
+    principal: (request) => principals.get(request)!, origin: options.access.origin, wakeNode
   });
   app.get("/api/v1/overview", { preHandler: requireOwner }, async (request) => {
     const accountId = accountOf(request);
+    const actor = principals.get(request)!;
+    if (actor.kind !== "agent" && actor.team) {
+      const nodes = await userNodes(actor);
+      const grants = (await options.store.listGrants(accountId)).filter((grant) =>
+        !grant.revokedAt && grant.responsibleUserId === principalUserId(actor));
+      return {
+        counts: {
+          connectedDevices: nodes.length,
+          onlineNow: nodes.filter((node) => !!node.lastSeenAt &&
+            now().getTime() - Date.parse(node.lastSeenAt) <= presenceTtlMs).length,
+          activeAgents: grants.length, pendingApprovals: 0, clientConnections: 0
+        },
+        recentActivity: []
+      };
+    }
     const timestamp = now();
     const [resources, activeConnections, activity] = await Promise.all([
       options.store.getAccountResourceSummary(
@@ -1039,11 +1114,18 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
   app.get("/api/v1/nodes", { preHandler: requireOwner }, async (request) => {
     const release = await latestNodeRelease(options.nodeDistribution);
     return {
-      nodes: (await options.store.listNodes(accountOf(request))).map((node) => ({
-        ...node,
+      nodes: (await userNodes(principals.get(request)!)).map((node) => {
+        const { publicKey: _publicKey, ...view } = node;
+        return ({
+        ...view,
         accessPolicy: {
           ...defaultNodeAccessPolicy(),
-          ...node.accessPolicy,
+          ...(node.resourceAuthorization ? {
+            rootAccess: "selected" as const,
+            rootIds: node.resourceAuthorization.scope.roots.map((root) => root.rootId),
+            readOnlyRootIds: node.resourceAuthorization.scope.roots.filter((root) => !root.writable).map((root) => root.rootId),
+            allowExecution: node.resourceAuthorization.scope.execution !== "read-only"
+          } : node.accessPolicy),
           maxConcurrency: nodeMaxConcurrency(node)
         },
         effectiveCapability: effectiveCapability(node),
@@ -1051,12 +1133,12 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
           node.status === "active" &&
           !!node.lastSeenAt &&
           now().getTime() - Date.parse(node.lastSeenAt) <= presenceTtlMs,
-        ...(release && node.platform !== "android"
+        ...(node.platform !== "android"
           ? {
-              update: nodeReleaseUpdate(node.capability?.buildId, release)
+              update: nodeReleaseUpdate(node.capability?.buildId, release, node.capability?.nodeVersion)
             }
           : {})
-      }))
+      }); })
     };
   });
 
@@ -1124,16 +1206,20 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
           .string()
           .regex(/^proj_[a-z0-9][a-z0-9_-]{2,127}$/)
           .default(() => createId("proj")),
-        label: z.string().min(1).max(128)
+        label: z.string().trim().min(1).max(128)
       })
       .strict()
       .parse(request.body);
     const project = {
       ...body,
       accountId,
+      revision: 1,
       createdAt: now().toISOString()
     };
-    await options.store.putProject(project);
+    await options.store.putProject(project, true, {
+      eventId: createId("dsp"), accountId, type: "project.created",
+      payload: { projectId: project.projectId, label: project.label }, createdAt: project.createdAt
+    });
     return project;
   });
 
@@ -1199,7 +1285,7 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
         .object({
           rootId: z.string().regex(/^root_[a-z0-9][a-z0-9_-]{2,127}$/),
           nodeId: z.string().regex(/^node_[a-z0-9][a-z0-9_-]{2,127}$/),
-          label: z.string().min(1).max(128),
+          label: z.string().trim().min(1).max(128),
           writable: z.boolean()
         })
         .strict()
@@ -1208,8 +1294,8 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
       if (!node || node.accountId !== accountId) {
         return apiError(reply, 404, ErrorCodes.NOT_FOUND, "device was not found");
       }
-      const advertisedRoot = node.capability?.roots.find((root) => root.rootId === body.rootId);
-      if (!advertisedRoot || (body.writable && !advertisedRoot.writable)) {
+      const advertisedRoot = effectiveCapability(node)?.roots.find((root) => root.rootId === body.rootId);
+      if (node.status !== "active" || node.deletedAt || !advertisedRoot || (body.writable && !advertisedRoot.writable)) {
         return apiError(
           reply,
           400,
@@ -1218,8 +1304,12 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
         );
       }
       const root = { ...body, projectId, createdAt: now().toISOString() };
-      await options.store.putRoot(root);
-      return { ...root, ...(advertisedRoot.path ? { path: advertisedRoot.path } : {}) };
+      const saved = await options.store.putRoot(root, true, {
+        eventId: createId("dsp"), accountId, type: "project.folder_added",
+        payload: { projectId, rootId: root.rootId, nodeId: root.nodeId, label: root.label, writable: root.writable },
+        createdAt: root.createdAt
+      });
+      return { ...saved, ...(advertisedRoot.path ? { path: advertisedRoot.path } : {}) };
     }
   );
 
@@ -1241,13 +1331,15 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
       rootAccess: z.enum(["selected", "all"]).default("selected"),
       rootIds: z.array(z.string()).max(64).default([])
     }).parse(request.body);
-    await validateGrantResources(options.store, accountId, body);
-    const { projectId, approvalPolicy, ...fields } = body;
+    const resources = await collaboration?.validateGrant(principals.get(request)!, body, body.resourceBindings);
+    await validateGrantResources(options.store, accountId, body, undefined, resources ? await userNodes(principals.get(request)!) : undefined);
+    const { projectId, approvalPolicy, resourceBindings: _requestedBindings, ...fields } = body;
     const grant: AgentGrantRecord = {
       ...fields,
       ...(projectId ? { projectId } : {}),
       ...(approvalPolicy ? { approvalPolicy } : {}),
       accountId,
+      ...(resources ? resources : {}),
       revision: 1,
       createdAt: now().toISOString()
     };
@@ -1319,7 +1411,7 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
       dispatch: dispatch ?? null,
       maxConcurrency,
       ...(body.waitMs > 0 ? { longPoll: true } : {}),
-      ...(release ? { update: nodeReleaseUpdate(body.capability.buildId, release) } : {})
+      ...(body.capability.platform !== "android" ? { update: nodeReleaseUpdate(body.capability.buildId, release, body.capability.nodeVersion) } : {})
     };
   });
 
@@ -1465,7 +1557,7 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
       const current = await options.store.getTransferById(transferId);
       if (
         !current ||
-        current.invocation.accountId !== nodeAccounts.get(request) ||
+        (current.invocation.delegation?.resourceAccountId ?? current.invocation.accountId) !== nodeAccounts.get(request) ||
         !("nodeId" in current.args.source) ||
         current.args.source.nodeId !== nodeId
       ) {
@@ -1832,6 +1924,8 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
   ): Promise<void> {
     if (
       task.invocation.accountId !== principal.accountId ||
+      (principal.kind !== "agent" && principal.team &&
+        task.invocation.delegation?.requesterUserId !== principalUserId(principal)) ||
       (principal.kind === "agent" && task.invocation.authorization.grantId !== principal.grantId)
     )
       throw new ProtocolError(ErrorCodes.DENIED, "Task is not visible.", false);
@@ -1863,12 +1957,21 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
         const current = await options.store.getDispatchById(task.dispatchId);
         if (!current) throw new ProtocolError(ErrorCodes.NOT_FOUND, "Task was not found.", false);
         await authorizeTask(principal, current, originalInvocation);
-        return current.result ?? queuedResult(current);
+        return projectedTaskResult(current);
       },
       (result) => ["queued", "running"].includes(result.status),
       waitMs,
       signal
     );
+  }
+
+  async function projectedTaskResult(task: DispatchRecord): Promise<InvocationResult> {
+    if (collaboration && !(await collaboration.resultVisible(task.invocation, task.nodeId))) {
+      return domainResult(task.invocation, "denied", {
+        code: ErrorCodes.DENIED, message: "Resource authorization changed. Task output is no longer available.", retryable: false
+      });
+    }
+    return task.result ?? queuedResult(task);
   }
 
   async function authorizeTransfer(
@@ -1985,6 +2088,10 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
   ): Promise<InvocationResult> {
     const accountId = principal.accountId;
     countInvocation("submitted", invocation.tool);
+    if (invocation.delegation)
+      throw new ProtocolError("denied", "Execution provenance is assigned by the service.", false);
+    if (principal.kind === "pat" && principal.readOnly && isSideEffectTool(invocation.tool))
+      throw new ProtocolError("denied", "This personal access token is read-only.", false);
     if (invocation.accountId !== accountId) {
       throw new ProtocolError(ErrorCodes.DENIED, "account scope mismatch", false);
     }
@@ -1992,6 +2099,11 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
       throw new ProtocolError("denied", "Credential is bound to a different Agent grant.", false);
     }
     const grant = await options.store.getGrant(invocation.authorization.grantId);
+    if (grant && principal.kind !== "agent" && principal.team &&
+        grant.responsibleUserId !== principalUserId(principal))
+      throw new ProtocolError("denied", "Use your own Agent authorization.", false);
+    if (principal.kind === "agent" && invocation.actor.type !== "agent")
+      throw new ProtocolError("denied", "Agent credentials require an Agent actor.", false);
     if (
       !grant ||
       grant.revokedAt ||
@@ -2055,7 +2167,7 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
         throw new ProtocolError("conflict", "Invocation ID has already been used.", false);
       }
       await authorizeTask(principal, existing, true);
-      return existing.result ?? queuedResult(existing);
+      return projectedTaskResult(existing);
     }
     assertInvocationCurrent(invocation, now());
     if (!grant.allowedTools.includes(ToolIdSchema.parse(invocation.tool))) {
@@ -2246,7 +2358,7 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
         invocation.tool === "device.status"
           ? (invocation.args as { nodeId: string }).nodeId
           : undefined;
-      const nodes = (await options.store.listNodes(accountId))
+      const nodes = (await grantNodes(grant))
         .filter(
           (node) =>
             grant.nodeIds.includes(node.nodeId) &&
@@ -2258,6 +2370,11 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
           label: node.label,
           platform: node.platform,
           status: node.status,
+          ...(node.resourceAuthorization ? { access: {
+            kind: node.resourceAuthorization.bindingId ? "shared" : "team",
+            bindingId: node.resourceAuthorization.bindingId,
+            execution: node.resourceAuthorization.scope.execution
+          } } : {}),
           lastSeenAt: node.lastSeenAt,
           online:
             node.status === "active" &&
@@ -2361,7 +2478,7 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
               invocation.tool === "task.wait" ? (invocation.args as { waitMs: number }).waitMs : 0,
               signal
             )
-          : (task?.result ?? (task ? queuedResult(task) : undefined));
+          : task ? await projectedTaskResult(task) : undefined;
       countInvocation("succeeded", invocation.tool);
       return ResultSchema.parse({
         schemaVersion: "0.1",
@@ -2371,11 +2488,19 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
         output: { task: result }
       });
     }
-    const placement = await placeInvocation(options.store, invocation, grant);
+    const available = collaboration ? await grantNodes(grant) : undefined;
+    const placement = await placeInvocation(options.store, invocation, grant, available);
     if ("error" in placement) {
       return domainResult(invocation, placement.status, placement.error);
     }
     const node = placement.node;
+    if (node.resourceAuthorization) invocation = {
+      ...invocation,
+      delegation: {
+        ...node.resourceAuthorization,
+        expiresAt: new Date(Math.min(Date.parse(node.resourceAuthorization.expiresAt), Date.parse(invocation.expiresAt))).toISOString()
+      }
+    };
     const policyDecision = await policyFor(invocation, grant, node);
     if (policyDecision.outcome !== "allow") {
       const offline = policyDecision.reasonCode === "node.offline";
@@ -2388,6 +2513,9 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
           invocation,
           nodeId: node.nodeId,
           placementReason: placement.reason,
+          ...(collaboration && invocation.delegation ? {
+            requiredConsents: await collaboration.requiredConsents(invocation, grant)
+          } : {}),
           policyDecision,
           status: "pending",
           createdAt: createdAt.toISOString(),
@@ -2454,7 +2582,7 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
     });
     wakeNode(queued.nodeId);
     countInvocation("queued", invocation.tool);
-    return queued.result ?? queuedResult(queued);
+    return projectedTaskResult(queued);
   }
 
   async function invokeAndWait(
@@ -2487,6 +2615,8 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
     return (
       !!dispatch &&
       dispatch.invocation.accountId === principal.accountId &&
+      (principal.kind === "agent" || !principal.team ||
+        dispatch.invocation.delegation?.requesterUserId === principalUserId(principal)) &&
       (principal.kind === "session" ||
         principal.kind === "pat" ||
         dispatch.invocation.authorization.grantId === principal.grantId)
@@ -2498,6 +2628,8 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
     return (
       !!transfer &&
       transfer.invocation.accountId === principal.accountId &&
+      (principal.kind === "agent" || !principal.team ||
+        transfer.invocation.delegation?.requesterUserId === principalUserId(principal)) &&
       (principal.kind === "session" ||
         principal.kind === "pat" ||
         transfer.invocation.authorization.grantId === principal.grantId)
@@ -2543,6 +2675,7 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
       if (
         !approval ||
         approval.accountId !== principal.accountId ||
+        (principal.kind !== "agent" && principal.team && approval.invocation.delegation?.requesterUserId !== principalUserId(principal)) ||
         (principal.kind === "agent" &&
           approval.invocation.authorization.grantId !== principal.grantId)
       ) {
@@ -2678,12 +2811,13 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
           jobId
         });
       }
-      return dispatch.result ?? queuedResult(dispatch);
+      return projectedTaskResult(dispatch);
     }
   );
 
   app.get("/api/v1/approvals", { preHandler: requireOwner }, async (request) => {
     const accountId = accountOf(request);
+    const actor = principals.get(request)! as Extract<Principal, { kind: "session" | "pat" }>;
     const query = z
       .object({
         limit: z.coerce.number().int().min(1).max(100).default(50),
@@ -2696,11 +2830,13 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
     const page = await options.store.listApprovalsPage(accountId, {
       limit: query.limit,
       now: now().toISOString(),
+      ...(actor.team
+        ? { responsibleUserId: principalUserId(actor)!, includeResourceConsent: actor.team.membership.role !== "member" } : {}),
       ...(before ? { before } : {}),
       ...(query.status ? { status: query.status } : {})
     });
     return {
-      approvals: await approvalView(options.store, accountId, page.approvals),
+      approvals: await approvalView(options.store, accountId, page.approvals, actor.team ? principalUserId(actor) : undefined),
       nextCursor: encodePageCursor(page.nextCursor),
       hasMore: !!page.nextCursor,
       pendingCount: page.pendingCount
@@ -2718,9 +2854,18 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
         .strict()
         .parse(request.body);
       const approval = await options.store.getApproval(approvalId);
-      if (!approval || approval.accountId !== accountId) {
+      const actor = principals.get(request)! as Extract<Principal, { kind: "session" | "pat" }>;
+      const userId = principalUserId(actor);
+      const required = approval?.requiredConsents ?? [];
+      const canConsent = required.length
+        ? required.some((entry) => entry.accountId === accountId && (!entry.userId || entry.userId === userId) &&
+          (entry.role !== "resource" || actor.team?.membership.role !== "member"))
+        : approval?.accountId === accountId && actor.team?.membership.role !== "member";
+      if (!approval || !canConsent) {
         return apiError(reply, 404, ErrorCodes.NOT_FOUND, "approval was not found");
       }
+      const responseFor = (dispatch: DispatchRecord) => approval.accountId === accountId
+        ? projectedTaskResult(dispatch) : Promise.resolve(queuedResult(dispatch));
       if (approval.status === "approved") {
         const transfer = await options.store.getTransferByInvocation(
           approval.invocation.invocationId
@@ -2729,7 +2874,7 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
         const existing = await options.store.getDispatchByInvocation(
           approval.invocation.invocationId
         );
-        if (existing) return existing.result ?? queuedResult(existing);
+        if (existing) return responseFor(existing);
       }
       if (approval.status !== "pending") {
         return apiError(reply, 409, ErrorCodes.CONFLICT, `approval is already ${approval.status}`);
@@ -2758,7 +2903,7 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
           await options.store.denyTransfer(transfer.transferId, timestamp);
           taskWaitHub.notify(transfer.transferId);
         }
-        return { approval: resolved };
+        return { approval: (await approvalView(options.store, accountId, [resolved], actor.team ? userId : undefined))[0] };
       }
       const pendingTransfer = await options.store.getTransferByInvocation(
         approval.invocation.invocationId
@@ -2890,6 +3035,12 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
           "device or grant was revoked before approval"
         );
       }
+      if (required.length && collaboration && userId) {
+        if (!await collaboration.relationships.consentApproval(approvalId, accountId, userId)) {
+          const pending = await options.store.getApproval(approvalId);
+          return { approval: (await approvalView(options.store, accountId, [pending!], actor.team ? userId : undefined))[0], awaitingConsent: true };
+        }
+      }
       const unsignedDecision = {
         outcome: "allow" as const,
         reasonCode: "approval.granted",
@@ -2916,7 +3067,7 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
         dispatch,
         {
           eventId: createId("dsp"),
-          accountId,
+          accountId: approval.accountId,
           invocationId: approval.invocation.invocationId,
           type: "dispatch.queued",
           payload: {
@@ -2930,15 +3081,18 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
         },
         timestamp
       );
-      if (!queued)
+      if (!queued) {
+        const existing = await options.store.getDispatchByInvocation(approval.invocation.invocationId);
+        if (existing) return responseFor(existing);
         return apiError(
           reply,
           409,
           ErrorCodes.CONFLICT,
           "Approval was already resolved or expired."
         );
+      }
       wakeNode(queued.nodeId);
-      return queued.result ?? queuedResult(queued);
+      return responseFor(queued);
     }
   );
 
@@ -2981,6 +3135,8 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
       if (!visibleTask(request, dispatch)) {
         return apiError(reply, 404, ErrorCodes.NOT_FOUND, "artifact was not found");
       }
+      if (collaboration && dispatch && !(await collaboration.resultVisible(dispatch.invocation, dispatch.nodeId)))
+        return apiError(reply, 404, ErrorCodes.NOT_FOUND, "artifact was not found");
       let data = artifact.data;
       if (artifact.contentType === "image/png" && data.byteLength === 0) {
         if (!options.assetStore) {
@@ -3020,7 +3176,7 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
         invoke: (invocation, options) =>
           invokeAndWait(invocation, principal, options?.waitMs, options?.signal)
       },
-      context: grantContext(grant, await options.store.listNodes(grant.accountId)),
+      context: grantContext(grant, await grantNodes(grant)),
       allowedTools: grant.allowedTools
     });
     const transport = new StreamableHTTPServerTransport({
@@ -3049,8 +3205,7 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
   app.get("/api/v1/node-installation", { preHandler: requireOwner }, async () => {
     const androidPreview = await androidPreviewInfo(options.androidDistribution);
     return {
-      ...distributionInfo(options.nodeDistribution),
-      latest: await latestNodeRelease(options.nodeDistribution),
+      ...await currentNodeDistributionInfo(options.nodeDistribution),
       ...(androidPreview ? { androidPreviewUrl: androidPreview.url } : {})
     };
   });
@@ -3130,7 +3285,8 @@ function requestLogError(app: FastifyInstance, error: unknown): void {
 async function placeInvocation(
   store: Store,
   invocation: Invocation,
-  grant: AgentGrantRecord
+  grant: AgentGrantRecord,
+  projectedNodes?: NodeRecord[]
 ): Promise<
   | { node: NonNullable<Awaited<ReturnType<Store["getNode"]>>>; reason: string }
   | {
@@ -3139,8 +3295,9 @@ async function placeInvocation(
     }
 > {
   if ("nodeId" in invocation.target) {
-    const node = await store.getNode(invocation.target.nodeId);
-    if (!node || node.accountId !== invocation.accountId || !grant.nodeIds.includes(node.nodeId)) {
+    const node = projectedNodes ? projectedNodes.find((entry) => entry.nodeId === (invocation.target as { nodeId: string }).nodeId)
+      : await store.getNode(invocation.target.nodeId);
+    if (!node || (!projectedNodes && node.accountId !== invocation.accountId) || !grant.nodeIds.includes(node.nodeId)) {
       return {
         status: "denied",
         error: {

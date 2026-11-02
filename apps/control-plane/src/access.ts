@@ -2,9 +2,11 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { isAPIError } from "better-auth/api";
 import {
   IdentityStore,
+  CollaborationStore,
   type AgentGrantRecord,
   type NodeRecord,
-  type PersonalAccount
+  type PersonalAccount,
+  type TeamAccount
 } from "@adc/db";
 import { ProtocolError, type ToolCapability, type ToolId } from "@adc/protocol";
 import type { Authentication } from "./auth.ts";
@@ -14,16 +16,21 @@ export type Principal =
   | {
       kind: "session";
       accountId: string;
-      user: { id: string; name: string; email: string };
-      account: PersonalAccount;
+      user: { id: string; name: string; email: string; emailVerified?: boolean };
+      account: PersonalAccount | TeamAccount;
+      personalAccountId?: string;
+      team?: TeamAccount;
     }
   | { kind: "agent"; accountId: string; grantId: string; credentialId?: string; clientId?: string }
-  | { kind: "pat"; accountId: string; patId: string; readOnly: boolean };
+  | { kind: "pat"; accountId: string; patId: string; readOnly: boolean;
+      userId?: string; personalAccountId?: string; team?: TeamAccount };
 
 export interface AccessService {
   origin: string;
   identity: IdentityStore;
   authentication: Authentication;
+  accountAuthentication?: Authentication;
+  collaboration?: CollaborationStore;
   authenticate(request: FastifyRequest): Promise<Principal | undefined>;
 }
 
@@ -56,11 +63,32 @@ async function forwardResponse(response: Response, reply: FastifyReply) {
 
 export function createAccessService(
   authentication: Authentication,
-  identity: IdentityStore
+  identity: IdentityStore,
+  accountAuthentication?: Authentication
 ): AccessService {
+  const collaboration = identity.pool ? new CollaborationStore(identity.pool) : undefined;
+  const selectedAccount = async (request: FastifyRequest, userId: string, personalAccountId: string) => {
+    const requested = request.headers["x-adc-account"];
+    if (requested === undefined || requested === personalAccountId) return undefined;
+    if (typeof requested !== "string" || !collaboration) throw new ProtocolError("denied", "Account selection is unavailable.", false);
+    const team = (await collaboration.listTeams(userId)).find((entry) => entry.accountId === requested);
+    if (!team) throw new ProtocolError("denied", "Team membership is unavailable.", false);
+    return team;
+  };
+  const activeAgent = async (accountId: string, grantId: string) => {
+    if (!collaboration || await collaboration.accountKind(accountId) !== "team") return true;
+    const result = await identity.pool.query(
+      `SELECT responsible_user_id FROM adc_agent_grants WHERE grant_id = $1 AND account_id = $2
+       AND revoked_at IS NULL AND deleted_at IS NULL`, [grantId, accountId]
+    );
+    const userId = result.rows[0]?.responsible_user_id;
+    return !!userId && !!await collaboration.member(accountId, userId);
+  };
   return {
     authentication,
+    ...(accountAuthentication ? { accountAuthentication } : {}),
     identity,
+    ...(collaboration ? { collaboration } : {}),
     origin: authentication.origin,
     async authenticate(request) {
       const authorization = request.headers.authorization;
@@ -69,12 +97,16 @@ export function createAccessService(
         const token = authorization.slice(7);
         if (token.startsWith("adc_pat_")) {
           const pat = await identity.authenticatePat(token);
+          const userId = pat && collaboration ? await identity.userForAccount(pat.accountId) : undefined;
+          const team = pat && userId ? await selectedAccount(request, userId, pat.accountId) : undefined;
           return pat
             ? {
                 kind: "pat",
-                accountId: pat.accountId,
+                accountId: team?.accountId ?? pat.accountId,
                 patId: pat.patId,
-                readOnly: pat.readOnly
+                readOnly: pat.readOnly,
+                ...(userId ? { userId, personalAccountId: pat.accountId } : {}),
+                ...(team ? { team } : {})
               }
             : undefined;
         }
@@ -106,10 +138,11 @@ export function createAccessService(
             claims.client_id,
             claims.adc_binding
           );
-          return binding ? { kind: "agent", ...binding, clientId: claims.client_id } : undefined;
+          return binding && await activeAgent(binding.accountId, binding.grantId)
+            ? { kind: "agent", ...binding, clientId: claims.client_id } : undefined;
         }
         const credential = await identity.authenticateCredential(token);
-        if (credential)
+        if (credential && await activeAgent(credential.accountId, credential.grantId))
           return {
             kind: "agent",
             accountId: credential.accountId,
@@ -120,11 +153,15 @@ export function createAccessService(
       const session = await authentication.auth.api.getSession!({ headers: headersFor(request) });
       if (!session) return;
       const account = await identity.accountForUser(session.user.id, session.user.name);
+      const team = await selectedAccount(request, session.user.id, account.accountId);
       return {
         kind: "session",
-        accountId: account.accountId,
-        account,
-        user: { id: session.user.id, name: session.user.name, email: session.user.email }
+        accountId: team?.accountId ?? account.accountId,
+        account: team ?? account,
+        personalAccountId: account.accountId,
+        ...(team ? { team } : {}),
+        user: { id: session.user.id, name: session.user.name, email: session.user.email,
+          emailVerified: session.user.emailVerified === true }
       };
     }
   };
@@ -145,17 +182,21 @@ export function registerAuthenticationRoutes(app: FastifyInstance, access: Acces
     bodyLimit: 64 * 1024,
     async handler(request, reply) {
       const headers = headersFor(request);
-      const url = new URL(request.url, access.origin);
+      const selected = access.accountAuthentication &&
+        request.headers.host === new URL(access.accountAuthentication.origin).host &&
+        !request.url.startsWith("/api/auth/oauth2/")
+        ? access.accountAuthentication : authentication;
+      const url = new URL(request.url, selected.origin);
       // Never construct password-reset or OAuth links from an untrusted Host.
-      url.protocol = new URL(access.origin).protocol;
-      url.host = new URL(access.origin).host;
+      url.protocol = new URL(selected.origin).protocol;
+      url.host = new URL(selected.origin).host;
       const body =
         request.method === "GET"
           ? undefined
           : typeof request.body === "string"
             ? request.body
             : JSON.stringify(request.body ?? {});
-      const response = await authentication.handle(
+      const response = await selected.handle(
         new Request(url, {
           method: request.method,
           headers,
@@ -192,7 +233,8 @@ export function registerAuthenticationRoutes(app: FastifyInstance, access: Acces
 export function grantContext(grant: AgentGrantRecord, nodes: NodeRecord[] = []) {
   const grantedNodes = nodes.filter(
     (node) =>
-      node.accountId === grant.accountId &&
+      (node.accountId === grant.accountId || (node.resourceAuthorization?.requesterAccountId === grant.accountId &&
+        grant.resourceBindings?.some((binding) => binding.nodeId === node.nodeId && binding.bindingId === node.resourceAuthorization?.bindingId))) &&
       grant.nodeIds.includes(node.nodeId) &&
       node.status === "active"
   );
@@ -242,12 +284,17 @@ export function grantContext(grant: AgentGrantRecord, nodes: NodeRecord[] = []) 
     actorId: grant.actorId,
     grantId: grant.grantId,
     ...(grant.projectId ? { projectId: grant.projectId } : {}),
-    nodeIds: grant.nodeIds,
+    nodeIds: grantedNodes.map((node) => node.nodeId),
     nodes: grantedNodes.map((node) => ({
       nodeId: node.nodeId,
       label: node.label,
       ...(node.description ? { description: node.description } : {}),
       platform: node.platform,
+      ...(node.resourceAuthorization ? { access: {
+        kind: node.resourceAuthorization.bindingId ? "shared" as const : "team" as const,
+        ...(node.resourceAuthorization.bindingId ? { bindingId: node.resourceAuthorization.bindingId } : {}),
+        execution: node.resourceAuthorization.scope.execution
+      } } : {}),
       ...(node.lastSeenAt ? { lastSeenAt: node.lastSeenAt } : {})
     })),
     allowedTools: grant.allowedTools,

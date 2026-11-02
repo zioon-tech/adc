@@ -108,9 +108,11 @@ export async function activateRuntimePlugin(
       if (args.action !== "status") throw new Error("Unknown ADC sidebar command.");
       const state = (await store.read()) as OAuthState;
       const links = {
-        devices: `${origin}/devices`,
-        access: `${origin}/access`,
-        approvals: `${origin}/approvals`
+        devices: `${origin}/app/devices`,
+        access: `${origin}/app/agents`,
+        approvals: `${origin}/app/approvals`,
+        teams: `${origin}/app/teams`,
+        sharing: `${origin}/app/sharing`
       };
       if (!state.connection) return { connected: false, links, devices: [], tasks: [] };
       try {
