@@ -136,8 +136,20 @@ describe("team membership and named device sharing through PostgreSQL and HTTP",
     await app?.close();
     await postgres?.stop();
     if (databaseAdmin) {
-      if (databaseName) await databaseAdmin.query(`DROP DATABASE "${databaseName}" WITH (FORCE)`);
-      await databaseAdmin.end();
+      try {
+        if (databaseName) {
+          const deadline = Date.now() + 5_000;
+          for (;;) {
+            const clients = await databaseAdmin.query("SELECT 1 FROM pg_stat_activity WHERE datname=$1", [databaseName]);
+            if (clients.rowCount === 0) break;
+            if (Date.now() >= deadline) throw new Error("Collaboration fixture database connections did not drain");
+            await new Promise(resolve => setTimeout(resolve, 20));
+          }
+          await databaseAdmin.query(`DROP DATABASE "${databaseName}"`);
+        }
+      } finally {
+        await databaseAdmin.end();
+      }
     }
     if (assetDirectory) await rm(assetDirectory, { recursive: true, force: true });
   });
