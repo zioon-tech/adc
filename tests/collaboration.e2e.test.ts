@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PostgresMemoryServer } from "postgres-memory-server";
+import { Pool } from "pg";
 import type { FastifyInstance } from "fastify";
 import { CollaborationStore, IdentityStore, PostgresStore } from "../packages/db/src/index.ts";
 import { createAuthentication } from "../apps/control-plane/src/auth.ts";
@@ -23,7 +24,10 @@ const origin = "http://adc.test";
 type User = { id: string; accountId: string; cookie: string; email: string };
 
 describe("team membership and named device sharing through PostgreSQL and HTTP", () => {
-  let postgres: PostgresMemoryServer;
+  let postgres: PostgresMemoryServer | undefined;
+  let databaseAdmin: Pool | undefined;
+  let databaseName: string | undefined;
+  let databaseUrl: string;
   let store: PostgresStore;
   let app: FastifyInstance;
   let signupIp = 20;
@@ -111,13 +115,32 @@ describe("team membership and named device sharing through PostgreSQL and HTTP",
   });
 
   beforeAll(async () => {
-    postgres = await PostgresMemoryServer.create({ database: "adc_collaboration", username: "adc_collaboration", password: "adc_collaboration" });
-    store = new PostgresStore(postgres.getUri());
+    const sharedDatabaseUrl = process.env.ADC_TEST_DATABASE_URL;
+    if (sharedDatabaseUrl) {
+      databaseAdmin = new Pool({ connectionString: sharedDatabaseUrl });
+      databaseName = `adc_collaboration_${randomBytes(8).toString("hex")}`;
+      await databaseAdmin.query(`CREATE DATABASE "${databaseName}"`);
+      const url = new URL(sharedDatabaseUrl);
+      url.pathname = `/${databaseName}`;
+      databaseUrl = url.href;
+    } else {
+      postgres = await PostgresMemoryServer.create({ database: "adc_collaboration", username: "adc_collaboration", password: "adc_collaboration" });
+      databaseUrl = postgres.getUri();
+    }
+    store = new PostgresStore(databaseUrl);
     const authentication = createAuthentication({ pool: store.pool, baseURL: origin, secret: randomBytes(48).toString("base64url") });
     assetDirectory = await mkdtemp(join(tmpdir(), "adc-collaboration-assets-"));
     app = await createControlPlane({ store, access: createAccessService(authentication, new IdentityStore(store.pool)), assetStore: new LocalContentAddressedAssetStore(assetDirectory) });
   }, 60_000);
-  afterAll(async () => { await app?.close(); await postgres?.stop(); if (assetDirectory) await rm(assetDirectory, { recursive: true, force: true }); });
+  afterAll(async () => {
+    await app?.close();
+    await postgres?.stop();
+    if (databaseAdmin) {
+      if (databaseName) await databaseAdmin.query(`DROP DATABASE "${databaseName}" WITH (FORCE)`);
+      await databaseAdmin.end();
+    }
+    if (assetDirectory) await rm(assetDirectory, { recursive: true, force: true });
+  });
 
   it("binds acceptance to verified identity, scopes discovery and cancels leased work after revocation", async () => {
     const [owner, recipient, stranger, unverified] = await Promise.all([signup(), signup(), signup(), signup(false)]);
@@ -283,7 +306,7 @@ describe("team membership and named device sharing through PostgreSQL and HTTP",
     const node = await device(owner);
     const classified = await new Promise<{ code: number | null; stderr: string }>((resolve, reject) => {
       const child = spawn(process.execPath, ["--import", "tsx", "scripts/classify-node.ts", node.nodeId, "platform", `--confirm=${node.nodeId}`],
-        { env: { ...process.env, DATABASE_URL: postgres.getUri() }, stdio: ["ignore", "ignore", "pipe"] });
+        { env: { ...process.env, DATABASE_URL: databaseUrl }, stdio: ["ignore", "ignore", "pipe"] });
       let stderr = ""; child.stderr.on("data", part => { stderr += String(part); });
       child.on("error", reject); child.on("close", code => resolve({ code, stderr }));
     });

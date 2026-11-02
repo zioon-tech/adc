@@ -1,4 +1,7 @@
 node_modules/
+.release-stage/
+.release-out/
+.release-tools/
 dist/
 .env
 .adc/
