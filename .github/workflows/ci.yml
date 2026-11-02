@@ -22,11 +22,11 @@ jobs:
       - id: affected
         run: node scripts/ci/affected.mjs
   secrets:
-    uses: zioon-tech/workflows/.github/workflows/secret-scan.yml@941ce96290968299c53ec0bf8e8b67e6a6cc269c
+    uses: zioon-tech/workflows/.github/workflows/secret-scan.yml@9615a5b74c604d6233dfb9f0d45099cf2e7929ff
   service:
     needs: changes
     if: needs.changes.outputs.service == 'true'
-    uses: zioon-tech/workflows/.github/workflows/node-ci.yml@941ce96290968299c53ec0bf8e8b67e6a6cc269c
+    uses: zioon-tech/workflows/.github/workflows/node-ci.yml@9615a5b74c604d6233dfb9f0d45099cf2e7929ff
     with:
       package-manager: pnpm
       install: pnpm install --frozen-lockfile
@@ -38,7 +38,7 @@ jobs:
   website:
     needs: changes
     if: needs.changes.outputs.site == 'true'
-    uses: zioon-tech/workflows/.github/workflows/node-ci.yml@941ce96290968299c53ec0bf8e8b67e6a6cc269c
+    uses: zioon-tech/workflows/.github/workflows/node-ci.yml@9615a5b74c604d6233dfb9f0d45099cf2e7929ff
     with:
       package-manager: pnpm
       install: pnpm install --frozen-lockfile
