@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PostgresMemoryServer } from "postgres-memory-server";
+import { Pool } from "pg";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { IdentityStore, PostgresStore } from "../packages/db/src/index.ts";
 import { createAuthentication } from "../apps/control-plane/src/auth.ts";
@@ -76,6 +77,28 @@ describe("persistent account identity and authorization", () => {
   }, 60_000);
   afterAll(async () => {
     await app?.close();
+    if (postgres) {
+      // pg pool shutdown can finish before PostgreSQL observes every socket
+      // disconnect. Drain server-side backends before stopping the database.
+      const url = new URL(postgres.getUri());
+      const databaseName = decodeURIComponent(url.pathname.slice(1));
+      url.pathname = "/postgres";
+      const admin = new Pool({ connectionString: url.href });
+      try {
+        const deadline = Date.now() + 5_000;
+        for (;;) {
+          const clients = await admin.query(
+            "SELECT 1 FROM pg_stat_activity WHERE datname=$1",
+            [databaseName]
+          );
+          if (clients.rowCount === 0) break;
+          if (Date.now() >= deadline) throw new Error("Identity fixture connections did not drain");
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+      } finally {
+        await admin.end();
+      }
+    }
     await postgres?.stop();
   });
 
