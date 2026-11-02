@@ -1,0 +1,56 @@
+name: ADC CI
+on:
+  pull_request:
+  push:
+    branches: [main, "migration/**"]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: adc-ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      service: ${{ steps.affected.outputs.service }}
+      site: ${{ steps.affected.outputs.site }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+      - id: affected
+        run: node scripts/ci/affected.mjs
+  secrets:
+    uses: zioon-tech/workflows/.github/workflows/secret-scan.yml@941ce96290968299c53ec0bf8e8b67e6a6cc269c
+  service:
+    needs: changes
+    if: needs.changes.outputs.service == 'true'
+    uses: zioon-tech/workflows/.github/workflows/node-ci.yml@941ce96290968299c53ec0bf8e8b67e6a6cc269c
+    with:
+      package-manager: pnpm
+      install: pnpm install --frozen-lockfile
+      command: pnpm build && pnpm test:unit && pnpm test:integration && pnpm test:e2e
+      artifact-name: adc-integrations-${{ github.sha }}
+      artifact-path: |
+        dist/skills
+        dist/plugins
+  website:
+    needs: changes
+    if: needs.changes.outputs.site == 'true'
+    uses: zioon-tech/workflows/.github/workflows/node-ci.yml@941ce96290968299c53ec0bf8e8b67e6a6cc269c
+    with:
+      package-manager: pnpm
+      install: pnpm install --frozen-lockfile
+      command: pnpm --filter @adc/console build && pnpm exec vitest run apps/console/src/public-site.test.ts apps/console/src/file-transfer-visibility.test.ts
+      artifact-name: adc-console-and-site-${{ github.sha }}
+      artifact-path: apps/console/dist
+  required:
+    name: CI
+    runs-on: ubuntu-24.04
+    if: always()
+    needs: [changes, secrets, service, website]
+    steps:
+      - env:
+          FAILED: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: test "$FAILED" = false

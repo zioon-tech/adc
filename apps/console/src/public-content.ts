@@ -38,6 +38,49 @@ export function localize(value: LocalizedText, locale: Locale): string {
 
 const contentEntries: PublicContentEntry[] = [
   {
+    path: "/updates/connector-0-1-6",
+    kind: "Product update",
+    title: text("Connector 0.1.6: current package and task workflow", "Connector 0.1.6：当前软件包与任务工作流"),
+    summary: text(
+      "Keep your Connector current and follow the task you already submitted.",
+      "保持 Connector 更新，跟踪已经提交的任务。"
+    ),
+    publishedAt: "2026-11-03",
+    updatedAt: "2026-11-03",
+    readingMinutes: 2,
+    keywords: ["ADC 0.1.6", "task.wait", "Connector update"],
+    listed: true,
+    relatedPaths: ["/updates/connector-0-1-3", "/guides/first-device-to-first-tool-call"],
+    sections: [
+      {
+        id: "package",
+        title: text("Use the current package", "使用当前软件包"),
+        paragraphs: [text(
+          "The repository package is version 0.1.6. Check the service download manifest for the version available for your platform.",
+          "仓库软件包版本为 0.1.6。请查看服务下载清单，确认你的平台当前可安装的版本。"
+        )],
+        code: "adc update"
+      },
+      {
+        id: "task",
+        title: text("Follow an existing task", "跟踪已有任务"),
+        paragraphs: [text(
+          "Use the returned jobId to inspect or wait for an existing task. A bounded wait ending does not require resubmitting the original operation.",
+          "使用返回的 jobId 检查或等待已有任务。有界等待结束时，无需重新提交原操作。"
+        )],
+        code: `adc invoke task.wait --args '{"jobId":"job_example","waitMs":4000}' --json`
+      },
+      {
+        id: "history",
+        title: text("Review earlier releases", "阅读历史版本说明"),
+        paragraphs: [text(
+          "Earlier release notes remain available. Tool access follows the service configuration, account authorization and device policy.",
+          "历史版本说明继续保留。实际工具能力以服务配置、账户授权和设备策略为准。"
+        )]
+      }
+    ]
+  },
+  {
     path: "/updates/connector-0-1-4",
     kind: "Product update",
     title: text("Connector 0.1.4: direct file transfers", "Connector 0.1.4：文件直传"),

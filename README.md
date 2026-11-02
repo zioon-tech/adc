@@ -1,5 +1,7 @@
 # Agent Device Cloud
 
+[Official service](https://adc.zioon.tech) · [Documentation](https://adc.zioon.tech/docs) · [Repository and release](docs/repository-and-release.md)
+
 Teams and named external device sharing use the same policy, dispatch and receipt path across
 website, CLI, SDK, MCP and plugins. See [collaboration workflows and boundaries](docs/collaboration.md).
 
@@ -45,7 +47,7 @@ updates; signed release-channel publication is a separate deployment step.
 
 Use **https://adc.zioon.tech** to create an account, connect devices and authorize agents.
 The official service serves the Console, MCP endpoint, macOS/Linux/Windows Connector packages and
-the Android APK from the same deployment. `zioon.tech` and `www.zioon.tech` redirect to this address.
+the Android APK. The main product website at `zioon.tech` links to ADC and Memory.
 
 Email/password registration, email verification, password recovery and GitHub login are configured.
 Hosted and self-hosted installations share the same authorization and local execution boundaries.

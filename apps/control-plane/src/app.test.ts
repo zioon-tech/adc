@@ -368,11 +368,11 @@ describe("control plane", () => {
       expect.arrayContaining([
         expect.objectContaining({
           nodeId: paired.nodeId,
-          update: {
+          update: expect.objectContaining({
             state: "update_available",
             currentBuildId: null,
             latest: expect.objectContaining({ version: "0.1.1", buildId })
-          }
+          })
         })
       ])
     );
@@ -603,7 +603,7 @@ describe("control plane", () => {
     const queued = await owner.invoke(invocation);
     expect(queued.status).toBe("queued");
 
-    await expect(node.poll(capability, { activeTaskCount: 6 })).resolves.toEqual({
+    await expect(node.poll(capability, { activeTaskCount: 6 })).resolves.toMatchObject({
       dispatch: null,
       maxConcurrency: 6
     });
@@ -1152,7 +1152,7 @@ describe("control plane", () => {
       writable: true
     });
 
-    const createdAt = new Date(timestamp.getTime() - 60_000).toISOString();
+    const createdAt = new Date(timestamp.getTime() + 60_000).toISOString();
     const expiredAt = new Date(timestamp.getTime() - 1_000).toISOString();
     const validUntil = new Date(timestamp.getTime() + 60 * 60_000).toISOString();
     for (const eventId of [

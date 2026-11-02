@@ -62,7 +62,7 @@ export function authQueryError(
     return "The service could not open your workspace. Please try again shortly.";
   if (["login_rate_limited", "too_many_login_requests"].includes(error))
     return "Too many sign-in attempts. Please wait before trying again.";
-  if (error === "social_login_failed" || /github|oauth|email_not_found|unable_to_link_account/i.test(error))
+  if (["social_login_failed", "provider_error"].includes(error) || /github|oauth|email_not_found|unable_to_link_account/i.test(error))
     return "GitHub sign-in could not finish. Verify your GitHub email and try again. Existing email accounts can link GitHub from Account.";
   return "Sign-in could not finish. Please try again.";
 }

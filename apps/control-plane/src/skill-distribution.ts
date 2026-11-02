@@ -12,6 +12,7 @@ const resources = new Set([
   "SKILL.md",
   "references/getting-started.md",
   "references/account-and-device-management.md",
+  "references/collaboration.md",
   "references/tool-invocation.md"
 ]);
 
