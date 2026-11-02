@@ -1,4 +1,5 @@
 import { createHash, createPublicKey, randomBytes, timingSafeEqual } from "node:crypto";
+import { realpath } from "node:fs/promises";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
@@ -3211,27 +3212,40 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
   });
 
   if (options.consoleDirectory) {
-    const publicSite = await PublicSite.load(options.consoleDirectory);
+    let loadedDirectory = await realpath(options.consoleDirectory);
+    let publicSite = await PublicSite.load(loadedDirectory);
+    let loading: Promise<void> | undefined;
+    const currentSite = async () => {
+      const directory = await realpath(options.consoleDirectory!);
+      if (directory !== loadedDirectory) {
+        loading ??= PublicSite.load(directory).then(site => {
+          publicSite = site;
+          loadedDirectory = directory;
+        }).finally(() => { loading = undefined; });
+        await loading;
+      }
+      return publicSite;
+    };
     await app.register(fastifyStatic, {
-      root: publicSite.root,
+      root: options.consoleDirectory,
       prefix: "/",
       wildcard: false,
       index: false
     });
     app.get("/robots.txt", async (_request, reply) =>
-      reply.type("text/plain; charset=utf-8").send(publicSite.robots(options.access.origin))
+      reply.type("text/plain; charset=utf-8").send((await currentSite()).robots(options.access.origin))
     );
     app.get("/sitemap.xml", async (_request, reply) =>
-      reply.type("application/xml; charset=utf-8").send(publicSite.sitemap(options.access.origin))
+      reply.type("application/xml; charset=utf-8").send((await currentSite()).sitemap(options.access.origin))
     );
     app.get("/llms.txt", async (_request, reply) =>
-      reply.type("text/plain; charset=utf-8").send(publicSite.llms(options.access.origin))
+      reply.type("text/plain; charset=utf-8").send((await currentSite()).llms(options.access.origin))
     );
     app.get("/llms-full.txt", async (_request, reply) =>
-      reply.type("text/plain; charset=utf-8").send(publicSite.llmsFull(options.access.origin))
+      reply.type("text/plain; charset=utf-8").send((await currentSite()).llmsFull(options.access.origin))
     );
     app.get("/feed.xml", async (_request, reply) =>
-      reply.type("application/rss+xml; charset=utf-8").send(publicSite.feed(options.access.origin))
+      reply.type("application/rss+xml; charset=utf-8").send((await currentSite()).feed(options.access.origin))
     );
     const serveConsole = async (request: FastifyRequest, reply: FastifyReply) => {
       const pathname = new URL(request.url, options.access.origin).pathname;
@@ -3248,7 +3262,7 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
       ) {
         return apiError(reply, 404, ErrorCodes.NOT_FOUND, "route was not found");
       }
-      const rendered = publicSite.renderHtml(pathname, options.access.origin, options.analytics);
+      const rendered = (await currentSite()).renderHtml(pathname, options.access.origin, options.analytics);
       if (!rendered.isPublic) reply.header("x-robots-tag", "noindex, nofollow");
       return reply
         .type("text/html; charset=utf-8")
