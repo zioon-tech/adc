@@ -23,9 +23,14 @@ enum class CapabilityGroup(
     val defaultEnabled: Boolean
 ) {
     DEVICE_STATUS("capability_device_status", true),
-    LOCATION("capability_location", true),
-    NOTIFICATIONS("capability_notifications", true),
+    LOCATION("capability_location", false),
+    NOTIFICATIONS("capability_notifications", false),
+    AUDIO_CONTROL("capability_audio_control", false),
+    VIBRATION("capability_vibration", false),
+    APP_LAUNCH("capability_app_launch", false),
+    FLASHLIGHT("capability_flashlight", false),
     SCREEN_CAPTURE("capability_screen_capture", false),
+    UI_OBSERVE("capability_ui_observe", false),
     UI_CONTROL("capability_ui_control", false)
 }
 
@@ -52,8 +57,19 @@ class NodeStore(context: Context) {
         ) { "Unable to persist paired node configuration" }
     }
 
+    /** The official legacy ADC endpoint shares the same database and Node identities. */
+    fun migrateOfficialOrigin() {
+        val config = config() ?: return
+        if (config.controlPlaneUrl == "https://adc.47-101-150-8.nip.io:8443") {
+            saveConfig(config.copy(controlPlaneUrl = "https://adc.zioon.tech"))
+        }
+    }
+
     fun clearConfig() {
-        check(preferences.edit().clear().commit()) {
+        val editor = preferences.edit()
+        listOf("controlPlaneUrl", "nodeId", "accountId", "label", "lastSeenAt", "lastError",
+            "nodeDesired", "runtimeState").forEach { editor.remove(it) }
+        check(editor.commit()) {
             "Unable to remove the local pairing configuration"
         }
         val keyStore = KeyStore.getInstance(KEYSTORE).apply { load(null) }
@@ -72,6 +88,18 @@ class NodeStore(context: Context) {
     fun lastSeenAt(): String? = preferences.getString("lastSeenAt", null)
 
     fun lastError(): String? = preferences.getString("lastError", null)
+
+    fun isNodeDesired(): Boolean = preferences.getBoolean("nodeDesired", false)
+
+    fun setNodeDesired(enabled: Boolean) {
+        check(preferences.edit().putBoolean("nodeDesired", enabled).commit())
+    }
+
+    fun runtimeState(): String = preferences.getString("runtimeState", "stopped") ?: "stopped"
+
+    fun setRuntimeState(state: String) {
+        preferences.edit().putString("runtimeState", state).apply()
+    }
 
     fun setLastUpdateCheckAt(value: String) {
         preferences.edit().putString("lastUpdateCheckAt", value).apply()

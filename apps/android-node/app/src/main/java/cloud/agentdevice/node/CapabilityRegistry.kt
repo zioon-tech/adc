@@ -198,7 +198,7 @@ class CapabilityRegistry(
                             "Inspect visible UI",
                             "Read a bounded semantic snapshot of the active Android window.",
                             "read",
-                            uiControlAvailability(now),
+                            uiControlAvailability(now, CapabilityGroup.UI_OBSERVE),
                             JSONObject()
                                 .put("type", "object")
                                 .put(
@@ -241,7 +241,7 @@ class CapabilityRegistry(
                             "Wait for UI state",
                             "Wait for an element, foreground app or accessibility idle state.",
                             "read",
-                            uiControlAvailability(now),
+                            uiControlAvailability(now, CapabilityGroup.UI_OBSERVE),
                             uiWaitSchema(),
                             objectSchema(
                                 "satisfied",
@@ -341,7 +341,7 @@ class CapabilityRegistry(
                 captureScreen(args, cancelled)
             }
             "ui.inspect" -> {
-                requireEnabled(CapabilityGroup.UI_CONTROL)
+                requireEnabled(CapabilityGroup.UI_OBSERVE)
                 MobileCapabilityResult(
                     AdcAccessibilityService.inspect(
                         args.optInt("maxDepth", 12),
@@ -350,18 +350,21 @@ class CapabilityRegistry(
                 )
             }
             "ui.wait" -> {
-                requireEnabled(CapabilityGroup.UI_CONTROL)
+                requireEnabled(CapabilityGroup.UI_OBSERVE)
                 MobileCapabilityResult(AdcAccessibilityService.wait(args, cancelled))
             }
             "ui.action" -> {
+                requireEnabled(CapabilityGroup.UI_OBSERVE)
                 requireEnabled(CapabilityGroup.UI_CONTROL)
                 MobileCapabilityResult(AdcAccessibilityService.action(args))
             }
             "ui.gesture" -> {
+                requireEnabled(CapabilityGroup.UI_OBSERVE)
                 requireEnabled(CapabilityGroup.UI_CONTROL)
                 MobileCapabilityResult(AdcAccessibilityService.gesture(args))
             }
             "device.navigation" -> {
+                requireEnabled(CapabilityGroup.UI_OBSERVE)
                 requireEnabled(CapabilityGroup.UI_CONTROL)
                 MobileCapabilityResult(
                     AdcAccessibilityService.navigation(args.getString("action"))
@@ -477,9 +480,15 @@ class CapabilityRegistry(
         return available(now)
     }
 
-    private fun uiControlAvailability(now: String): JSONObject {
-        if (!store.isCapabilityEnabled(CapabilityGroup.UI_CONTROL)) {
-            return localAvailability(CapabilityGroup.UI_CONTROL, now)
+    private fun uiControlAvailability(
+        now: String,
+        group: CapabilityGroup = CapabilityGroup.UI_CONTROL
+    ): JSONObject {
+        if (!store.isCapabilityEnabled(group)) {
+            return localAvailability(group, now)
+        }
+        if (group == CapabilityGroup.UI_CONTROL && !store.isCapabilityEnabled(CapabilityGroup.UI_OBSERVE)) {
+            return unavailable("permission_required", "Enable local interface reading before UI actions.", now)
         }
         if (!AdcAccessibilityService.isConnected()) {
             return unavailable(

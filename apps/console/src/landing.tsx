@@ -303,6 +303,9 @@ adc invoke file.list --args '{"path":"/Users/me/work"}' --wait --json`
               <Link className="secondary" to="/docs/quickstart">
                 {copy("Read the quickstart", "查看快速上手")}
               </Link>
+              <a className="secondary" href={`${origin}/downloads/android/preview.apk`} download>
+                {copy("Android APK · in testing", "下载 Android APK · 测试阶段")}
+              </a>
             </div>
           </div>
 

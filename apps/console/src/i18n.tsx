@@ -753,6 +753,13 @@ export const zh = {
   "Checking this login request…": "正在检查登录请求…",
   "CLI connected. You can close this tab.": "CLI 已连接，可以关闭此页面。",
   "CLI login approved. Return to your terminal to finish.": "CLI 登录已批准，请回到终端完成登录。",
+  "This device login request is invalid or expired.": "此设备登录请求无效或已过期。",
+  "Connect your device": "连接你的设备",
+  "Login approved. Return to the app or terminal to finish.": "登录已批准，请回到 App 或终端完成登录。",
+  "Device login denied. You can close this tab.": "设备登录已拒绝，可以关闭此页面。",
+  "This login request belongs to another account. Start login again on your own device.": "此登录请求属于其他账号，请在你自己的设备上重新发起登录。",
+  "Confirm that this code matches the one shown in your app or terminal.": "请确认此代码与 App 或终端中显示的代码一致。",
+  "Approve login": "批准登录",
   "This CLI login request belongs to another account. Run adc login again in your own terminal.":
     "此 CLI 登录请求属于其他账户。请在自己的终端重新运行 adc login。",
   "Try again in {seconds} seconds.": "请等待 {seconds} 秒后重试。",

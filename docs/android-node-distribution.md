@@ -4,10 +4,11 @@
 > permissions. The manually installed hosted APK is a test build; availability does not certify all
 > phones or operations. The release-channel design below does not change that maturity status.
 
-ADC Mobile Node 0.1.2 adds a **Version & updates** section to the App. It shows the installed and
-published versions, publication time, localized release notes and the last check time. A paired App
-checks at most once every 24 hours while it is open; **Check now** remains available for an explicit
-refresh.
+ADC Mobile Node 0.2.0 provides account login, device management and independent phone permissions.
+The native Material 3 client supports system light/dark appearance, larger fonts, device filters
+and grouped permission controls.
+**Account → Check for updates** checks the paired service and presents localized release notes.
+Updates are downloaded and verified before Android asks the device owner to install.
 
 Android updates use a separate release channel from desktop Node archives:
 
@@ -44,6 +45,19 @@ confirm each installation. The App does not perform silent installation. Signing
 not supported by this initial channel; publish with the same protected release key.
 
 ## Publish a signed release
+
+The hosted testing channel preserves the existing development certificate so installed test phones
+can upgrade without losing their identity. Its APK is built with the release configuration and is
+not debuggable. This is a qualified testing distribution, not a protected production signing key.
+The public homepage and Android guide link directly to `/downloads/android/preview.apk`.
+
+For the current ECS release model, `apps/android-node/release.json` pins a qualified APK's package
+metadata, signing certificate, size and SHA-256. The signed versioned APK is published as an asset
+of `android-v<version>` in this repository's GitHub Releases. Service CI downloads those exact bytes,
+verifies the size and digest, and packages `dist/android` alongside the service. Deployment consumes
+that complete artifact. No Android build or dependency installation runs on ECS, and CI never
+receives the local signing key. If `ADC_ANDROID_RELEASE_DIR` is explicitly configured, operators
+must publish into that directory; otherwise the bundled `dist/android` channel is used.
 
 Build and sign the release APK outside the repository using the protected production keystore.
 Increment `versionCode` for every release. Do not publish `app-debug.apk` or an unsigned release.

@@ -150,7 +150,7 @@ class AndroidNativeProvider(
                 "Set audio volume",
                 "Set an Android audio stream to a percentage of its supported range.",
                 "execute",
-                localAvailability(observedAt),
+                localAvailability(observedAt, CapabilityGroup.AUDIO_CONTROL),
                 audioVolumeSchema(),
                 objectSchema("stream", "level", "maxLevel", "levelPercent")
             ),
@@ -168,7 +168,7 @@ class AndroidNativeProvider(
                 "Open application",
                 "Open an installed launcher application by Android package name.",
                 "execute",
-                localAvailability(observedAt),
+                localAvailability(observedAt, CapabilityGroup.APP_LAUNCH),
                 appOpenSchema(),
                 objectSchema(
                     "launched",
@@ -203,7 +203,7 @@ class AndroidNativeProvider(
         args: JSONObject,
         cancelled: () -> Boolean
     ): MobileCapabilityResult {
-        requireEnabled()
+        requireEnabled(NativeToolPolicy.group(tool))
         if (cancelled()) {
             throw CapabilityException("cancelled", "Invocation was cancelled.", false)
         }
@@ -488,8 +488,11 @@ class AndroidNativeProvider(
             .put("inputSchema", inputSchema)
             .put("outputSchema", outputSchema)
 
-    private fun localAvailability(observedAt: String): JSONObject =
-        if (store.isCapabilityEnabled(CapabilityGroup.DEVICE_STATUS)) {
+    private fun localAvailability(
+        observedAt: String,
+        group: CapabilityGroup = CapabilityGroup.DEVICE_STATUS
+    ): JSONObject =
+        if (store.isCapabilityEnabled(group)) {
             available(observedAt)
         } else {
             unavailable(
@@ -500,8 +503,8 @@ class AndroidNativeProvider(
         }
 
     private fun vibrationAvailability(observedAt: String): JSONObject {
-        if (!store.isCapabilityEnabled(CapabilityGroup.DEVICE_STATUS)) {
-            return localAvailability(observedAt)
+        if (!store.isCapabilityEnabled(CapabilityGroup.VIBRATION)) {
+            return localAvailability(observedAt, CapabilityGroup.VIBRATION)
         }
         val vibrator =
             if (Build.VERSION.SDK_INT >= 31) {
@@ -522,8 +525,8 @@ class AndroidNativeProvider(
     }
 
     private fun flashlightAvailability(observedAt: String): JSONObject {
-        if (!store.isCapabilityEnabled(CapabilityGroup.DEVICE_STATUS)) {
-            return localAvailability(observedAt)
+        if (!store.isCapabilityEnabled(CapabilityGroup.FLASHLIGHT)) {
+            return localAvailability(observedAt, CapabilityGroup.FLASHLIGHT)
         }
         if (!hasPermission(Manifest.permission.CAMERA)) {
             return unavailable(
@@ -552,8 +555,8 @@ class AndroidNativeProvider(
             .put("reason", reason)
             .put("observedAt", observedAt)
 
-    private fun requireEnabled() {
-        if (!store.isCapabilityEnabled(CapabilityGroup.DEVICE_STATUS)) {
+    private fun requireEnabled(group: CapabilityGroup) {
+        if (!store.isCapabilityEnabled(group)) {
             throw CapabilityException(
                 "denied",
                 "Device-native capabilities are disabled in ADC Mobile Node settings.",

@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "packageName": "cloud.agentdevice.node",
+  "versionName": "0.2.0",
+  "versionCode": 6,
+  "minSdk": 26,
+  "publishedAt": "2026-11-03T17:08:52.865Z",
+  "required": false,
+  "releaseNotes": {
+    "zh-CN": "Android Node 0.2.0（测试版）\n\n全新原生 Material 3 界面：设备、此手机、我的；支持系统深色、大字体、原生返回与连接信息抽屉。\n邮箱登录与浏览器 / GitHub 授权登录，账号会话通过 Android Keystore 加密保存。\n查看账号设备及在线状态，可按在线 / 离线筛选；修改设备名称、备注、文件夹范围、执行权限与并发限制，并撤销或删除设备。\n登录后直接接入此手机，同时保留自托管 HTTPS 地址与配对码接入。\n手机 Node 独立启停，区分停止、连接中、在线、重试与中断状态；停止后调整权限不会重新启动。\n设备状态、位置、通知、音量、振动、打开应用、手电筒、屏幕共享、界面读取与操作分别控制，按用途分组并显示当前可用状态。\n系统调整字体与主题时，保留当前页面、滚动位置和设备设置草稿。\n覆盖升级保留手机身份与执行回执；退出账号与停止 Node 分开处理。\n在「我的」检查更新，验证下载大小、SHA-256、包信息与签名后，由 Android 确认安装。\n\n测试版沿用已有开发签名证书。Android 后台限制、每次屏幕授权和前台位置限制继续生效。",
+    "en": "Android Node 0.2.0 (preview)\n\nA native Material 3 interface with Devices, This phone and Account navigation, system dark mode, larger fonts, native Back and a connection details sheet.\nEmail and browser / GitHub login with Android Keystore encrypted account sessions.\nAccount device management and online/offline filters; device name, description, folder access, execution and concurrency settings; revocation and deletion.\nConnect this phone directly after login. HTTPS service addresses and pairing codes remain available for self-hosting.\nIndependent Node start/stop with explicit stopped, connecting, online, retrying and interrupted states. Permission changes never restart a stopped Node.\nSeparate grouped controls for device status, location, notifications, volume, vibration, app launch, flashlight, screen sharing, interface reading and actions, with live availability.\nTheme and font changes preserve the current page, scroll position and device settings draft.\nIn-place upgrades preserve the phone identity and execution receipts. Account logout is separate from Node shutdown.\nUpdate checks verify download size, SHA-256, package metadata and signing certificate before Android confirms installation.\n\nThis preview retains the existing development certificate. Android background restrictions, per-session screen consent and foreground-only location still apply."
+  },
+  "apk": {
+    "url": "https://adc.zioon.tech/downloads/android/adc-mobile-node-0.2.0-6cebe80a58845dc6.apk",
+    "sha256": "6cebe80a58845dc6e2f41e6b3656a98f2e5a04d2f8d7caf18fbc5203c20e20a4",
+    "bytes": 5350901,
+    "signingCertificateSha256": "12addbdd332aed29ac79f85fddbfd5399ddeb8a8226d3d09fe21e2e094d2f10f"
+  }
+}

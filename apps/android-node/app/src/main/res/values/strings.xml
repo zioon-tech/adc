@@ -9,4 +9,7 @@
     <string name="default_device_name">%1$s %2$s</string>
     <string name="node_not_paired">Not paired</string>
     <string name="node_pairing">Pairing…</string>
+    <string name="node_stop">Stop</string>
+    <string name="node_connected">Connected · %1$s</string>
+    <string name="node_retrying">Disconnected · retrying</string>
 </resources>

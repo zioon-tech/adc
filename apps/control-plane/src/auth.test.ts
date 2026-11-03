@@ -173,7 +173,7 @@ describe("GitHub account authentication", () => {
     expect(config.body).not.toContain(credentials.clientSecret);
   });
 
-  it("authorizes a CLI login from an existing browser session", async () => {
+  it.each(["adc-cli", "adc-android"])("authorizes %s from an existing browser session", async (clientId) => {
     expect(
       (
         await call(authentication, "/device/code", {
@@ -185,13 +185,13 @@ describe("GitHub account authentication", () => {
     expect(
       (
         await call(authentication, "/device/code", {
-          client_id: "adc-cli",
+          client_id: clientId,
           scope: "adc:tools"
         })
       ).status
     ).toBe(400);
     const requested = await call(authentication, "/device/code", {
-      client_id: "adc-cli",
+      client_id: clientId,
       scope: "adc:manage"
     });
     expect(requested.status, await requested.clone().text()).toBe(200);
@@ -202,7 +202,8 @@ describe("GitHub account authentication", () => {
       verification_uri: `${origin}/cli-login`,
       verification_uri_complete: expect.stringContaining(`${origin}/cli-login?user_code=`)
     });
-    githubUser(105, "cli-browser@example.com");
+    const email = `${clientId}-browser@example.com`;
+    githubUser(clientId === "adc-cli" ? 105 : 106, email);
     const signedIn = await signIn(authentication, authorization.verification_uri_complete);
     expect(signedIn.response.headers.get("location")).toBe(authorization.verification_uri_complete);
     const browserCookie = cookies(signedIn.response);
@@ -231,7 +232,7 @@ describe("GitHub account authentication", () => {
     const exchanged = await call(authentication, "/device/token", {
       grant_type: "urn:ietf:params:oauth:grant-type:device_code",
       device_code: authorization.device_code,
-      client_id: "adc-cli"
+      client_id: clientId
     });
     expect(exchanged.status, await exchanged.clone().text()).toBe(200);
     const cliToken = (await exchanged.json()).access_token;
@@ -243,12 +244,12 @@ describe("GitHub account authentication", () => {
     expect(me.statusCode, me.body).toBe(200);
     expect(me.json()).toMatchObject({
       kind: "session",
-      user: { email: "cli-browser@example.com" }
+      user: { email }
     });
     const replay = await call(authentication, "/device/token", {
       grant_type: "urn:ietf:params:oauth:grant-type:device_code",
       device_code: authorization.device_code,
-      client_id: "adc-cli"
+      client_id: clientId
     });
     expect(replay.status).toBe(400);
   });
