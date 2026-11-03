@@ -51,15 +51,34 @@ The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`. Install
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## Pair and run
+## Account, pairing and Node lifecycle
 
-1. Sign in to the ADC Console and create a device pairing code.
-2. Open ADC Mobile Node, enter the HTTPS Control Plane origin, pairing code and phone name.
-3. Select **Pair and start**. The phone generates a P-256 key inside Android Keystore; the private
-   key is non-exportable.
-4. Enable only the local capability groups needed by the Agents you intend to authorize. Android
-   permission, screen-share and Accessibility consent remain separate system-level boundaries.
-5. In ADC Agent access, select this device and explicitly enable its device-native capabilities.
+The client uses native Material 3 navigation and controls, a compact phone controller, online/offline
+device filters and grouped permission rows. It follows the system light/dark appearance and font
+size. Connection identifiers are available in a bottom sheet; they do not crowd the phone controls.
+Configuration changes preserve the current page, scroll position and device settings draft.
+
+1. Open **Account** and sign in with email/password, or approve browser/GitHub login.
+   Passwords are not persisted. Account session tokens use an Android Keystore AES-GCM key in
+   a separate store from the phone's P-256 Node identity.
+2. **Devices** lists the account's devices, online state and settings. Renaming, folder scope,
+   read-only access, execution and concurrency changes use the server revision. Conflicts require
+   refreshing; they never silently overwrite another client's changes.
+3. In **This phone**, choose a name and **Connect to my account**. A service address and pairing
+   code remain available for self-hosted installations. Pairing does not start remote execution.
+4. Choose local permissions, then select **Start Node**. Status distinguishes unpaired, stopped,
+   connecting, online, retrying and interrupted. Changing permissions never starts a stopped Node.
+5. In ADC Agent access, explicitly authorize this phone and the tools each Agent may use.
+
+Only read-only device status is enabled by default for a fresh installation. Location, notifications,
+volume control, vibration, app launch, flashlight, screen sharing, visible-interface reading and
+interface actions each have a separate local switch. System permission and current availability are
+shown separately. Interface inspection does not imply permission to tap or type.
+
+Signing out revokes the account session but does not stop or delete the phone Node. Stop the Node
+from **This phone** or its persistent notification. Local unpairing removes the Node identity; remote
+revocation/deletion requires an account action. In-place APK upgrades preserve existing Node keys,
+configuration and durable receipts.
 
 The MVP uses a user-started foreground service and a persistent notification. While connected, it
 keeps an authenticated WebSocket wake channel aligned with desktop Nodes. Wake messages contain no
@@ -70,8 +89,8 @@ always-on Android daemon.
 
 ## Version and updates
 
-The App's **Version & updates** section shows the installed version, the latest version published by
-the paired Control Plane, localized release notes and the last check time. The App validates the
+**Account → Check for updates** compares the installed version with the paired Control Plane's
+release and presents localized notes. The App validates the
 download size, SHA-256, package metadata and signing certificate before opening Android's package
 installer. Installation always requires device-owner confirmation.
 
@@ -104,7 +123,8 @@ contents are redacted from snapshots.
 
 The Android native provider exposes app launch, device/build/storage/display/audio status, bounded
 volume and vibration controls, and flashlight status/control. These capabilities use Android public
-APIs and share the Device status local switch; flashlight access also requires camera permission.
+APIs. Mutating tools use their own local switches and repeat the permission check at execution;
+flashlight access also requires camera permission.
 
 ## Security boundary
 
@@ -119,7 +139,7 @@ APIs and share the Device status local switch; flashlight access also requires c
   advertised snapshot.
 - `notification.show` uses a durable local idempotency record. An interrupted uncertain action is
   reported as `unknown_outcome`, not repeated automatically. The latest 256 records are retained;
-  forgetting the pairing removes them and the Android Keystore identity.
+  local unpairing preserves receipts while removing the Android Keystore Node identity.
 
 The current build has been exercised on a physical Xiaomi 22041216C running Android 13 / MIUI 14,
 but this is not a claim of compatibility with every Android or Xiaomi model. Release qualification

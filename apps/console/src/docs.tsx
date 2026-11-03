@@ -626,10 +626,19 @@ adc invoke file.list --args '{"path":"/Users/me/work"}' --wait --json`}
       <Section id="android" title={copy("Using Android Node (in testing)", "使用 Android Node（测试阶段）")}>
         <p>
           {copy(
-            "In Devices → Pair device → Android, download the APK and enter the service URL and pairing code shown. The current APK uses development signing and requires manual installation and updates. Enable only the phone capabilities you want to share.",
-            "在「设备 → 配对设备 → Android」下载 APK，填入页面显示的服务地址和配对码。当前 APK 使用开发签名，安装和更新均需手动完成。只开启你想共享的手机能力。"
+            "Download the Android APK, sign in with email or approve browser / GitHub login, then open This phone to connect it to your account and start the Node. Devices lists your account's computers and phones and supports renaming, access settings and removing connections. A pairing code and HTTPS service address also work for self-hosting.",
+            "下载 Android APK，通过邮箱或浏览器 / GitHub 登录，在「此手机」接入账号并启动 Node。「设备」展示账号下的电脑与手机，支持重命名、访问策略和移除连接。自托管服务也可以使用 HTTPS 服务地址和配对码。"
           )}
         </p>
+        <p>
+          <a className="docs-text-link" href={`${docsOrigin()}/downloads/android/preview.apk`} download>
+            {copy("Download Android APK (in testing)", "下载 Android APK（测试阶段）")}
+          </a>
+        </p>
+        <p>{copy(
+          "Device status, location, notifications, volume, vibration, app launch, flashlight, screen sharing, interface reading and interface actions have separate local controls. Android permissions and account / agent policies still apply. Screen sharing needs fresh system consent; location is available only while the app is visible. Signing out leaves the phone Node connected; stop it in This phone. Updates are checked from Account and verified before Android asks you to install. This test channel retains its development signing certificate for in-place upgrades.",
+          "设备状态、位置、通知、音量、振动、打开应用、手电筒、屏幕共享、界面读取与界面操作分别由本地开关控制，系统权限和账号 / Agent 策略仍然生效。屏幕共享每次需要系统确认，位置仅限 App 前台。退出账号不会停止手机 Node，请在「此手机」停止；可在「我的」检查更新，校验通过后由系统确认安装。测试渠道沿用开发签名证书，以支持保留身份的覆盖升级。"
+        )}</p>
       </Section>
       <NextLinks
         links={[

@@ -218,10 +218,10 @@ export function createAuthentication(options: AuthenticationOptions) {
         expiresIn: "10m",
         interval: "2s",
         verificationUri: `${origin}/cli-login`,
-        validateClient: (clientId) => clientId === "adc-cli",
+        validateClient: (clientId) => clientId === "adc-cli" || clientId === "adc-android",
         onDeviceAuthRequest: (_clientId, scope) => {
           if (scope !== "adc:manage")
-            throw new APIError("BAD_REQUEST", { message: "Invalid CLI authorization scope." });
+            throw new APIError("BAD_REQUEST", { message: "Invalid device authorization scope." });
         },
         schema: { deviceCode: { modelName: "adc_auth_device_codes" } }
       }),

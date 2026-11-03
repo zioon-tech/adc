@@ -43,6 +43,14 @@ class NodeService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_START) store.setNodeDesired(true)
+        if (intent?.action == ACTION_STOP) store.setNodeDesired(false)
+        if (!store.isNodeDesired()) {
+            stopNode()
+            return START_NOT_STICKY
+        }
+        active = true
+        if (!running.get()) store.setRuntimeState("connecting")
         when (intent?.action) {
             ACTION_STOP -> {
                 stopNode()
@@ -83,6 +91,8 @@ class NodeService : Service() {
     }
 
     override fun onDestroy() {
+        active = false
+        store.setRuntimeState(if (store.isNodeDesired()) "interrupted" else "stopped")
         running.set(false)
         wakeChannel?.close()
         wakeChannel = null
@@ -110,7 +120,7 @@ class NodeService : Service() {
             val config = store.config()
             if (config == null) {
                 publishStatus(false, "Pair this phone before starting the Node.")
-                stopSelf()
+                stopNode()
                 return
             }
             val wake = ensureWakeChannel(config)
@@ -123,10 +133,11 @@ class NodeService : Service() {
                     registry.manifest(config.nodeId),
                     waitForWake = !wake.connected
                 )
+                if (!running.get() || !store.isNodeDesired()) return
                 val now = DateTimeFormatter.ISO_INSTANT.format(Instant.now())
                 store.setConnectionState(now, null)
                 publishStatus(true, null)
-                updateNotification("Connected · ${config.label}")
+                updateNotification(getString(R.string.node_connected, config.label))
                 backoffMs = 2_000L
                 val dispatch = response.optJSONObject("dispatch")
                 dispatch?.let { execute(config, it) }
@@ -138,6 +149,7 @@ class NodeService : Service() {
                     !waitForWake(POLL_INTERVAL_MS)
                 ) return
             } catch (error: Exception) {
+                if (!running.get() || !store.isNodeDesired()) return
                 val message =
                     when (error) {
                         is NodeApiException -> "${error.code}: ${error.message}"
@@ -145,8 +157,10 @@ class NodeService : Service() {
                     }
                 store.setConnectionState(null, message)
                 publishStatus(false, message)
-                updateNotification("Disconnected · retrying")
+                updateNotification(getString(R.string.node_retrying))
                 if (error is NodeApiException && error.statusCode in listOf(401, 403)) {
+                    store.setNodeDesired(false)
+                    store.setRuntimeState("stopped")
                     stopSelf()
                     return
                 }
@@ -250,6 +264,8 @@ class NodeService : Service() {
     }
 
     private fun stopNode() {
+        store.setNodeDesired(false)
+        store.setRuntimeState("stopped")
         running.set(false)
         wakeChannel?.close()
         wakeChannel = null
@@ -288,7 +304,7 @@ class NodeService : Service() {
             .setContentText(text)
             .setContentIntent(activity)
             .setOngoing(true)
-            .addAction(0, "Stop", stop)
+            .addAction(0, getString(R.string.node_stop), stop)
             .build()
     }
 
@@ -314,6 +330,9 @@ class NodeService : Service() {
     }
 
     private fun publishStatus(connected: Boolean, error: String?) {
+        store.setRuntimeState(
+            if (!store.isNodeDesired()) "stopped" else if (connected) "online" else "retrying"
+        )
         sendBroadcast(
             Intent(ACTION_STATUS)
                 .setPackage(packageName)
@@ -323,6 +342,8 @@ class NodeService : Service() {
     }
 
     companion object {
+        @Volatile private var active = false
+        fun isActive(): Boolean = active
         const val ACTION_STATUS = "cloud.agentdevice.node.STATUS"
         const val EXTRA_CONNECTED = "connected"
         const val EXTRA_ERROR = "error"
@@ -342,6 +363,10 @@ class NodeService : Service() {
         private const val LEASE_RENEW_INTERVAL_MS = 8_000L
 
         fun start(context: Context) {
+            NodeStore(context).apply {
+                setNodeDesired(true)
+                setRuntimeState("connecting")
+            }
             ContextCompat.startForegroundService(
                 context,
                 Intent(context, NodeService::class.java).setAction(ACTION_START)
@@ -349,12 +374,15 @@ class NodeService : Service() {
         }
 
         fun stop(context: Context) {
-            context.startService(
-                Intent(context, NodeService::class.java).setAction(ACTION_STOP)
-            )
+            NodeStore(context).apply {
+                setNodeDesired(false)
+                setRuntimeState("stopped")
+            }
+            context.stopService(Intent(context, NodeService::class.java))
         }
 
         fun startScreenCapture(context: Context, resultCode: Int, data: Intent) {
+            check(NodeStore(context).isNodeDesired()) { "Start the phone Node before sharing the screen." }
             ContextCompat.startForegroundService(
                 context,
                 Intent(context, NodeService::class.java)
@@ -365,6 +393,10 @@ class NodeService : Service() {
         }
 
         fun stopScreenCapture(context: Context) {
+            if (!active || !NodeStore(context).isNodeDesired()) {
+                ScreenCaptureSession.stop(context)
+                return
+            }
             context.startService(
                 Intent(context, NodeService::class.java)
                     .setAction(ACTION_SCREEN_CAPTURE_STOP)

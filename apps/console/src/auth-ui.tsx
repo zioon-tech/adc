@@ -124,7 +124,7 @@ export function CliLogin({ request }: { request: Request }) {
   const { t } = useI18n();
   const location = useLocation();
   const userCode = new URLSearchParams(location.search).get("user_code") ?? "";
-  const invalidRequestMessage = t("This CLI login request is invalid or expired.");
+  const invalidRequestMessage = t("This device login request is invalid or expired.");
   const [status, setStatus] = useState<
     "loading" | "pending" | "approved" | "denied" | "error" | "invalid" | "other-account"
   >("loading");
@@ -151,7 +151,7 @@ export function CliLogin({ request }: { request: Request }) {
         if (!active) return;
         // The provider includes client_id only for the account owning this
         // request. An approved code alone does not prove this account logged in.
-        if (result.client_id !== "adc-cli") {
+        if (!["adc-cli", "adc-android"].includes(result.client_id)) {
           setStatus("other-account");
         } else if (["pending", "approved", "denied"].includes(result.status)) {
           setStatus(result.status);
@@ -216,7 +216,7 @@ export function CliLogin({ request }: { request: Request }) {
   };
   return (
     <AuthLayout>
-      <h1>{t("Connect command line")}</h1>
+      <h1>{t("Connect your device")}</h1>
       {error ? (
         <p className="form-error" role="alert">
           {error}
@@ -229,18 +229,18 @@ export function CliLogin({ request }: { request: Request }) {
       ) : status === "approved" ? (
         <>
           <p className="notice" role="status">
-            {t("CLI login approved. Return to your terminal to finish.")}
+            {t("Login approved. Return to the app or terminal to finish.")}
           </p>
           <code>{userCode}</code>
         </>
       ) : status === "denied" ? (
         <p className="description" role="status">
-          {t("CLI login denied. You can close this tab.")}
+          {t("Device login denied. You can close this tab.")}
         </p>
       ) : status === "invalid" || status === "other-account" ? (
         <p className="description" role="status">
           {status === "other-account"
-            ? t("This CLI login request belongs to another account. Run adc login again in your own terminal.")
+            ? t("This login request belongs to another account. Start login again on your own device.")
             : invalidRequestMessage}
         </p>
       ) : status === "error" ? (
@@ -254,14 +254,14 @@ export function CliLogin({ request }: { request: Request }) {
       ) : (
         <>
           <p className="description">
-            {t("Confirm that this code matches the one shown in your terminal.")}
+            {t("Confirm that this code matches the one shown in your app or terminal.")}
           </p>
           <div className="token-value">
             <code>{userCode}</code>
           </div>
           <div className="row-actions">
             <button className="primary" disabled={busy || remaining > 0} onClick={() => void decide("approve")}>
-              {t("Connect CLI")}
+              {t("Approve login")}
             </button>
             <button className="secondary" disabled={busy || remaining > 0} onClick={() => void decide("deny")}>
               {t("Deny")}

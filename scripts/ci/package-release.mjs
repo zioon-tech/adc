@@ -10,8 +10,9 @@ const copy = (from, to = from) => cpSync(from, resolve(stage, to), {
   recursive: true, verbatimSymlinks: true,
 });
 if (component === "service") {
+  execFileSync("pnpm", ["exec", "tsx", "scripts/fetch-android-release.ts"], { stdio: "inherit" });
   execFileSync("bash", ["-e", "-o", "pipefail", "-c", 'git archive HEAD | tar -x -C "$1"', "_", stage]);
-  for (const path of ["node_modules", "apps/control-plane/node_modules", "dist/skills", "dist/plugins"]) copy(path);
+  for (const path of ["node_modules", "apps/control-plane/node_modules", "dist/skills", "dist/plugins", "dist/android"]) copy(path);
   for (const path of ["client", "db", "mcp-adapter", "policy", "protocol"]) copy(`packages/${path}/node_modules`);
 } else if (component === "console-and-site") copy("apps/console/dist", ".");
 else throw new Error(`Unsupported component: ${component}`);

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.AgentDeviceCloud" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">#8ED8B4</item>
+        <item name="colorSecondary">#8ED8B4</item>
+        <item name="colorOnPrimary">#143D2B</item>
+        <item name="colorPrimaryContainer">#2B4437</item>
+        <item name="colorOnPrimaryContainer">#E7EEE8</item>
+        <item name="colorSurface">#1C2520</item>
+        <item name="colorOnSurface">#E7EEE8</item>
+        <item name="colorOnSurfaceVariant">#A0AFA5</item>
+        <item name="colorOutline">#63766A</item>
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">#101714</item>
+        <item name="android:windowBackground">#101714</item>
+        <item name="android:navigationBarColor">#101714</item>
+    </style>
+</resources>

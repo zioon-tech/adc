@@ -98,7 +98,8 @@ describe("documentation navigation", () => {
     expect(quickstart).toContain("Windows");
     expect(quickstart).toContain("Android");
     expect(quickstart).toContain(locale === "en" ? "development signing" : "开发签名");
-    expect(quickstart).toContain(locale === "en" ? "manual installation" : "手动完成");
+    expect(quickstart).toContain('/downloads/android/preview.apk" download=""');
+    expect(quickstart).toContain(locale === "en" ? "browser / GitHub" : "浏览器 / GitHub");
 
     const security = renderDocs("/docs/security", locale);
     expect(security).toContain("Android Keystore");
