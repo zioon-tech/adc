@@ -32,7 +32,8 @@ describe("public site metadata", () => {
     expect(paths).toContain("/");
     expect(paths).toContain("/docs/security");
     expect(paths).toContain("/docs/api");
-    expect(paths).toContain("/docs/operations");
+    expect(paths).toContain("/docs/self-hosting");
+    expect(paths).toContain("/docs/cli");
     expect(paths).toContain("/docs/contributing");
     expect(paths).toContain("/updates");
     expect(paths).toContain("/guides/first-device-to-first-tool-call");
@@ -80,6 +81,10 @@ describe("public site metadata", () => {
     const landing = renderPublicPage("/", locale);
     expect(landing).toContain(locale === "en" ? "official hosted service" : "官方托管服务");
     expect(landing).toContain("Android Mobile Node");
+    expect(landing).toContain('href="/docs/quickstart"');
+    expect(landing).toContain("npx skills@latest add __ADC_PUBLIC_ORIGIN__");
+    expect(landing).toContain("--skill agent-device-cloud");
+    expect(landing).not.toContain("file.transfer");
     expect(publicRouteMetadata("/")?.description[locale]).toContain("Windows");
     expect(publicRouteMetadata("/")?.description[locale]).toContain("Android");
   });

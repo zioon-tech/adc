@@ -1,146 +1,186 @@
-import { useEffect, useState } from "react";
-import {
-  Activity,
-  ArrowDown,
-  ArrowRight,
-  Bot,
-  Check,
-  FileCode2,
-  Github,
-  KeyRound,
-  Laptop,
-  Network,
-  Server,
-  ShieldCheck,
-  Waypoints
-} from "lucide-react";
+import { useEffect, useState, type CSSProperties } from "react";
+import { ArrowRight, Check, ShieldCheck, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { trackAnalytics } from "./analytics.tsx";
-import { useI18n, type Message } from "./i18n.tsx";
-import { LatestUpdates } from "./public-site.tsx";
-import { PublicFooter, PublicHeader, repositoryUrl } from "./public-header.tsx";
+import { CodeBlock, docsOrigin, useDocCopy } from "./docs-code.tsx";
+import { pluginHosts } from "./harness-plugins.tsx";
+import { PublicFooter, PublicHeader } from "./public-header.tsx";
+import { PlatformTestingNotice } from "./platform-support.tsx";
 
-const useCases: Array<{
-  number: string;
-  title: Message;
-  description: Message;
-  tools: string;
-  target: Message;
-}> = [
+type SessionLine =
+  | { kind: "prompt" | "reply"; text: [string, string] }
+  | {
+      kind: "call";
+      tool: string;
+      target: string;
+      status: "ok" | "failed" | "approved";
+      detail: [string, string];
+    };
+
+const session: SessionLine[] = [
   {
-    number: "01",
-    title: "Continue local development",
-    description:
-      "Let an agent inspect a repository, apply focused edits and run existing tests without rebuilding the environment elsewhere.",
-    tools: "file.read · file.patch · test.run",
-    target: "Developer Mac"
+    kind: "prompt",
+    text: [
+      "Run the tests in ~/work/api and fix whatever fails.",
+      "跑一下 ~/work/api 的测试，失败的地方帮我修好。"
+    ]
   },
   {
-    number: "02",
-    title: "Connect existing MCP tools",
-    description:
-      "Register local stdio or Streamable HTTP MCP servers without moving Provider credentials to the control plane.",
-    tools: "GitHub MCP · database MCP",
-    target: "Mac, Linux or NAS"
+    kind: "call",
+    tool: "file.search",
+    target: "~/work/api",
+    status: "ok",
+    detail: ["12 matches", "12 处匹配"]
   },
   {
-    number: "03",
-    title: "Move work across interfaces",
-    description:
-      "Start from an MCP client, terminal, Skill or SDK and route the same governed work to the intended device.",
-    tools: "MCP · CLI · Skill · SDK",
-    target: "Selected device"
+    kind: "call",
+    tool: "test.run",
+    target: "~/work/api",
+    status: "failed",
+    detail: ["2 failed", "2 个失败"]
   },
   {
-    number: "04",
-    title: "Automate with boundaries",
-    description:
-      "Use explicit templates, writable folders and approval rules for repeatable work instead of sharing unrestricted access.",
-    tools: "grant · approval · receipt",
-    target: "Approved device"
+    kind: "call",
+    tool: "file.patch",
+    target: "src/auth.ts",
+    status: "approved",
+    detail: ["Approved by you", "你已批准"]
+  },
+  {
+    kind: "call",
+    tool: "test.run",
+    target: "~/work/api",
+    status: "ok",
+    detail: ["48 passed", "48 个通过"]
+  },
+  {
+    kind: "reply",
+    text: [
+      "Fixed the expiry check in src/auth.ts. All 48 tests pass.",
+      "已修复 src/auth.ts 中的过期判断，48 个测试全部通过。"
+    ]
   }
 ];
 
-const architecture: Array<{
-  number: string;
-  title: Message;
-  description: Message;
-  icon: typeof Bot;
-  modules: Message[];
-}> = [
+const examples: Array<{ prompt: [string, string]; tools: string; device: [string, string] }> = [
   {
-    number: "01",
-    title: "Agent interface",
-    description: "Use MCP, CLI, Skill or SDK to call authorized tools on the selected device.",
-    icon: Bot,
-    modules: ["MCP client", "CLI", "Official Skill", "SDK"]
+    prompt: [
+      "Run the tests in my repo and fix what fails.",
+      "跑一下仓库里的测试，把失败的修好。"
+    ],
+    tools: "file.search · test.run · file.patch",
+    device: ["Mac or Linux workstation", "Mac 或 Linux 工作机"]
   },
   {
-    number: "02",
-    title: "Control plane",
-    description: "Authenticates, authorizes, routes and records. It does not execute your tools.",
-    icon: Waypoints,
-    modules: ["Identity", "Authorization", "Placement", "Audit ledger"]
+    prompt: [
+      "Find yesterday's 500 errors in the logs on my home server.",
+      "在家里服务器的日志中找出昨天的 500 错误。"
+    ],
+    tools: "file.search · file.read",
+    device: ["Linux server or NAS", "Linux 服务器或 NAS"]
   },
   {
-    number: "03",
-    title: "Device connector",
-    description:
-      "Maintains an outbound wake connection, advertises built-in and local MCP tools, and renews active leases.",
-    icon: Network,
-    modules: ["WebSocket wake", "Built-in tools", "Local MCP Providers", "Lease and ACK"]
+    prompt: [
+      "List my open pull requests with the GitHub MCP on my laptop.",
+      "用笔记本上的 GitHub MCP 列出我未合并的 PR。"
+    ],
+    tools: "adc-node mcp add github",
+    device: ["Token stays on the device", "令牌只保存在设备上"]
   },
   {
-    number: "04",
-    title: "Local runtime",
-    description:
-      "Revalidates local policy, runs built-in tools or calls the selected MCP Provider, and persists a receipt.",
-    icon: Laptop,
-    modules: ["Path validation", "Local execution", "Receipt ledger"]
+    prompt: [
+      "Take a screenshot of my phone and open Settings.",
+      "截一张手机屏幕，然后打开设置。"
+    ],
+    tools: "screen.capture · app.open",
+    device: ["Android Node · in testing", "Android Node · 测试阶段"]
   }
 ];
 
-const policyLayers: Array<{ title: Message; detail: Message | "/Users/me/work" }> = [
-  { title: "Account boundary", detail: "Same account owner" },
-  { title: "Agent grant", detail: "Device and tool selected" },
-  { title: "Device policy", detail: "Writes and execution enabled" },
-  { title: "Exposed folder", detail: "/Users/me/work" },
-  { title: "Live capability", detail: "file.patch advertised" }
-];
-
-const dispatchStates: Message[] = ["Authorized", "Queued", "Claimed", "Running", "Succeeded"];
-
-const trustPrinciples: Array<{ title: Message; description: Message; icon: typeof ShieldCheck }> = [
+const safety: Array<{ title: [string, string]; text: [string, string] }> = [
   {
-    title: "Separate identities",
-    description:
-      "User sessions manage the account, Agent credentials use one grant, and every device owns a separate key.",
-    icon: KeyRound
+    title: ["You choose the folders", "目录由你选择"],
+    text: [
+      "Agents see only the folders and tools you grant, on the devices you pick.",
+      "Agent 只能使用你授权的设备、目录和工具。"
+    ]
   },
   {
-    title: "Intersect permissions",
-    description:
-      "Account, Agent, device, folder and capability rules must all allow the same operation.",
-    icon: ShieldCheck
+    title: ["No open ports", "无需开放端口"],
+    text: [
+      "The connector only dials out. No inbound port, VPN or SSH key on the device.",
+      "连接器只向外连接，设备上无需开放端口、配置 VPN 或 SSH 密钥。"
+    ]
   },
   {
-    title: "Keep local authority",
-    description:
-      "The device validates paths and permissions again. Cloud policy can narrow local access, never expand it.",
-    icon: Laptop
+    title: ["Approve before it acts", "执行前先审批"],
+    text: [
+      "Require your approval for file changes, commands or every operation.",
+      "可以要求修改文件、运行命令或每一次操作前都由你批准。"
+    ]
   },
   {
-    title: "Record side effects",
-    description:
-      "Idempotency, leases and durable receipts make retries and uncertain outcomes explicit.",
-    icon: Activity
+    title: ["Every action recorded", "每次操作都有记录"],
+    text: [
+      "Activity shows which agent asked, what ran where, and the device's receipt.",
+      "活动记录会写明哪个 Agent 发起、在哪台设备执行了什么，以及设备回执。"
+    ]
   }
 ];
+
+const faq: Array<[[string, string], [string, string]]> = [
+  [
+    ["Hosted or self-hosted?", "托管还是自部署？"],
+    [
+      "Use the official hosted service at adc.zioon.tech, or run the same open-source application on your own server with Docker Compose. Both share the same permissions, approvals and device software.",
+      "可以直接使用 adc.zioon.tech 官方托管服务，也可以用 Docker Compose 在自己的服务器上部署同一套开源应用。两者的权限、审批与设备端软件完全一致。"
+    ]
+  ],
+  [
+    ["Which devices are supported?", "支持哪些设备？"],
+    [
+      "macOS 13.5+ and glibc Linux (arm64/x64) provide available desktop connectors. Windows 10/11 x64 and the manually installed Android Mobile Node are in testing.",
+      "macOS 13.5+ 与 glibc Linux（arm64/x64）提供当前可用的桌面连接器。Windows 10/11 x64 和手动安装的 Android Mobile Node 仍在测试阶段。"
+    ]
+  ],
+  [
+    ["Does ADC copy my files to the cloud?", "ADC 会把我的文件同步到云端吗？"],
+    [
+      "No. It never crawls or mirrors your disk. Only the result of a call you authorized passes through the service, where it is recorded for audit.",
+      "不会。ADC 不会扫描或镜像你的磁盘，只有你授权的调用结果会经过服务端，并记录在审计中。"
+    ]
+  ],
+  [
+    ["How is this different from SSH or remote desktop?", "和 SSH、远程桌面有什么不同？"],
+    [
+      "Remote desktop is useful for visual assistance, and SSH is a mature way to run remote commands. ADC packages device discovery, tool calls, per-agent permissions, sharing and task records into one service for agents and applications. It can coexist with your existing remote access.",
+      "远程桌面适合看着界面协助操作，SSH 是成熟的远程命令执行方式。ADC 则把设备发现、工具调用、每个 Agent 的权限、共享与任务记录组织成面向 Agent 和应用的统一服务，可以与现有远程访问方式共存。"
+    ]
+  ],
+  [
+    ["What happens when my laptop sleeps?", "电脑休眠时会怎样？"],
+    [
+      "New calls report the device as offline. The connector reconnects on its own when the device wakes.",
+      "新的调用会提示设备离线。设备唤醒后，连接器会自动重新连接。"
+    ]
+  ]
+];
+
+function CallStatus({ status, detail }: { status: "ok" | "failed" | "approved"; detail: string }) {
+  const Icon = status === "ok" ? Check : status === "failed" ? X : ShieldCheck;
+  return (
+    <span className={`session-status is-${status}`}>
+      <Icon size={13} strokeWidth={2} aria-hidden="true" />
+      {detail}
+    </span>
+  );
+}
 
 export function Landing({ signedIn }: { signedIn: boolean }) {
-  const { t } = useI18n();
-  const [method, setMethod] = useState<"MCP" | "CLI" | "Skill">("MCP");
+  const copy = useDocCopy();
+  const [method, setMethod] = useState<"Plugin" | "Skill" | "MCP" | "CLI">("Plugin");
   const start = signedIn ? "/app" : "/login";
+  const origin = docsOrigin();
   useEffect(() => {
     const sections = document.querySelectorAll<HTMLElement>(".landing [data-reveal]");
     if (!("IntersectionObserver" in window)) {
@@ -160,15 +200,75 @@ export function Landing({ signedIn }: { signedIn: boolean }) {
     sections.forEach((section) => observer.observe(section));
     return () => observer.disconnect();
   }, []);
-  const origin = typeof window === "undefined" ? "__ADC_PUBLIC_ORIGIN__" : window.location.origin;
-  const snippets = {
-    MCP: `${origin}/mcp`,
-    CLI: `adc login --url ${origin}
-adc connect ACCESS
-adc node list --json
-adc invoke file.read --node node_example \\
-  --args '{"path":"/Users/me/work/README.md"}' --json`,
-    Skill: `npx skills@latest add ${origin} --skill agent-device-cloud`
+
+  const steps: Array<{ title: [string, string]; text: [string, string]; code: string }> = [
+    {
+      title: ["Install the connector", "安装连接器"],
+      text: [
+        "Run one command on macOS, Linux or Windows, or install the Android app. The console gives you the exact command.",
+        "在 macOS、Linux 或 Windows 上运行一条命令，或在 Android 上安装 App。控制台会生成完整命令。"
+      ],
+      code: `curl -fsSL ${origin}/install.sh | sh -s -- \\\n  --url ${origin} --code PAIRING_CODE`
+    },
+    {
+      title: ["Choose what to share", "选择开放范围"],
+      text: [
+        "Pick the folders and tools an agent may use, and which actions need your approval.",
+        "选择 Agent 可以使用的目录和工具，以及哪些操作需要你批准。"
+      ],
+      code: copy(
+        "~/work/api     Read & write\nApproval       Before changes or execution",
+        "~/work/api     读写\n审批           修改或执行前审批"
+      )
+    },
+    {
+      title: ["Connect your agent", "接入你的 Agent"],
+      text: [
+        "Install the plugin or Skill, or add the MCP URL. Then ask in plain language.",
+        "安装插件或 Skill，或添加 MCP 地址，然后直接用自然语言提出需求。"
+      ],
+      code: `npx skills@latest add ${origin} \\\n  --skill agent-device-cloud`
+    }
+  ];
+
+  const methods: Record<typeof method, { text: [string, string]; label: string; code: string }> = {
+    Plugin: {
+      text: [
+        "Download the plugin for your agent, then send this first message. It walks you through sign-in, device and access.",
+        "下载对应 Agent 的插件，然后发送下面这句话。插件会带你完成登录、设备连接和授权。"
+      ],
+      label: copy("First message", "第一句话"),
+      code: copy(
+        "Help me start using ADC, connect my device and configure access.",
+        "帮我开始使用 ADC，引导我连接设备并配置授权。"
+      )
+    },
+    Skill: {
+      text: [
+        "Works with any agent that supports Skills. Install it, then ask your agent to get started with ADC.",
+        "适用于任何支持 Skill 的 Agent。安装后，让 Agent 帮你开始使用 ADC。"
+      ],
+      label: copy("Terminal", "终端"),
+      code: `npx skills@latest add ${origin} --skill agent-device-cloud`
+    },
+    MCP: {
+      text: [
+        "Add this URL to any MCP client with OAuth. Sign in and pick which authorization the client uses.",
+        "把这个地址添加到支持 OAuth 的 MCP 客户端，登录后选择客户端使用哪份授权。"
+      ],
+      label: "MCP URL",
+      code: `${origin}/mcp`
+    },
+    CLI: {
+      text: [
+        "For terminals, scripts and CI. Sign in once, connect an authorization, then call tools.",
+        "适用于终端、脚本和 CI。登录一次、连接授权后即可调用工具。"
+      ],
+      label: copy("Terminal", "终端"),
+      code: `adc login --url ${origin}
+adc connect my-agent
+adc invoke file.list --args '{"path":"/Users/me/work"}' --wait --json`
+    }
   };
 
   return (
@@ -176,18 +276,19 @@ adc invoke file.read --node node_example \\
       <PublicHeader signedIn={signedIn} />
 
       <main>
-        <section className="hero product-hero">
-          <div className="hero-copy">
-            <p className="eyebrow">{t("Private device infrastructure for AI agents")}</p>
+        <section className="home-hero">
+          <div className="home-hero-copy">
             <h1>Agent Device Cloud</h1>
-            <p className="hero-statement">
-              {t(
-                "Give any AI agent controlled access to the files, tools and environments already on your devices."
+            <p className="home-hero-promise">
+              {copy(
+                "Connect your agent to the computers, servers and phones where the work happens.",
+                "让你的 Agent 连接真正干活的电脑、服务器和手机。"
               )}
             </p>
-            <p className="hero-description">
-              {t(
-                "Agents keep using MCP, CLI or SDK. ADC authorizes and routes each call; the selected Mac, Linux or Windows device runs the tool."
+            <p className="home-hero-detail">
+              {copy(
+                "Your agent plans the task. ADC connects it to the devices you authorize, routes tool calls and returns results. Use your agent from anywhere; run the work where your code, data and tools already are.",
+                "Agent 负责理解和规划，ADC 连接你授权的设备、路由工具调用并返回结果。Agent 可以在任何地方运行，任务留在代码、数据和工具所在的设备上执行。"
               )}
             </p>
             <div className="hero-actions">
@@ -196,517 +297,210 @@ adc invoke file.read --node node_example \\
                 to={start}
                 onClick={() => trackAnalytics("primary_cta_selected", { placement: "hero" })}
               >
-                {t(signedIn ? "Open console" : "Create an account")}
+                {signedIn ? copy("Open console", "打开控制台") : copy("Connect a device", "连接设备")}
                 <ArrowRight size={17} />
               </Link>
-              <a className="secondary" href={repositoryUrl} target="_blank" rel="noreferrer">
-                <Github size={17} />
-                {t("View on GitHub")}
-              </a>
-              <Link to="/docs/architecture" className="text-link">
-                {t("Read the architecture")}
+              <Link className="secondary" to="/docs/quickstart">
+                {copy("Read the quickstart", "查看快速上手")}
+              </Link>
+            </div>
+          </div>
+
+          <figure
+            className="home-session"
+            aria-label={copy("Example agent session", "Agent 会话示例")}
+          >
+            <header>
+              <span>Claude Code</span>
+              <span className="stage-signal">
+                <i />
+                Work Mac · {copy("online", "在线")}
+              </span>
+            </header>
+            <ol>
+              {session.map((line, index) =>
+                line.kind === "call" ? (
+                  <li key={index} className="session-call" style={{ "--line": index } as CSSProperties}>
+                    <code>{line.tool}</code>
+                    <span className="session-target">{line.target}</span>
+                    <CallStatus status={line.status} detail={copy(...line.detail)} />
+                  </li>
+                ) : (
+                  <li
+                    key={index}
+                    className={`session-${line.kind}`}
+                    style={{ "--line": index } as CSSProperties}
+                  >
+                    <span aria-hidden="true">{line.kind === "prompt" ? "›" : "✓"}</span>
+                    <p>{copy(...line.text)}</p>
+                  </li>
+                )
+              )}
+            </ol>
+            <figcaption>
+              {copy(
+                "Each call is checked against your rules, runs on Work Mac and is recorded in Activity.",
+                "每次调用都会按你的规则检查，在 Work Mac 上执行，并写入活动记录。"
+              )}
+            </figcaption>
+          </figure>
+        </section>
+
+        <section id="how-it-works" className="landing-section home-steps" data-reveal>
+          <p className="eyebrow">{copy("How it works", "如何使用")}</p>
+          <h2>{copy("Three steps to your first task.", "三步完成第一个任务。")}</h2>
+          <ol>
+            {steps.map((step, index) => (
+              <li key={step.title[0]}>
+                <span>{String(index + 1).padStart(2, "0")}</span>
+                <h3>{copy(...step.title)}</h3>
+                <p>{copy(...step.text)}</p>
+                <pre>
+                  <code>{step.code}</code>
+                </pre>
+              </li>
+            ))}
+          </ol>
+          <PlatformTestingNotice />
+        </section>
+
+        <section id="examples" className="landing-band" data-reveal>
+          <div className="landing-band-inner home-examples">
+            <div>
+              <p className="eyebrow">{copy("What agents can do", "Agent 能做什么")}</p>
+              <h2>
+                {copy(
+                  "Ask in plain language. The work runs where your files already are.",
+                  "直接用自然语言提出需求，任务在文件所在的设备上完成。"
+                )}
+              </h2>
+              <Link className="text-link" to="/docs/use-cases">
+                {copy("More examples", "更多示例")}
+                <ArrowRight size={16} />
+              </Link>
+              <Link className="text-link" to="/articles/cloud-agent-local-devices">
+                {copy("How a cloud agent reaches your devices", "云端 Agent 怎样操作你的设备")}
                 <ArrowRight size={16} />
               </Link>
             </div>
-          </div>
-
-          <div className="product-stage" aria-label={t("Live control plane")}>
-            <div className="stage-bar">
-              <span className="stage-signal">
-                <i />
-                {t("Live control plane")}
-              </span>
-              <code>inv_01 · mcp.github.search</code>
-            </div>
-
-            <div className="stage-canvas">
-              <article className="stage-endpoint stage-agent">
-                <header>
-                  <span className="stage-icon">
-                    <Bot size={20} />
-                  </span>
-                  <small>{t("Agent interface")}</small>
-                </header>
-                <strong>{t("Call a local MCP tool")}</strong>
-                <div className="stage-tags">
-                  <span>MCP</span>
-                  <span>CLI</span>
-                  <span>Skill</span>
-                  <span>SDK</span>
-                </div>
-                <code>actor_coding · grant_dev</code>
-              </article>
-
-              <div className="stage-route" aria-hidden="true">
-                <span />
-                <code>{t("Authorized tool call")}</code>
-              </div>
-
-              <section className="stage-control">
-                <header>
+            <ul>
+              {examples.map((example) => (
+                <li key={example.prompt[0]}>
+                  <strong>“{copy(...example.prompt)}”</strong>
                   <span>
-                    <Waypoints size={18} />
-                    {t("Control plane")}
+                    <code>{example.tools}</code>
+                    <small>{copy(...example.device)}</small>
                   </span>
-                  <small>{t("Policy and placement")}</small>
-                </header>
-                <div className="stage-gates">
-                  {[
-                    ["01", "Identity verified"],
-                    ["02", "Agent grant matched"],
-                    ["03", "Device policy allowed"],
-                    ["04", "Approval satisfied"]
-                  ].map(([number, label]) => (
-                    <div key={number}>
-                      <small>{number}</small>
-                      <Check size={13} />
-                      <span>{t(label as Message)}</span>
-                    </div>
-                  ))}
-                </div>
-                <footer>
-                  <span>{t("Audit ledger")}</span>
-                  <code>decision_allow · job_01</code>
-                </footer>
-              </section>
-
-              <div className="stage-route" aria-hidden="true">
-                <span />
-                <code>{t("Signed lease")}</code>
-              </div>
-
-              <article className="stage-endpoint stage-device">
-                <header>
-                  <span className="stage-icon">
-                    <Laptop size={20} />
-                  </span>
-                  <span className="stage-signal">
-                    <i />
-                    {t("Connected")}
-                  </span>
-                </header>
-                <small>{t("Selected device")}</small>
-                <strong>{t("Built-in tools + MCP Providers")}</strong>
-                <div className="stage-local-check">
-                  <Check size={13} />
-                  <span>{t("Provider credentials stay local")}</span>
-                </div>
-                <code>mcp.github.search · file.patch</code>
-              </article>
-            </div>
-
-            <div className="stage-state-track" aria-label={t("Invocation lifecycle")}>
-              {dispatchStates.map((state, index) => (
-                <div
-                  key={state}
-                  className={index === dispatchStates.length - 1 ? "is-current" : ""}
-                >
-                  <i />
-                  <span>{t(state)}</span>
-                </div>
+                </li>
               ))}
-            </div>
-
-            <div className="stage-receipt">
-              <Check size={14} />
-              <span>
-                <strong>{t("Completed on device")}</strong>
-                <small>{t("Receipt recorded")}</small>
-              </span>
-              <code>rcpt_01 · 1.8s</code>
-            </div>
+            </ul>
           </div>
         </section>
 
-        <section className="proof-strip" aria-label={t("Trust model")} data-reveal>
+        <section id="connect" className="landing-section integration-section" data-reveal>
           <div>
-            <strong>{t("Runs on your device")}</strong>
-            <span>{t("Only requested results travel back.")}</span>
-          </div>
-          <div>
-            <strong>{t("Outbound connection")}</strong>
-            <span>{t("No inbound port on the device.")}</span>
-          </div>
-          <div>
-            <strong>{t("Explicit access")}</strong>
-            <span>{t("Each Agent gets its own grant.")}</span>
-          </div>
-          <div>
-            <strong>{t("Auditable effects")}</strong>
-            <span>{t("Every side effect gets a receipt.")}</span>
-          </div>
-        </section>
-
-        <section className="landing-band problem-band" data-reveal>
-          <div className="landing-band-inner problem-layout">
-            <div>
-              <p className="eyebrow">{t("Why Agent Device Cloud")}</p>
-              <h2>{t("The context agents need is not in the cloud.")}</h2>
-            </div>
-            <div className="problem-copy">
-              <p>
-                {t(
-                  "Your code, tools, credentials and private services already live on machines you control."
-                )}
-              </p>
-              <p>
-                {t(
-                  "Cloud agents are useful, but copying an entire working environment into every agent is slow, fragile and difficult to govern."
-                )}
-              </p>
-              <p>
-                {t(
-                  "Agent Device Cloud connects the two without turning your device into an unaudited remote shell."
-                )}
-              </p>
-            </div>
-          </div>
-        </section>
-
-        <section id="use-cases" className="landing-section use-case-section" data-reveal>
-          <p className="eyebrow">{t("Built first for developers and self-hosters")}</p>
-          <h2>{t("Real work, on the machine that is ready for it.")}</h2>
-          <div className="use-case-list">
-            <div className="use-case-legend" aria-hidden="true">
-              <span>{t("Work")}</span>
-              <span>{t("Governed route")}</span>
-              <span>{t("Execution target")}</span>
-            </div>
-            {useCases.map((item) => (
-              <article key={item.number}>
-                <span>{item.number}</span>
-                <div>
-                  <h3>{t(item.title)}</h3>
-                  <p>{t(item.description)}</p>
-                </div>
-                <div className="use-case-route">
-                  <code>{item.tools}</code>
-                  <span aria-hidden="true">
-                    <i />
-                    <ArrowRight size={15} />
-                  </span>
-                </div>
-                <div className="use-case-target">
-                  <Laptop size={17} />
-                  <span>{t(item.target)}</span>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section id="architecture" className="landing-band architecture-band" data-reveal>
-          <div className="landing-band-inner">
-            <p className="eyebrow">{t("Architecture")}</p>
-            <h2>{t("One control plane. Execution remains local.")}</h2>
-            <p className="section-lead">
-              {t(
-                "Use familiar Agent interfaces. ADC applies authorization and routing centrally; the selected device validates and executes each tool locally."
+            <p className="eyebrow">{copy("Works with your agent", "适配你的 Agent")}</p>
+            <h2>{copy("Bring the agent you already use.", "继续用你熟悉的 Agent。")}</h2>
+            <p>
+              {copy(
+                "Plugins with guided setup are available for:",
+                "以下 Agent 提供带接入引导的插件："
               )}
             </p>
-            <div className="architecture-flow">
-              {architecture.map(({ number, title, description, icon: Icon, modules }, index) => (
-                <article key={number}>
-                  <header>
-                    <span>{number}</span>
-                    <Icon size={21} />
-                  </header>
-                  <div>
-                    <h3>{t(title)}</h3>
-                    <p>{t(description)}</p>
-                  </div>
-                  <div className="architecture-modules">
-                    {modules.map((module) => (
-                      <span key={module}>{t(module)}</span>
-                    ))}
-                  </div>
-                  {index < architecture.length - 1 ? (
-                    <div className="architecture-link-line">
-                      <ArrowDown size={15} />
-                      <code>
-                        {index === 0
-                          ? t("Authorized request")
-                          : index === 1
-                            ? t("Outbound dispatch")
-                            : t("Local execution")}
-                      </code>
-                    </div>
-                  ) : null}
-                </article>
-              ))}
-            </div>
-            <div className="dispatch-visual" aria-label={t("Dispatch state")}>
-              <header>
-                <span>{t("Dispatch state")}</span>
-                <code>at-least-once · durable receipt</code>
-              </header>
-              <div>
-                {dispatchStates.map((state, index) => (
-                  <span
-                    key={state}
-                    className={index === dispatchStates.length - 1 ? "is-terminal" : ""}
-                  >
-                    <i />
-                    {t(state)}
-                  </span>
+            <ul className="home-hosts">
+              {pluginHosts
+                .filter((host) => host.id !== "portable")
+                .map((host) => (
+                  <li key={host.id}>{host.name}</li>
                 ))}
-              </div>
-              <p>
-                {t(
-                  "Cancellation is checked during lease renewal. An unprovable side effect becomes unknown_outcome, never a silent retry."
-                )}
-              </p>
-            </div>
-            <div className="data-boundary">
-              <div>
-                <strong>{t("Control plane records")}</strong>
-                <p>
-                  {t(
-                    "Accounts, disclosed path metadata, grants, invocation state, requested results, artifacts and receipts."
-                  )}
-                </p>
-              </div>
-              <div>
-                <strong>{t("Device retains")}</strong>
-                <p>
-                  {t(
-                    "The private device key, unrequested files and the local environment. Only an authorized operation can return content."
-                  )}
-                </p>
-              </div>
-            </div>
-            <Link className="text-link architecture-link" to="/docs/architecture">
-              {t("Explore the system design")}
+            </ul>
+            <Link className="text-link" to="/docs/integrations">
+              {copy("Integration guide", "接入指南")}
               <ArrowRight size={16} />
             </Link>
           </div>
-        </section>
-
-        <section className="landing-section trust-section" data-reveal>
-          <p className="eyebrow">{t("Trust model")}</p>
-          <h2>{t("Permission is the smallest shared intersection.")}</h2>
-          <div className="permission-visual">
-            <div className="permission-stack">
-              {policyLayers.map((layer, index) => (
-                <div key={layer.title} className={`permission-layer layer-${index + 1}`}>
-                  <span>{t(layer.title)}</span>
-                  <strong>
-                    {layer.detail === "/Users/me/work" ? layer.detail : t(layer.detail)}
-                  </strong>
-                  <i aria-hidden="true" />
-                </div>
+          <div className="integration-demo">
+            <div
+              className="method-tabs"
+              role="tablist"
+              aria-label={copy("Connection method", "接入方式")}
+            >
+              {(["Plugin", "Skill", "MCP", "CLI"] as const).map((item) => (
+                <button
+                  key={item}
+                  id={`tab-${item}`}
+                  role="tab"
+                  aria-selected={item === method}
+                  aria-controls="method-panel"
+                  onClick={() => setMethod(item)}
+                >
+                  {item === "Plugin" ? copy("Plugin", "插件") : item}
+                </button>
               ))}
             </div>
-            <div className="permission-result">
-              <ShieldCheck size={25} />
-              <span>{t("Effective permission")}</span>
-              <strong>file.patch</strong>
-              <code>/Users/me/work/src/**</code>
-              <p>{t("Allowed only when every layer agrees.")}</p>
-            </div>
-          </div>
-          <div className="trust-grid">
-            {trustPrinciples.map(({ title, description, icon: Icon }) => (
-              <article key={title}>
-                <Icon size={22} strokeWidth={1.5} />
-                <h3>{t(title)}</h3>
-                <p>{t(description)}</p>
-              </article>
-            ))}
-          </div>
-          <div className="truth-note">
-            <ShieldCheck size={22} />
-            <div>
-              <strong>{t("Security boundary, stated plainly")}</strong>
-              <p>
-                {t(
-                  "Restricted process mode reduces common mistakes; it is not an OS sandbox. Full device trust uses the connector user's actual permissions."
-                )}
-              </p>
-            </div>
-            <Link to="/docs/security">{t("Read the security model")}</Link>
-          </div>
-        </section>
-
-        <section id="connect" className="landing-band integration-band" data-reveal>
-          <div className="landing-band-inner integration-section">
-            <div>
-              <p className="eyebrow">{t("Familiar interfaces, one policy")}</p>
-              <h2>{t("Bring your own Agent.")}</h2>
-              <p>
-                {t(
-                  "Use MCP, CLI, Skill or SDK. ADC applies the same authorization, device selection and audit trail behind each interface."
-                )}
-              </p>
-              <Link className="text-link" to="/docs/integrations">
-                {t("Integration guides")}
-                <ArrowRight size={16} />
-              </Link>
-            </div>
-            <div className="integration-demo">
-              <div className="method-tabs" role="tablist" aria-label={t("Connect")}>
-                {(["MCP", "CLI", "Skill"] as const).map((item) => (
-                  <button
-                    key={item}
-                    id={`tab-${item}`}
-                    role="tab"
-                    aria-selected={item === method}
-                    aria-controls="method-panel"
-                    onClick={() => setMethod(item)}
-                  >
-                    {item}
-                  </button>
-                ))}
-              </div>
-              <div role="tabpanel" id="method-panel" aria-labelledby={`tab-${method}`} tabIndex={0}>
-                <p>{t(`${method} description`)}</p>
-                <pre>
-                  <code>{snippets[method]}</code>
-                </pre>
-                {method === "Skill" ? (
-                  <a className="text-link" href="/downloads/skills/agent-device-cloud.zip" download>
-                    {t("Download official Skill ZIP")}
-                    <ArrowRight size={16} />
-                  </a>
-                ) : null}
-              </div>
+            <div role="tabpanel" id="method-panel" aria-labelledby={`tab-${method}`} tabIndex={0}>
+              <p>{copy(...methods[method].text)}</p>
+              <CodeBlock key={method} label={methods[method].label}>
+                {methods[method].code}
+              </CodeBlock>
             </div>
           </div>
         </section>
 
-        <LatestUpdates />
-
-        <section className="landing-section roadmap-section" data-reveal>
-          <p className="eyebrow">{t("Roadmap")}</p>
-          <h2>{t("A clear boundary between available and planned.")}</h2>
-          <div className="roadmap-columns">
-            <article className="is-current">
-              <i aria-hidden="true" />
-              <span>{t("Available now")}</span>
-              <h3>{t("A complete personal device loop")}</h3>
-              <p>
-                {t(
-                  "Accounts, macOS/Linux/Windows connectors, Android Mobile Node, local MCP Providers, scoped grants, approvals, audit, MCP OAuth, CLI, Skill and self-hosting."
-                )}
-              </p>
-            </article>
-            <article>
-              <i aria-hidden="true" />
-              <span>{t("Next")}</span>
-              <h3>{t("Reliability and operations")}</h3>
-              <p>
-                {t(
-                  "Signed releases, automatic updates, keychain storage, quotas, retention and external artifact storage."
-                )}
-              </p>
-            </article>
-            <article>
-              <i aria-hidden="true" />
-              <span>{t("Later")}</span>
-              <h3>{t("Teams and broader capabilities")}</h3>
-              <p>
-                {t(
-                  "Container isolation, team roles, SSO, SIEM export and additional local executors."
-                )}
-              </p>
-            </article>
-          </div>
-          <Link className="secondary" to="/docs/roadmap">
-            {t("See the roadmap")}
-            <ArrowRight size={16} />
-          </Link>
-        </section>
-
-        <section className="landing-band self-host-band" data-reveal>
-          <div className="landing-band-inner self-host-layout">
-            <Server size={31} strokeWidth={1.3} />
-            <div>
-              <p className="eyebrow">{t("Hosted or self-hosted")}</p>
-              <h2>{t("One product, the same trust model.")}</h2>
-              <p>
-                {t(
-                  "Use the official hosted service, or deploy the same application on your own infrastructure. Both use the same accounts, authorization, approvals, audit and device software."
-                )}
-              </p>
-            </div>
-            <div className="row-actions">
-              <Link
-                className="primary"
-                to={start}
-                onClick={() => trackAnalytics("primary_cta_selected", { placement: "self_host" })}
-              >
-                {t(signedIn ? "Open console" : "Create an account")}
-                <ArrowRight size={16} />
-              </Link>
-              <Link className="secondary" to="/docs/self-hosting">
-                {t("Self-hosting guide")}
-              </Link>
-            </div>
+        <section id="safety" className="landing-band" data-reveal>
+          <div className="landing-band-inner home-safety">
+            <p className="eyebrow">{copy("Safe by default", "默认安全")}</p>
+            <h2>{copy("Your device keeps the final say.", "最终决定权在你的设备上。")}</h2>
+            <ul>
+              {safety.map((item) => (
+                <li key={item.title[0]}>
+                  <strong>{copy(...item.title)}</strong>
+                  <p>{copy(...item.text)}</p>
+                </li>
+              ))}
+            </ul>
+            <p className="home-safety-note">
+              {copy(
+                "Full device access is not a sandbox — it runs with your OS user's permissions. Start with one folder.",
+                "完整设备访问不是沙箱，它以当前系统用户的权限运行。建议从一个目录开始。"
+              )}{" "}
+              <Link to="/docs/security">{copy("Security model", "安全模型")}</Link>
+            </p>
           </div>
         </section>
 
         <section className="landing-section faq-section" data-reveal>
           <p className="eyebrow">FAQ</p>
-          <h2>{t("Questions that should have clear answers.")}</h2>
+          <h2>{copy("Common questions", "常见问题")}</h2>
           <div>
-            <details>
-              <summary>{t("Does the control plane copy my device?")}</summary>
-              <p>
-                {t(
-                  "No. It does not crawl or mirror your filesystem. Authorized requests and their returned results pass through the control plane and are recorded for audit."
-                )}
-              </p>
-            </details>
-            <details>
-              <summary>{t("Is full device trust sandboxed?")}</summary>
-              <p>
-                {t(
-                  "No. It deliberately uses the connector user's OS permissions. Use selected folders and narrow tool grants when that level of trust is unnecessary."
-                )}
-              </p>
-            </details>
-            <details>
-              <summary>{t("What happens when my device sleeps?")}</summary>
-              <p>
-                {t(
-                  "New calls report the device as offline. The connector reconnects automatically after the device wakes."
-                )}
-              </p>
-            </details>
-            <details>
-              <summary>{t("Do I need to reinstall after changing folders?")}</summary>
-              <p>
-                {t(
-                  "No. Local folder and access changes reload automatically and immediately narrow affected running work."
-                )}
-              </p>
-            </details>
-            <details>
-              <summary>{t("Do MCP Provider credentials leave my device?")}</summary>
-              <p>
-                {t(
-                  "No. Provider environment variables and HTTP headers stay in the local Connector configuration. The control plane receives tool descriptions and requested results, not Provider credentials."
-                )}
-              </p>
-            </details>
+            {faq.map(([question, answer]) => (
+              <details key={question[0]}>
+                <summary>{copy(...question)}</summary>
+                <p>{copy(...answer)}</p>
+              </details>
+            ))}
           </div>
         </section>
 
         <section className="final-cta" data-reveal>
-          <FileCode2 size={30} strokeWidth={1.2} />
-          <h2>{t("Connect the tools and environment you already trust.")}</h2>
-          <p>{t("Start with one device, one folder and one Agent authorization.")}</p>
+          <h2>{copy("Start with one device and one folder.", "从一台设备、一个目录开始。")}</h2>
+          <p>
+            {copy(
+              "Use the official hosted service, or self-host the same app.",
+              "可以直接使用官方托管服务，也可以自行部署同一套应用。"
+            )}
+          </p>
           <div className="hero-actions">
             <Link
               className="primary"
               to={start}
               onClick={() => trackAnalytics("primary_cta_selected", { placement: "final" })}
             >
-              {t("Connect a device")}
+              {signedIn ? copy("Open console", "打开控制台") : copy("Connect a device", "连接设备")}
               <ArrowRight size={17} />
             </Link>
             <Link className="secondary" to="/docs">
-              {t("Read the docs")}
+              {copy("Read the docs", "阅读文档")}
             </Link>
           </div>
         </section>

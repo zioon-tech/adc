@@ -1,6 +1,50 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Check, Clipboard } from "lucide-react";
 import { useI18n } from "./i18n.tsx";
+
+export function useDocCopy() {
+  const { locale } = useI18n();
+  return (en: string, zh: string) => (locale === "zh-CN" ? zh : en);
+}
+
+export function docsOrigin(): string {
+  return typeof window === "undefined" ? "__ADC_PUBLIC_ORIGIN__" : window.location.origin;
+}
+
+export function PageIntro({
+  eyebrow,
+  title,
+  description
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+}) {
+  return (
+    <header className="docs-intro">
+      <p className="eyebrow">{eyebrow}</p>
+      <h1>{title}</h1>
+      <p>{description}</p>
+    </header>
+  );
+}
+
+export function Section({
+  id,
+  title,
+  children
+}: {
+  id: string;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section id={id} className="docs-section">
+      <h2>{title}</h2>
+      {children}
+    </section>
+  );
+}
 
 function CopyButton({ text }: { text: string }) {
   const { locale } = useI18n();

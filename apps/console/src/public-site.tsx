@@ -19,6 +19,18 @@ import {
   type PublicContentKind
 } from "./public-content.ts";
 import { PublicFooter, PublicHeader } from "./public-header.tsx";
+import { PlatformTestingNotice } from "./platform-support.tsx";
+
+const platformTestingArticles = new Set([
+  "/articles/cloud-agent-local-devices",
+  "/articles/agents-and-execution-devices",
+  "/articles/not-remote-ssh",
+  "/guides/first-device-to-first-tool-call",
+  "/use-cases/remote-local-development",
+  "/updates/connector-0-1-6",
+  "/updates/connector-0-1-3",
+  "/updates/connector-0-1-1"
+]);
 
 function kindLabel(kind: PublicContentKind, locale: Locale): string {
   if (locale === "en") return kind;
@@ -119,10 +131,24 @@ export function UpdatesPage({ signedIn }: { signedIn: boolean }) {
           <h1>{locale === "zh-CN" ? "动态与文章" : "Updates and articles"}</h1>
           <p>
             {locale === "zh-CN"
-              ? "产品发布、工程决策和真实使用方式。每篇内容都对应当前可验证的产品行为。"
-              : "Product releases, engineering decisions and concrete ways to use ADC. Every article maps to verifiable product behavior."}
+              ? "了解 ADC 为什么存在、怎样与 Agent 和设备配合，以及每次版本更新带来的实际变化。原理文章解释设计与取舍，指南提供操作步骤，版本记录说明已发布的功能。"
+              : "Understand why ADC exists, how agents and devices work together, and what each release changes. Engineering articles explain design choices, guides provide steps, and release notes describe shipped behavior."}
           </p>
         </header>
+        <nav className="content-reading-path" aria-label={locale === "zh-CN" ? "推荐阅读顺序" : "Suggested reading order"}>
+          <span>{locale === "zh-CN" ? "第一次了解 ADC？" : "New to ADC?"}</span>
+          <Link to="/articles/agents-and-execution-devices">
+            {locale === "zh-CN" ? "先理解分工" : "Understand the roles"}
+          </Link>
+          <ArrowRight size={13} aria-hidden="true" />
+          <Link to="/articles/cloud-agent-local-devices">
+            {locale === "zh-CN" ? "看看云端 Agent 怎样使用设备" : "Explore cloud agents and devices"}
+          </Link>
+          <ArrowRight size={13} aria-hidden="true" />
+          <Link to="/guides/first-device-to-first-tool-call">
+            {locale === "zh-CN" ? "完成第一次调用" : "Make your first call"}
+          </Link>
+        </nav>
         <div className="content-index-rule">
           <span>
             {filter === "All"
@@ -190,16 +216,23 @@ export function PublicArticle({
                 <CalendarDays size={14} />
                 <time dateTime={entry.publishedAt}>{contentDate(entry.publishedAt, locale)}</time>
               </span>
+              {entry.updatedAt !== entry.publishedAt ? (
+                <span>
+                  {locale === "zh-CN" ? "更新于" : "Updated"}
+                  <time dateTime={entry.updatedAt}>{contentDate(entry.updatedAt, locale)}</time>
+                </span>
+              ) : null}
               <span>
                 <Clock3 size={14} />
                 {locale === "zh-CN"
-                  ? `${entry.readingMinutes} 分钟阅读`
-                  : `${entry.readingMinutes} min read`}
+                  ? `约 ${entry.readingMinutes} 分钟阅读`
+                  : `About ${entry.readingMinutes} min read`}
               </span>
             </div>
           </header>
 
           <div className="article-body">
+            {platformTestingArticles.has(entry.path) ? <PlatformTestingNotice /> : null}
             {entry.sections.map((section) => (
               <section id={section.id} key={section.id}>
                 <h2>{localize(section.title, locale)}</h2>
@@ -217,6 +250,17 @@ export function PublicArticle({
                   <pre>
                     <code>{section.code}</code>
                   </pre>
+                ) : null}
+                {section.links?.length ? (
+                  <div className="article-reference-links">
+                    {section.links.map((link) =>
+                      link.href.startsWith("/") ? (
+                        <Link key={link.href} to={link.href}>{localize(link.label, locale)}<ArrowRight size={14} /></Link>
+                      ) : (
+                        <a key={link.href} href={link.href}>{localize(link.label, locale)}<ArrowRight size={14} /></a>
+                      )
+                    )}
+                  </div>
                 ) : null}
               </section>
             ))}

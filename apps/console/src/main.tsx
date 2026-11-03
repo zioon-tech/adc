@@ -53,6 +53,7 @@ import {
 import { Agents, OAuthConsent } from "./agents.tsx";
 import { Landing } from "./landing.tsx";
 import { Documentation } from "./docs.tsx";
+import { PlatformTestingNotice } from "./platform-support.tsx";
 import { DeviceSettings } from "./device-settings.tsx";
 import { ConnectorUpdate } from "./connector-update.tsx";
 import type { NodeReleaseUpdate } from "../../../packages/client/src/index.ts";
@@ -584,6 +585,9 @@ function Devices({ request, revision, refresh, onError, accounts, selectedTeam }
               </button>
             ))}
           </div>
+          {installPlatform === "windows" || installPlatform === "android" ? (
+            <PlatformTestingNotice />
+          ) : null}
           <p>
             {t(
               installPlatform === "windows"

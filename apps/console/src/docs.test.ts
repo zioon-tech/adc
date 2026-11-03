@@ -7,10 +7,13 @@ import { catalogs, LocaleProvider, zh, type Locale } from "./i18n.tsx";
 import {
   Documentation,
   documentedTools,
+  docsGroups,
   docsPageId,
   docsPages,
+  legacyDocsRedirects,
   windowsInstallExample
 } from "./docs.tsx";
+import { publicRouteMetadata } from "./site-metadata.ts";
 
 function renderDocs(path: string, locale: Locale): string {
   return renderToStaticMarkup(
@@ -34,20 +37,34 @@ describe("documentation navigation", () => {
     }
     expect(docsPageId("/docs/unknown")).toBeUndefined();
     expect(new Set(docsPages.map((page) => page.id)).size).toBe(docsPages.length);
+    expect(docsPages.slice(0, 2).map((page) => page.id)).toEqual(["overview", "quickstart"]);
     expect(docsPages.map((page) => page.id)).toEqual(
       expect.arrayContaining([
         "use-cases",
-        "architecture",
+        "concepts",
+        "cli",
         "api",
         "security",
-        "operations",
         "contributing",
         "roadmap"
       ])
     );
     expect(new Set(docsPages.map((page) => page.group))).toEqual(
-      new Set(["Start", "Understand", "Build", "Operate", "Project"])
+      new Set(docsGroups.map((group) => group.id))
     );
+  });
+
+  it("keeps merged page addresses working and out of the sitemap", () => {
+    for (const [slug, target] of Object.entries(legacyDocsRedirects)) {
+      expect(docsPageId(`/docs/${slug}`)).toBeUndefined();
+      expect(docsPageId(target.replace(/#.*/, ""))).toBeDefined();
+      expect(publicRouteMetadata(`/docs/${slug}`)).toBeUndefined();
+    }
+    for (const page of docsPages) {
+      const path = page.id === "overview" ? "/docs" : `/docs/${page.id}`;
+      expect(publicRouteMetadata(path)?.kind).toBe("documentation");
+      expect(publicRouteMetadata(path)?.title["zh-CN"]).not.toBe(publicRouteMetadata(path)?.title.en);
+    }
   });
 
   it("documents every protocol tool exactly once", () => {

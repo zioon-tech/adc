@@ -252,35 +252,19 @@ export const zh = {
   "Use cases": "使用场景",
   Architecture: "架构",
   Roadmap: "路线图",
-  "Private device infrastructure for AI agents": "面向 AI Agent 的私有设备基础设施",
-  "Give any AI agent controlled access to the files, tools and environments already on your devices.":
-    "让任何 AI Agent 在你的控制下，使用设备上已有的文件、工具和环境。",
   "Agents keep using MCP, CLI or SDK. ADC authorizes and routes each call; the selected Mac or Linux device runs the tool.":
     "Agent 继续使用 MCP、CLI 或 SDK；ADC 负责授权和路由，由选定的 Mac 或 Linux 设备执行工具。",
-  "Agents keep using MCP, CLI or SDK. ADC authorizes and routes each call; the selected Mac, Linux or Windows device runs the tool.":
-    "Agent 继续使用 MCP、CLI 或 SDK；ADC 负责授权和路由，由选定的 Mac、Linux 或 Windows 设备执行工具。",
   "Connect a device": "连接设备",
-  "Read the architecture": "了解架构",
-  "View on GitHub": "在 GitHub 查看",
   "GitHub repository": "GitHub 仓库",
-  "Live control plane": "实时控制面",
   "Agent request": "Agent 请求",
-  "Call a local MCP tool": "调用本地 MCP 工具",
-  "Authorized tool call": "已授权的工具调用",
   "Policy check": "策略检查",
   "Identity verified": "身份已验证",
-  "Agent grant matched": "Agent 授权已匹配",
-  "Device policy allowed": "设备策略已允许",
   "Approval satisfied": "审批条件已满足",
   "Folder allowed": "目录已授权",
   "Execution approved": "执行已许可",
-  "Policy and placement": "策略与任务路由",
   "Audit ledger": "审计账本",
   "Signed lease": "签名租约",
-  "Built-in tools + MCP Providers": "内置工具 + MCP Provider",
   Connected: "已连接",
-  "Provider credentials stay local": "Provider 凭据留在本地",
-  "Completed on device": "已在设备上完成",
   "Receipt recorded": "回执已记录",
   "Invocation lifecycle": "调用生命周期",
   Authorized: "已授权",
@@ -288,236 +272,72 @@ export const zh = {
   Claimed: "已领取",
   Running: "执行中",
   Succeeded: "已成功",
-  "Runs on your device": "在你的设备上执行",
-  "Only requested results travel back.": "仅返回请求产生的结果。",
   "Outbound connection": "仅出站连接",
-  "No inbound port on the device.": "设备无需开放入站端口。",
   "Explicit access": "显式授权",
-  "Each Agent gets its own grant.": "每个 Agent 使用独立授权。",
   "Auditable effects": "副作用可审计",
-  "Every side effect gets a receipt.": "每次副作用操作都有回执。",
-  "Why Agent Device Cloud": "为什么需要 Agent Device Cloud",
-  "The context agents need is not in the cloud.": "Agent 所需的真实上下文，并不都在云端。",
-  "Your code, tools, credentials and private services already live on machines you control.":
-    "代码、工具、凭据和私有服务，本来就存在于你掌控的设备上。",
-  "Cloud agents are useful, but copying an entire working environment into every agent is slow, fragile and difficult to govern.":
-    "云端 Agent 很有价值，但把完整工作环境复制给每个 Agent，既缓慢脆弱，也难以治理。",
-  "Agent Device Cloud connects the two without turning your device into an unaudited remote shell.":
-    "Agent Device Cloud 在两者之间建立受控连接，而不是把设备变成无法审计的远程 Shell。",
-  "Built first for developers and self-hosters": "首先为开发者与自部署用户打造",
-  "Real work, on the machine that is ready for it.": "让真实工作发生在已经准备好的设备上。",
-  "Continue local development": "延续本地开发",
-  "Let an agent inspect a repository, apply focused edits and run existing tests without rebuilding the environment elsewhere.":
-    "让 Agent 检查代码仓库、完成精准修改并运行现有测试，无需在别处重建开发环境。",
-  "Connect existing MCP tools": "接入已有 MCP 工具",
-  "Register local stdio or Streamable HTTP MCP servers without moving Provider credentials to the control plane.":
-    "注册本地 stdio 或 Streamable HTTP MCP 服务，无需将 Provider 凭据上传至控制面。",
-  "Move work across interfaces": "跨入口延续工作",
-  "Start from an MCP client, terminal, Skill or SDK and route the same governed work to the intended device.":
-    "从 MCP 客户端、终端、Skill 或 SDK 发起任务，并将同一套受控工作路由到目标设备。",
-  "Automate with boundaries": "在边界内自动化",
-  "Use explicit templates, writable folders and approval rules for repeatable work instead of sharing unrestricted access.":
-    "通过明确的命令模板、可写目录和审批规则完成重复工作，而不是共享无限制权限。",
   "Developer Mac": "开发者 Mac",
-  "Mac, Linux or NAS": "Mac、Linux 或 NAS",
   "Selected device": "指定设备",
   "Approved device": "获批设备",
   Work: "工作任务",
   "Governed route": "受治理链路",
   "Execution target": "执行目标",
-  "One control plane. Execution remains local.": "一个控制面，执行始终留在本地。",
-  "Use familiar Agent interfaces. ADC applies authorization and routing centrally; the selected device validates and executes each tool locally.":
-    "继续使用熟悉的 Agent 接口；ADC 在控制面完成授权与路由，由选定设备在本地校验并执行工具。",
   "Agent interface": "Agent 接入层",
-  "Use MCP, CLI, Skill or SDK to call authorized tools on the selected device.":
-    "通过 MCP、CLI、Skill 或 SDK 调用选定设备上的授权工具。",
   "MCP client": "MCP 客户端",
   CLI: "CLI",
   SDK: "SDK",
   "Control plane": "控制面",
-  "Authenticates, authorizes, routes and records. It does not execute your tools.":
-    "负责身份、授权、路由和记录，但不执行你的本地工具。",
   Identity: "身份认证",
   Authorization: "权限决策",
   Placement: "设备选择",
   "WebSocket wake": "WebSocket 唤醒",
   "Built-in tools": "内置工具",
   "Signed requests": "签名请求",
-  "Lease and ACK": "租约与确认",
   "Path validation": "路径校验",
   "Tool execution": "工具执行",
   "Receipt ledger": "回执账本",
   "Outbound dispatch": "出站任务派发",
   "Local execution": "本地执行",
   "Dispatch state": "派发状态",
-  "Maintains an outbound wake connection, advertises built-in and local MCP tools, and renews active leases.":
-    "维持出站唤醒连接，上报内置工具与本地 MCP 工具，并续期执行中的任务租约。",
   "Local runtime": "本地运行时",
-  "Revalidates local policy, runs built-in tools or calls the selected MCP Provider, and persists a receipt.":
-    "再次校验本地策略，执行内置工具或调用选定的 MCP Provider，并持久化回执。",
   "Authorized request": "已授权请求",
-  "Control plane records": "控制面记录",
-  "Accounts, disclosed path metadata, grants, invocation state, requested results, artifacts and receipts.":
-    "账户、已公开的路径元数据、授权、调用状态、请求返回结果、产物和回执。",
   "Device retains": "设备本地保留",
-  "The private device key, unrequested files and the local environment. Only an authorized operation can return content.":
-    "设备私钥、未被请求的文件和本地环境；只有获得授权的操作才能返回内容。",
-  "Explore the system design": "深入了解系统设计",
   "Trust is designed into every transition.": "信任建立在每一次状态流转中。",
-  "Permission is the smallest shared intersection.": "最终权限，是所有边界共同允许的最小交集。",
   "Account boundary": "账户边界",
-  "Same account owner": "同一账户所有者",
   "Agent grant": "Agent 授权",
-  "Device and tool selected": "已选择设备与工具",
   "Device policy": "设备策略",
-  "Writes and execution enabled": "允许写入与执行",
   "Exposed folder": "本地开放目录",
   "Live capability": "实时设备能力",
   "file.patch advertised": "设备已声明 file.patch",
   "Effective permission": "最终生效权限",
-  "Allowed only when every layer agrees.": "只有每一层都同意，请求才会执行。",
-  "Cancellation is checked during lease renewal. An unprovable side effect becomes unknown_outcome, never a silent retry.":
-    "任务会在租约续期时重新检查取消状态；无法证明结果的副作用会进入 unknown_outcome，绝不会静默重试。",
   "Separate identities": "身份相互隔离",
-  "User sessions manage the account, Agent credentials use one grant, and every device owns a separate key.":
-    "用户会话管理账户，Agent 凭据绑定单一授权，每台设备拥有独立密钥。",
   "Intersect permissions": "权限逐层求交",
-  "Account, Agent, device, folder and capability rules must all allow the same operation.":
-    "账户、Agent、设备、目录和能力规则必须同时允许同一操作。",
-  "Keep local authority": "设备保留最终决定权",
-  "The device validates paths and permissions again. Cloud policy can narrow local access, never expand it.":
-    "设备会再次验证路径和权限；云端策略只能收紧本地权限，不能扩大它。",
-  "Record side effects": "记录每次副作用",
-  "Idempotency, leases and durable receipts make retries and uncertain outcomes explicit.":
-    "通过幂等、租约和持久回执，明确表达重试与不确定结果。",
-  "Security boundary, stated plainly": "坦诚说明安全边界",
-  "Restricted process mode reduces common mistakes; it is not an OS sandbox. Full device trust uses the connector user's actual permissions.":
-    "受限进程模式用于减少常见误操作，并不是操作系统沙箱；完全信任模式会使用连接器用户的实际系统权限。",
-  "Read the security model": "阅读安全模型",
-  "Familiar interfaces, one policy": "熟悉的接口，统一的策略",
-  "Bring your own Agent.": "使用你选择的 Agent。",
-  "Use MCP, CLI, Skill or SDK. ADC applies the same authorization, device selection and audit trail behind each interface.":
-    "使用 MCP、CLI、Skill 或 SDK；ADC 在每种接口背后应用相同的授权、设备选择和审计链路。",
   "Integration guides": "集成指南",
-  "A clear boundary between available and planned.": "清楚区分已经可用与仍在规划的能力。",
   "Available now": "当前可用",
-  "A complete personal device loop": "完整的个人设备闭环",
   "Accounts, macOS/Linux connectors, local MCP Providers, scoped grants, approvals, audit, MCP OAuth, CLI, Skill and self-hosting.":
     "账户、macOS/Linux 连接器、本地 MCP Provider、范围授权、审批、审计、MCP OAuth、CLI、Skill 与自部署。",
-  "Accounts, macOS/Linux/Windows connectors, Android Mobile Node, local MCP Providers, scoped grants, approvals, audit, MCP OAuth, CLI, Skill and self-hosting.":
-    "账户、macOS/Linux/Windows 连接器、Android Mobile Node、本地 MCP Provider、范围授权、审批、审计、MCP OAuth、CLI、Skill 与自部署。",
-  "Reliability and operations": "可靠性与运维",
-  "Signed releases, automatic updates, keychain storage, quotas, retention and external artifact storage.":
-    "签名发布、自动升级、安全密钥存储、配额、保留策略和外部产物存储。",
   Later: "长期",
-  "Teams and broader capabilities": "团队与更广泛的设备能力",
-  "Container isolation, team roles, SSO, SIEM export and additional local executors.":
-    "容器隔离、团队角色、SSO、SIEM 导出与更多本地执行器。",
-  "See the roadmap": "查看路线图",
-  "Hosted or self-hosted": "托管或自部署",
-  "One product, the same trust model.": "同一个产品，同一套信任模型。",
   "Self-hosting is not a reduced edition. It uses the same accounts, authorization, approvals, audit and device software.":
     "自部署不是功能缩水版，它使用相同的账户、授权、审批、审计和设备软件。",
-  "Use the official hosted service, or deploy the same application on your own infrastructure. Both use the same accounts, authorization, approvals, audit and device software.":
-    "使用官方托管服务，也可以在自己的基础设施上部署同一应用；两者使用相同的账户、授权、审批、审计和设备软件。",
   "Deploy it yourself": "自行部署",
   "Self-hosting guide": "自部署指南",
-  "Questions that should have clear answers.": "重要问题，应该有明确答案。",
-  "Does the control plane copy my device?": "控制面会复制我的设备数据吗？",
-  "No. It does not crawl or mirror your filesystem. Authorized requests and their returned results pass through the control plane and are recorded for audit.":
-    "不会。它不会扫描或镜像你的文件系统；获得授权的请求及其返回结果会经过控制面，并为审计而记录。",
-  "Is full device trust sandboxed?": "完全信任模式有沙箱吗？",
-  "No. It deliberately uses the connector user's OS permissions. Use selected folders and narrow tool grants when that level of trust is unnecessary.":
-    "没有。它会明确使用连接器用户的系统权限；不需要这种信任级别时，请使用指定目录并缩小工具授权。",
-  "What happens when my device sleeps?": "设备休眠后会发生什么？",
-  "New calls report the device as offline. The connector reconnects automatically after the device wakes.":
-    "新调用会报告设备离线；设备唤醒后，连接器会自动重新连接。",
-  "Do I need to reinstall after changing folders?": "修改目录后需要重新安装吗？",
-  "No. Local folder and access changes reload automatically and immediately narrow affected running work.":
-    "不需要。本地目录和访问模式会自动重新加载，并立即收紧受影响的运行任务。",
-  "Do MCP Provider credentials leave my device?": "MCP Provider 凭据会离开我的设备吗？",
-  "No. Provider environment variables and HTTP headers stay in the local Connector configuration. The control plane receives tool descriptions and requested results, not Provider credentials.":
-    "不会。Provider 环境变量和 HTTP Header 保存在本地 Connector 配置中；控制面只接收工具描述和请求返回结果，不接收 Provider 凭据。",
-  "Connect the tools and environment you already trust.": "连接你已经信任的工具与工作环境。",
-  "Start with one device, one folder and one Agent authorization.":
-    "从一台设备、一个目录和一份 Agent 授权开始。",
   "Read the docs": "阅读文档",
   Start: "开始",
   Understand: "理解",
   Build: "接入与构建",
   Operate: "部署与运维",
   Project: "项目",
-  "Choose the narrowest workflow that gives an Agent the context it needs. Expand access only when the work requires it.":
-    "从满足任务所需的最小工作流开始，只在确有需要时扩大访问范围。",
   "Typical access": "典型能力",
   "Expected outcome": "预期结果",
-  "The existing repository, dependencies and toolchain stay on the selected machine.":
-    "现有代码仓库、依赖和工具链都保留在所选设备上。",
-  "The Agent receives only requested results rather than a copy of the whole environment.":
-    "Agent 只获得请求产生的结果，而不是整个环境的副本。",
-  "Every interface uses the same authorization, error semantics and audit trail.":
-    "所有入口使用相同的授权、错误语义和审计链路。",
-  "Sensitive actions remain reviewable and retries have explicit idempotency semantics.":
-    "敏感操作始终可供审查，重试具有明确的幂等语义。",
-  "Agent Device Cloud is not a public compute marketplace, a general RPA product or a hosted shell.":
-    "Agent Device Cloud 不是公共算力市场、通用 RPA 产品或云端 Shell。",
   "Request lifecycle": "请求生命周期",
-  "Current request path": "当前请求链路",
-  "Control plane boundary": "控制面边界",
   "Device boundary": "设备边界",
-  "The client creates a typed invocation from its current Agent authorization.":
-    "客户端根据当前 Agent 授权创建类型明确的调用。",
-  "The control plane resolves the device and evaluates every policy layer.":
-    "控制面选择目标设备并逐层评估策略。",
-  "Approval-sensitive work waits without occupying a device lease.":
-    "需要审批的任务在等待期间不会占用设备租约。",
-  "The device claims, acknowledges and renews a bounded execution lease.":
-    "设备领取任务、确认接收，并续订有明确期限的执行租约。",
-  "The local runtime validates the resource again before executing.":
-    "本地运行时在执行前再次验证目标资源。",
-  "The terminal result, receipt and optional artifact return to the control plane.":
-    "最终结果、回执和可选产物会返回控制面。",
   "Effective authorization": "最终生效权限",
-  "An operation proceeds only when every independent boundary permits it; no layer can expand a narrower one.":
-    "只有每个独立边界都明确允许时，操作才会继续；任何一层都不能扩大更窄的权限。",
   "Delivery semantics": "投递语义",
-  "Dispatch is at-least-once. Side effects require an actor-scoped idempotency key and are recorded in a local durable ledger before execution.":
-    "任务采用至少一次投递；副作用操作必须提供调用方范围的幂等键，并在执行前写入本地持久账本。",
-  "If execution may have happened but no terminal receipt can be proven, the result is unknown_outcome and is never silently retried.":
-    "如果操作可能已执行但无法证明存在最终回执，结果会明确标记为 unknown_outcome，且不会静默重试。",
-  "No terminal receipt can be proven": "无法证明存在最终回执",
   "Data boundaries": "数据边界",
-  "Roadmap items describe direction, not shipped capability. Current behavior is always documented separately from future work.":
-    "路线图描述的是方向，而不是已经交付的能力；当前行为始终与未来规划分开说明。",
-  "Personal accounts, email and GitHub sign-in": "个人账户、邮箱与 GitHub 登录",
-  "macOS and glibc Linux connectors for arm64 and x64":
-    "支持 arm64 与 x64 的 macOS 和 glibc Linux 连接器",
-  "Scoped Agent grants, approvals, audit and durable receipts":
-    "范围明确的 Agent 授权、审批、审计与持久回执",
   "MCP OAuth, Agent tokens, CLI, SDK and official Skill":
     "MCP OAuth、Agent Token、CLI、SDK 与官方 Skill",
-  "MCP OAuth, CLI connections, SDK and official Skill": "MCP OAuth、CLI 连接、SDK 与官方 Skill",
   "The same application for hosted and self-hosted deployment": "托管与自部署使用同一个完整应用",
-  "Official hosted service and the same application for self-hosted deployment":
-    "官方托管服务与自部署使用同一个完整应用",
-  "Windows x64 connector and manually installed Android Mobile Node":
-    "Windows x64 连接器与手动安装的 Android Mobile Node",
-  "Signed release packages and unattended updates": "签名发布包与无人值守升级",
-  "Keychain and keyring-backed device identity": "由 Keychain 或 keyring 保护的设备身份",
-  "External artifact storage, quotas and retention": "外部产物存储、配额与保留策略",
-  "Operational doctor, backup and restore automation": "运维诊断与备份恢复自动化",
-  "Interoperability validation with named MCP clients": "与主流 MCP 客户端完成互操作认证",
-  "Linux container isolation for higher-risk execution": "面向高风险执行的 Linux 容器隔离",
-  "Team roles, shared device pools and approval workflows": "团队角色、共享设备池与审批工作流",
   "Enterprise SSO, SCIM and SIEM export": "企业 SSO、SCIM 与 SIEM 导出",
-  "Additional local executors and device integrations": "更多本地执行器与设备集成",
-  "Tool plugin and community Skill ecosystem": "工具插件与社区 Skill 生态",
   "What will not change": "长期不变的原则",
-  "Device-side policy remains the final authority.": "设备侧策略始终拥有最终决定权。",
-  "Hosted and self-hosted deployments keep the same core product.":
-    "托管与自部署始终共享同一个核心产品。",
-  "Protocol, policy and receipts remain independent from any single Agent.":
-    "协议、策略和回执始终独立于任何单一 Agent。",
   "What the control plane can see": "控制面可以看到什么",
   "The control plane stores exposed path names, invocation arguments, returned results, artifacts and audit metadata.":
     "控制面会保存已开放的路径名称、调用参数、返回结果、产物和审计元数据。",
@@ -582,17 +402,11 @@ export const zh = {
   Docs: "文档",
   Documentation: "文档中心",
   "Search docs": "搜索文档",
-  "No matching documentation": "没有匹配的文档",
-  "Guides and reference for connecting agents to your devices.":
-    "连接 Agent 与设备所需的指南和参考资料。",
-  "Understand where the product fits, how its trust model works and how to connect your first governed device workflow.":
-    "了解产品适用场景、信任模型，以及如何连接第一个受治理的设备工作流。",
   "Get started": "快速开始",
   "Core concepts": "核心概念",
   "Device connector": "设备连接器",
   Integrations: "集成",
   "Tool reference": "工具参考",
-  "API and errors": "API 与错误",
   "Operations guide": "运维指南",
   Contributing: "参与贡献",
   "{count} tools": "{count} 个工具",
@@ -600,91 +414,35 @@ export const zh = {
   Security: "安全",
   "Self-hosting": "自托管",
   Troubleshooting: "故障排查",
-  "Diagnose device presence, local scope, approvals and uncertain execution without weakening access.":
-    "在不放宽权限的前提下，诊断设备在线状态、本地范围、审批和不确定执行结果。",
   Changelog: "更新日志",
   "On this page": "本页目录",
   Previous: "上一页",
   Next: "下一页",
   "Page not found": "页面不存在",
-  "Return to documentation": "返回文档中心",
-  "Connect your first device": "连接你的第一台设备",
-  "Go from account creation to a first tool call without weakening the device's local boundary.":
-    "从创建账户到完成第一次工具调用，同时保持设备本地权限边界。",
   "Before you begin": "开始之前",
   "Source development requires Node.js 22 or newer. Installed connectors include their own Node.js runtime.":
     "源码开发需要 Node.js 22 或更高版本；安装版连接器已自带 Node.js 运行时。",
-  "Create an account and connect a macOS, glibc Linux or Windows device, or install ADC Mobile Node on Android. Desktop connectors include their own Node.js runtime; Node.js 22 is only required for source development.":
-    "创建账户后，可连接 macOS、glibc Linux 或 Windows 设备，也可在 Android 上安装 ADC Mobile Node。桌面连接器已自带 Node.js 运行时；只有源码开发需要 Node.js 22。",
   "Create an account": "创建账户",
   "Open the console and sign in with email or GitHub.": "打开控制台，通过邮箱或 GitHub 登录。",
-  "Open the console and use one of the sign-in methods enabled by this deployment.":
-    "打开控制台，并使用当前部署已启用的登录方式。",
   "Open Devices, create a pairing code, and run the generated command on macOS or glibc Linux.":
     "打开「设备」，生成配对码，然后在 macOS 或 glibc Linux 上运行生成的命令。",
   "Open Devices, select the target platform, create a pairing code, and run the generated command.":
     "打开「设备」，选择目标平台、生成配对码，然后运行生成的命令。",
-  "Open Devices, select the target platform and create a pairing code. Run the generated command on a computer, or install the APK and enter the code in ADC Mobile Node on Android.":
-    "打开「设备」，选择目标平台并生成配对码。在电脑上运行生成的命令；Android 则安装 APK，并在 ADC Mobile Node 中输入配对码。",
-  "Choose devices, folders, tools and an approval policy. Projects are optional.":
-    "选择设备、目录、工具和审批策略；项目不是必选项。",
-  "Connect a client": "连接客户端",
   "Use OAuth MCP when available, or create an expiring Agent token for CLI and SDK access.":
     "优先使用 OAuth MCP，也可以创建有有效期的 Agent Token，供 CLI 和 SDK 使用。",
-  "Use OAuth MCP when available, or run adc connect after signing in to the CLI.":
-    "优先使用 OAuth MCP；使用 CLI 时，登录后运行 adc connect 即可。",
-  "Run adc login once and confirm the code in your browser. GitHub and email accounts use the same flow.":
-    "运行一次 adc login，并在浏览器确认验证码；GitHub 与邮箱账号使用同一流程。",
   "Verify access": "验证访问",
-  "Start with device.list or file.list, then inspect Activity for the policy decision and receipt.":
-    "先调用 device.list 或 file.list，再到「活动记录」检查策略决策和回执。",
-  "How authorization works": "授权如何生效",
-  "Every operation is limited by the intersection of local device scope, device policy, Agent authorization and approval policy.":
-    "每次操作都受设备本地范围、设备策略、Agent 授权和审批策略的共同限制。",
-  "Local device scope": "设备本地范围",
-  "The device owner exposes no folders, selected folders, the home directory or the full filesystem.":
-    "设备所有者可选择不开放目录、开放指定目录、用户主目录或完整文件系统。",
-  "Cloud device policy": "云端设备策略",
-  "Account owners can narrow folders, make them read-only and disable execution for every Agent.":
-    "账户所有者可进一步缩小目录范围、设为只读，或对所有 Agent 禁用执行。",
   "An Agent grant selects devices, folders and tools. Existing tokens always use the latest saved grant.":
     "Agent 授权选择设备、目录和工具；现有 Token 始终使用最新保存的授权。",
-  "Agent access selects devices, folders and tools. Existing connections always use the latest saved settings.":
-    "Agent 访问权限选择设备、目录和工具；现有连接始终使用最新保存的设置。",
-  "Approvals are independent from capability. They can apply to writes, execution or every device operation.":
-    "审批与能力授权相互独立，可作用于写入、执行或每一次设备操作。",
-  "Projects are optional groups for legacy or multi-device workflows; they are not a security boundary.":
-    "项目用于组织旧流程或多设备工作流，不构成独立安全边界。",
   "Install and pair": "安装与配对",
-  "Authentication, invocation and stable failures": "认证、调用与稳定错误语义",
-  "Health, metrics, backup and upgrades": "健康检查、指标、备份与升级",
-  "Build and review changes": "开发、验证与审查变更",
-  "The installer verifies a platform archive, preserves existing identity during upgrades and starts a user service.":
-    "安装器会校验平台安装包，在升级时保留现有身份，并启动用户级后台服务。",
   "Access modes": "访问模式",
-  "No access exposes no folders.": "不开放访问时不会暴露任何目录。",
-  "Selected folders exposes only explicitly added paths.": "指定目录模式只开放明确添加的路径。",
-  "Home directory exposes the connector user's home.": "用户主目录模式开放连接器用户的主目录。",
   "Full device trust exposes the filesystem using the connector user's OS permissions.":
     "完全信任模式使用连接器用户的系统权限开放文件系统。",
-  "Full device trust exposes the filesystem using the connector user's OS permissions. On Windows it covers the user's system drive.":
-    "完全信任模式使用连接器用户的系统权限开放文件系统；在 Windows 上覆盖用户所在的系统盘。",
   "Lifecycle commands": "生命周期命令",
-  "Changes to access and folders reload automatically. Removing access cancels affected running work.":
-    "访问模式和目录变更会自动加载；移除权限会取消受影响的运行任务。",
-  "Connect an MCP client": "连接 MCP 客户端",
-  "OAuth MCP clients use the server's /mcp endpoint and let the user choose an existing Agent authorization.":
-    "OAuth MCP 客户端连接服务端的 /mcp 端点，并由用户选择已有的 Agent 授权。",
-  "Each logical tool appears once. Its target list contains only authorized devices that advertise that tool, and device execution requires the Agent to select one of those targets.":
-    "每个逻辑工具只出现一次；目标列表只包含已授权且声明该工具的设备，执行设备工具时 Agent 必须从中明确选择一台。",
   "Token-based MCP": "Token 模式 MCP",
   "Access-key MCP": "访问密钥模式 MCP",
   "Official Skill": "官方 Skill",
-  "Download official Skill ZIP": "下载官方 Skill ZIP",
   "Install the complete official Skill directory with your Agent host. It discovers live tools and devices, follows approvals and task results, and never reads device credentials.":
     "请通过 Agent 宿主安装完整的官方 Skill 目录。它会发现实时工具与设备、跟踪审批和任务结果，并且不会读取设备凭据。",
-  "Tools use the same schemas and policy path across HTTP, CLI, MCP, SDK and Skill.":
-    "HTTP、CLI、MCP、SDK 和 Skill 共用相同的工具 Schema 与策略链路。",
   "Read tools": "读取工具",
   "Write tools": "写入工具",
   "Execution tools": "执行工具",
@@ -692,15 +450,6 @@ export const zh = {
   "MCP Provider tools": "MCP Provider 工具",
   "{provider} · {count} devices · High risk": "{provider} · {count} 台设备 · 高风险",
   "Unavailable on selected devices": "所选设备当前不可用",
-  "Local MCP Providers": "本地 MCP Provider",
-  "The Connector can discover tools from local stdio or Streamable HTTP MCP servers. Provider credentials remain in the local device configuration; registering a Provider does not grant Agent access.":
-    "Connector 可以发现本机 stdio 或 Streamable HTTP MCP 服务提供的工具。Provider 凭据只保存在设备本地配置中；注册 Provider 不会自动授予 Agent 访问权限。",
-  "Use the same Provider ID on multiple devices to aggregate an identical tool. Schema changes create a new tool ID, and every dynamic tool requires explicit authorization, a target device and an idempotency key.":
-    "在多台设备上使用相同 Provider ID，可将契约一致的工具聚合为一个工具。Schema 变化会生成新的工具 ID；每个动态工具都需要显式授权、目标设备和幂等键。",
-  "Devices may also register namespaced MCP Provider tools. Their original input schema is exposed to the Agent, they default to execution risk, and they appear only after explicit authorization.":
-    "设备也可注册带命名空间的 MCP Provider 工具。原始输入 Schema 会暴露给 Agent；这些工具默认视为执行风险，并且只有显式授权后才会出现。",
-  "Side-effecting calls require a stable idempotency key. Reuse it only for an exact retry.":
-    "有副作用的调用必须提供稳定的幂等键，且只能在完全相同的重试中复用。",
   Purpose: "用途",
   Risk: "风险",
   "Discover devices and inspect their current capability.": "发现设备并查看其实时能力。",
@@ -727,41 +476,29 @@ export const zh = {
   "Restricted process mode is a guardrail, not a sandbox. Full device trust disables command and protected-path filters.":
     "受限进程模式只是防护栏，并非沙箱。完全信任模式会关闭命令和受保护路径过滤。",
   "Credential storage": "凭据存储",
-  "Deploy with Docker Compose": "使用 Docker Compose 部署",
-  "Production requires HTTPS, PostgreSQL, a stable auth secret and working SMTP when email verification is enabled.":
-    "生产环境需要 HTTPS、PostgreSQL、稳定的认证密钥；启用邮箱验证时还需要可用的 SMTP。",
   "Required configuration": "必要配置",
   "HTTPS origin": "HTTPS 站点地址",
-  "Stable secret, 32+ characters": "至少 32 个字符的稳定密钥",
   "PostgreSQL password": "PostgreSQL 密码",
-  "Required when email verification is enabled": "启用邮箱验证时必须配置",
   Operations: "运维",
   "Back up PostgreSQL and the auth secret together. Check /health and authenticated /metrics after upgrades.":
     "应同时备份 PostgreSQL 和认证密钥；升级后检查 /health 与需登录访问的 /metrics。",
   "Device is offline": "设备离线",
   "Check adc-node status and adc-node logs, then restart the user service.":
     "检查 adc-node status 和 adc-node logs，然后重启用户级服务。",
-  "No folders are visible": "看不到目录",
   "Run adc-node roots list and add a folder or select home/full access locally.":
     "运行 adc-node roots list，并在本地添加目录或切换为 home/full 访问。",
-  "Approval is waiting": "审批仍在等待",
   "Open Approvals before the request expires. A changed or revoked grant cannot be approved.":
     "请在请求过期前打开「审批」处理；已变更或撤销的授权不能继续批准。",
   "Unknown outcome": "结果未知",
   "Do not retry with a new idempotency key until audit and local effects have been reconciled.":
     "在核对审计记录和本地副作用前，不要使用新的幂等键重试。",
-  "Tool is denied": "工具调用被拒绝",
   "Check the Agent tool list, device policy, writable folder and local access mode.":
     "检查 Agent 工具列表、设备策略、目录写权限和本地访问模式。",
   "Update available": "有可用更新",
   "Latest version: {version}": "最新版本：{version}",
   "Version 0.1.3": "版本 0.1.3",
   "Version 0.1.0": "版本 0.1.0",
-  "Account isolation, device pairing, direct grants, approvals, receipts, MCP OAuth, CLI, Skill and installable connectors.":
-    "提供账户隔离、设备配对、直接授权、审批、回执、MCP OAuth、CLI、Skill 和可安装连接器。",
   "Known limits": "已知限制",
-  "Hard process isolation, signed desktop packages, unattended updates, quotas and external artifact storage are not available yet. Desktop updates use adc update; the hosted Android APK uses development signing and manual installation.":
-    "暂未提供进程硬隔离、桌面签名安装包、无人值守升级、配额和外部产物存储。桌面端通过 adc update 更新；托管站点的 Android APK 使用开发签名并需手动安装。",
   "Release notes describe behavior changes and required operator actions before upgrading.":
     "升级前请阅读发布说明，确认行为变化和必要的运维操作。",
   "How it works": "如何使用",
@@ -789,11 +526,6 @@ export const zh = {
     "为 Agent 选择设备、操作能力和审批策略，通过 MCP、CLI 或 Skill 接入。项目按需使用。",
   "Fits the way you build.": "融入你的工作方式。",
   "One authorization across MCP, CLI and Skills.": "MCP、CLI 和 Skill，共用一份授权。",
-  "MCP description":
-    "将此地址添加到支持 OAuth 的 MCP 客户端。登录后选择授权；也可以使用 Agent Token 连接。",
-  "CLI description": "在终端登录后直接调用。单设备授权自动选择设备，多设备时指定目标。",
-  "Skill description":
-    "一条命令安装后，让 Agent 帮你开始使用 ADC。Skill 会引导登录、设备接入和授权，后续通过自然语言调用已授权的工具。",
   "Ready when you are.": "随时，开始连接。",
   "Give your agent a place to do real work.": "让 Agent 在你的设备上，完成真实的工作。",
   "Private devices. Shared possibilities.": "私有设备，无限可能。",
@@ -1137,13 +869,7 @@ export type Locale = "zh-CN" | "en";
 export const catalogs: Record<Locale, Record<Message, string>> = {
   "zh-CN": zh,
   en: {
-    ...(Object.fromEntries(Object.keys(zh).map((key) => [key, key])) as Record<Message, string>),
-    "MCP description":
-      "Add this URL to an MCP client with OAuth support. Sign in and choose an authorization, or connect with an Agent token.",
-    "CLI description":
-      "Sign in from your terminal and call tools directly. A single authorized device is selected automatically; specify a target for multiple devices.",
-    "Skill description":
-      "Install with one command, then ask your agent to get started with ADC. The Skill guides sign-in, device setup and access, then handles authorized tools through natural-language requests."
+    ...(Object.fromEntries(Object.keys(zh).map((key) => [key, key])) as Record<Message, string>)
   }
 };
 function initialLocale(): Locale {
