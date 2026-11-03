@@ -134,7 +134,8 @@ const contentText = publicContent
           `## ${section.title.en}`,
           ...section.paragraphs.map((paragraph) => paragraph.en),
           ...(section.bullets?.map((bullet) => `- ${bullet.en}`) ?? []),
-          ...(section.code ? [`\`\`\`\n${section.code}\n\`\`\``] : [])
+          ...(section.code ? [`\`\`\`\n${section.code}\n\`\`\``] : []),
+          ...(section.links?.map((link) => `[${link.label.en}](${link.href})`) ?? [])
         ].join("\n\n")
       )
       .join("\n\n");
@@ -166,7 +167,7 @@ await writeFile(
           publishedAt: entry.publishedAt,
           updatedAt: entry.updatedAt
         })),
-      llmsFull: `# ${SITE_NAME}\n\nSecure device access for AI agents.\n\n${contentText}`
+      llmsFull: `# ${SITE_NAME}\n\nDevice connectivity and tool routing for agents. The agent plans; ADC routes authorized calls; the selected device executes.\n\n${contentText}`
     },
     null,
     2

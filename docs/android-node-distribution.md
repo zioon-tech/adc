@@ -1,5 +1,9 @@
 # Android Mobile Node distribution
 
+> Android Node is currently in testing. Supported behavior depends on the phone model, OS and
+> permissions. The manually installed hosted APK is a test build; availability does not certify all
+> phones or operations. The release-channel design below does not change that maturity status.
+
 ADC Mobile Node 0.1.2 adds a **Version & updates** section to the App. It shows the installed and
 published versions, publication time, localized release notes and the last check time. A paired App
 checks at most once every 24 hours while it is open; **Check now** remains available for an explicit

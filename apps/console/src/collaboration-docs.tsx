@@ -1,47 +1,156 @@
 import { Link } from "react-router-dom";
-import { useI18n } from "./i18n.tsx";
-import { CodeBlock } from "./docs-code.tsx";
+import { CodeBlock, PageIntro, Section, useDocCopy } from "./docs-code.tsx";
 
 export function CollaborationDocs() {
-  const { locale } = useI18n();
-  const zh = locale === "zh-CN";
-  return <article className="docs-article">
-    <h1>{zh ? "团队与设备共享" : "Teams and device sharing"}</h1>
-    <p>{zh ? "团队策略决定成员可以使用哪些设备；外部共享将一台设备的指定目录和工具授权给指定账号。Connector 仍只向外连接，执行留在设备上。" : "Team policies govern members' devices. External sharing gives a named account selected folders and tools on one device. Connectors remain outbound; execution stays on the device."}</p>
-    <h2>{zh ? "开始协作" : "Start collaborating"}</h2>
-    <ol>
-      <li>{zh ? "在团队页创建团队，按邮箱邀请成员，并将邀请链接发给接收人。邀请不会自动发送邮件。" : "Create a team, invite a member by email and send the invitation link. Email is not sent automatically."}</li>
-      <li>{zh ? "成员用已验证的账号登录，核对并接受邀请。仅打开链接不会接受。" : "The recipient signs in with a verified account, reviews and accepts. Opening the link does not accept."}</li>
-      <li>{zh ? "在设备页选择共享，加入自己管理的团队，或指定外部用户。选择精确目录、工具和审批要求。" : "Share a device with a team you administer or an external user. Select exact folders, tools and approvals."}</li>
-      <li>{zh ? "切换到团队，编辑每个成员的设备策略。普通成员默认没有设备访问。" : "Switch to the team and assign each member's device policy. Ordinary members start without device access."}</li>
-      <li>{zh ? "每个人为自己的 Agent 创建授权，再从 CLI、MCP、SDK 或 Zioon 连接。接受共享不会扩大已有 Agent 权限。" : "Each person authorizes their own Agent and connects from CLI, MCP, SDK or Zioon. Accepting sharing does not expand an existing Agent grant."}</li>
-    </ol>
-    <p><Link to="/app/teams">{zh ? "团队与成员" : "Teams and members"}</Link> · <Link to="/app/sharing">{zh ? "共享与邀请" : "Sharing and invitations"}</Link></p>
-    <h2>{zh ? "选择执行方式" : "Choose execution mode"}</h2>
-    <table><thead><tr><th>{zh ? "模式" : "Mode"}</th><th>{zh ? "行为与撤销" : "Behavior and revocation"}</th></tr></thead><tbody>
-      <tr><td>{zh ? "只读" : "Read only"}</td><td>{zh ? "仅结构化目录与文件读取；撤销会停止后续调用。" : "Structured file and folder reads only. Revocation stops subsequent calls."}</td></tr>
-      <tr><td>{zh ? "隔离执行" : "Isolated execution"}</td><td>{zh ? "每次调用使用临时非 root Linux 容器，无网络和宿主机环境。源目录为只读副本，修改不回写；保留限额内的命令日志产物。撤销或租约到期会回收整个容器。" : "Each call uses a temporary non-root Linux container with no network or host environment. Source is copied read-only; writes are discarded and bounded command-log artifacts retained. Revocation or lease expiry tears down the whole container."}</td></tr>
-      <tr><td>{zh ? "宿主机信任访问" : "Trusted host"}</td><td>{zh ? "须在设备本地启用并明确确认信任。撤销 ADC 无法清除此人已建立的其他渠道或宿主机修改。" : "Requires local enablement and explicit trust acknowledgement. ADC revocation cannot undo host changes or other access already established."}</td></tr>
-    </tbody></table>
-    <p>{zh ? "团队可以选择设备已开放的 / 或盘符根目录，成员策略和 Agent 授权仍独立限制访问。根目录共享需要 Connector 0.1.6 或更高版本；隔离执行请使用较小目录。外部用户共享仍使用具体目录。" : "Teams can select an exposed / or drive root while member policies and Agent grants continue to limit access. Root sharing requires Connector 0.1.6+. Isolated execution uses smaller folders; external user sharing uses selected folders."}</p>
-    <CodeBlock label="Device setup">{`adc-node roots add /path/to/project --label Collaboration
+  const copy = useDocCopy();
+  const modes: Array<[[string, string], [string, string]]> = [
+    [
+      ["Read only", "只读"],
+      [
+        "Structured folder and file reads only. Revoking stops further calls.",
+        "仅结构化读取目录与文件。撤销后后续调用立即停止。"
+      ]
+    ],
+    [
+      ["Isolated execution", "隔离执行"],
+      [
+        "Each call runs in a temporary non-root Linux container with no network or host environment. Source is copied read-only and writes are discarded. Needs Linux Docker with seccomp and a digest-pinned image; it never falls back to the host.",
+        "每次调用在临时的非 root Linux 容器中运行，无网络、无宿主机环境。源目录以只读副本挂载，写入会被丢弃。需要支持 seccomp 的 Linux Docker 与固定摘要镜像，校验失败不会回退到宿主机。"
+      ]
+    ],
+    [
+      ["Trusted host", "宿主机信任"],
+      [
+        "Runs directly on the device. Must be enabled locally and confirmed per person. Revoking cannot undo changes already made.",
+        "直接在设备上执行。需在设备本地开启，并对每个人单独确认信任。撤销无法还原已经产生的修改。"
+      ]
+    ]
+  ];
+  return (
+    <>
+      <PageIntro
+        eyebrow={copy("Teams and sharing", "团队与共享")}
+        title={copy("Share a device with other people", "与他人共享设备")}
+        description={copy(
+          "Share a device with a team or one named account. You choose the exact folders, tools and approvals. The device keeps its owner, and each person still authorizes their own agent.",
+          "可以把设备共享给团队或某个指定账号，并精确选择目录、工具与审批规则。设备归属不变，每个人仍需为自己的 Agent 单独授权。"
+        )}
+      />
+      <Section id="start" title={copy("Share in four steps", "四步完成共享")}>
+        <ol className="docs-numbered">
+          <li>
+            {copy(
+              "Create a team under Teams and invite members by email. Send them the invitation link yourself; no email is sent automatically.",
+              "在「团队」中创建团队，按邮箱邀请成员。邀请链接需要你自己发给对方，系统不会自动发送邮件。"
+            )}
+          </li>
+          <li>
+            {copy(
+              "The member signs in with a verified account and accepts. Opening the link alone changes nothing.",
+              "成员使用已验证的账号登录并接受邀请。仅打开链接不会产生任何变化。"
+            )}
+          </li>
+          <li>
+            {copy(
+              "On Devices, choose Share for a device, pick the team or an external user, and select folders, tools and approvals.",
+              "在「设备」页选择「共享」，指定团队或外部用户，再选择目录、工具和审批规则。"
+            )}
+          </li>
+          <li>
+            {copy(
+              "In the team, set each member's device policy. Members start with no device access.",
+              "在团队中为每位成员设置设备策略。普通成员默认没有设备访问权限。"
+            )}
+          </li>
+        </ol>
+        <p>
+          <Link className="docs-text-link" to="/app/teams">
+            {copy("Open Teams", "打开团队")}
+          </Link>{" "}
+          ·{" "}
+          <Link className="docs-text-link" to="/app/sharing">
+            {copy("Open Sharing", "打开共享")}
+          </Link>
+        </p>
+      </Section>
+      <Section id="modes" title={copy("Choose how shared work runs", "选择共享任务的执行方式")}>
+        <dl className="docs-definitions docs-terms">
+          {modes.map(([mode, text]) => (
+            <div key={mode[0]}>
+              <dt>{copy(...mode)}</dt>
+              <dd>{copy(...text)}</dd>
+            </div>
+          ))}
+        </dl>
+        <CodeBlock label={copy("On the device", "在设备上")}>
+          {`adc-node roots add /path/to/project --label Collaboration
 adc-node sharing on --isolation docker --image 'REGISTRY/IMAGE@sha256:DIGEST'
-adc-node sharing off`}</CodeBlock>
-    <p>{zh ? "隔离要求可用的 Linux Docker、seccomp、固定摘要镜像、Node 24 与 Bash。验证失败不会回退到宿主机。旧 Connector 请先更新。平台服务器和托管资源不能当作实体设备共享。" : "Isolation requires Linux Docker, seccomp, a digest-pinned image, Node 24 and Bash. Verification failure does not fall back to host execution. Update old Connectors first. Platform servers and managed resources cannot be shared as physical devices."}</p>
-    <h2>CLI / SDK / API</h2>
-    <p>{zh ? "设备页显示当前与可更新的 Connector 版本，离线设备也保留更新提示。点击版本提示可复制更新命令；版本无法确认时会明确显示待确认，不会把旧版本当作最新。" : "The device page shows current and available Connector versions, including offline devices. Select an update badge to copy the update command. Unknown versions are explicitly marked rather than treated as current."}</p>
-    <CodeBlock label="Collaboration CLI">{`adc account list --json
-adc team create --name Research --json
-adc team invite TEAM_ID --email colleague@example.com --json
-adc invitation accept INVITATION_ID --yes --json
+adc-node sharing off`}
+        </CodeBlock>
+        <p>
+          {copy(
+            "Teams can share an exposed / or drive root with Connector 0.1.6+; isolated execution needs a smaller folder. External users always get specific folders.",
+            "团队可以共享设备已开放的 / 或盘符根目录（需要 Connector 0.1.6+）；隔离执行需要选择较小的目录。外部用户只能获得具体目录。"
+          )}
+        </p>
+      </Section>
+      <Section id="cli" title={copy("From the CLI and SDK", "通过 CLI 与 SDK")}>
+        <CodeBlock label="adc">
+          {`adc team create --name Research
+adc team invite TEAM_ID --email colleague@example.com
+adc invitation accept INVITATION_ID --yes
 adc team device-add TEAM_ID --node NODE_ID --scope scope.json
-adc access create --account TEAM_ID --name Analyst --devices NODE_ID --capabilities read
 adc share create NODE_ID --email guest@example.com --scope scope.json --days 7
-adc share revoke BINDING_ID --yes`}</CodeBlock>
-    <CodeBlock label="scope.json">{JSON.stringify({ roots: [{ rootId: "root_EXACT_ID", path: "/path/to/project", writable: false }], allowedTools: ["file.read", "file.list", "file.search", "device.list", "task.status", "task.result", "task.wait", "task.cancel"], execution: "read-only", approvalPolicy: "always", templateIds: [] }, null, 2)}</CodeBlock>
-    <p>{zh ? "账号管理使用 adc login；实际工具调用使用单独的 adc connect Agent 授权。SDK 用 client.withAccount(teamId) 选择团队；HTTP 用 X-ADC-Account。Agent Token 绑定自己的授权。" : "Use adc login for management and a separate adc connect Agent authorization for tools. SDK selects teams with client.withAccount(teamId); HTTP uses X-ADC-Account. Agent tokens stay bound to their grant."}</p>
-    <p>{zh ? "SDK 提供 accounts、createTeam、teamMembers、teamDevices、inviteTeamMember、updateTeamMember、linkTeamDevice、inviteDeviceShare、respondInvitation、deviceShares、updateDeviceShare、endDeviceShare。创建共享设备 Agent 授权时显式传 resourceBindings: [{nodeId, bindingId}]。" : "SDK exposes accounts, createTeam, teamMembers, teamDevices, inviteTeamMember, updateTeamMember, linkTeamDevice, inviteDeviceShare, respondInvitation, deviceShares, updateDeviceShare and endDeviceShare. Pass resourceBindings: [{nodeId, bindingId}] when creating shared-device Agent access."}</p>
-    <h2>{zh ? "撤销、审批与历史" : "Revocation, approval and history"}</h2>
-    <p>{zh ? "新请求立即复核，活动任务续租时复核。共享扩大需原接收人再次接受，已有 Agent 保持原范围。请求人和设备所有者的审批独立，全部满足后才能派发。成员只能查看自己的执行结果；设备所有者查看活动事实。409 冲突请刷新核对，未知结果不能重新发起副作用。" : "New calls recheck access and active work rechecks on lease renewal. Wider sharing requires the same recipient's acceptance; existing Agent scopes remain fixed. Requester and resource owner approvals are independent and all must be satisfied before dispatch. Members see their own results; owners see activity facts. Refresh on 409 conflicts; never resubmit side effects after unknown outcome."}</p>
-  </article>;
+adc share revoke BINDING_ID --yes`}
+        </CodeBlock>
+        <CodeBlock label="scope.json">
+          {JSON.stringify(
+            {
+              roots: [{ rootId: "root_EXACT_ID", path: "/path/to/project", writable: false }],
+              allowedTools: ["file.list", "file.read", "file.search", "task.status", "task.wait"],
+              execution: "read-only",
+              approvalPolicy: "always",
+              templateIds: []
+            },
+            null,
+            2
+          )}
+        </CodeBlock>
+        <p>
+          {copy(
+            "Use --account TEAM_ID on management commands to act in a team. The SDK uses client.withAccount(teamId); HTTP uses the X-ADC-Account header. When creating Agent access for a shared device in the SDK, pass resourceBindings: [{ nodeId, bindingId }].",
+            "管理命令加 --account TEAM_ID 即可在团队中操作。SDK 使用 client.withAccount(teamId)，HTTP 使用 X-ADC-Account 请求头。在 SDK 中为共享设备创建 Agent 授权时，需要传入 resourceBindings: [{ nodeId, bindingId }]。"
+          )}
+        </p>
+      </Section>
+      <Section id="revocation" title={copy("Revoking and approvals", "撤销与审批")}>
+        <ul className="docs-checklist">
+          <li>
+            {copy(
+              "Changes apply to new calls immediately and to running work at its next lease renewal.",
+              "修改会立即作用于新的调用，运行中的任务会在下次续租时生效。"
+            )}
+          </li>
+          <li>
+            {copy(
+              "Widening a share needs the recipient to accept again; existing Agent access never grows on its own.",
+              "扩大共享范围需要接收人重新接受，已有的 Agent 授权不会自动扩大。"
+            )}
+          </li>
+          <li>
+            {copy(
+              "If both the requester and the device owner require approval, both must approve before the call runs.",
+              "如果请求方和设备所有者都要求审批，必须双方都批准后调用才会执行。"
+            )}
+          </li>
+          <li>
+            {copy(
+              "Members see only their own results. Device owners see what ran, not the requester's output.",
+              "成员只能看到自己的执行结果；设备所有者能看到执行了什么，但看不到请求方的输出内容。"
+            )}
+          </li>
+        </ul>
+      </Section>
+    </>
+  );
 }

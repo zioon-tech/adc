@@ -1,5 +1,9 @@
 # Windows node
 
+> Windows Node is currently in testing. The installer is available to try, but system compatibility
+> and execution reliability remain under validation. The capabilities below describe the current
+> implementation, not a production-readiness guarantee across all Windows configurations.
+
 ## Supported scope
 
 The first native Windows release targets 64-bit Windows 10 and Windows 11 on local NTFS volumes.
