@@ -14,14 +14,19 @@ on:
         description: Validate cloud access, artifact and disk without switching
         type: boolean
         default: true
+      retire-inactive-builds:
+        description: Reclaim inventoried inactive dependency copies after reference checks
+        type: boolean
+        default: false
 permissions:
   contents: read
   actions: read
   id-token: write
 jobs:
   release:
-    uses: zioon-tech/workflows/.github/workflows/deploy.yml@f4bc879967fa80e1c67664449212ed0bad03befa
+    uses: zioon-tech/workflows/.github/workflows/deploy.yml@9f5adb67a6939709469f24e23b41e7a92a8163c6
     with:
       component: ${{ inputs.component }}
       ci-run: ${{ inputs.ci-run }}
       check-only: ${{ inputs.check-only }}
+      retire-inactive-builds: ${{ inputs.retire-inactive-builds }}
