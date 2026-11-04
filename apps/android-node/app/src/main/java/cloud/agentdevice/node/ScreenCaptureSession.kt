@@ -102,7 +102,7 @@ object ScreenCaptureSession {
             val currentReader = reader
                 ?: throw CapabilityException(
                     "denied",
-                    "Allow screen capture in ADC Mobile Node before requesting a screenshot.",
+                    "Allow screen capture in ADC before requesting a screenshot.",
                     false
                 )
             val currentHandler = handler

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Keep the single Chinese interface available for systems using a Traditional Chinese locale. -->
+<resources>
+    <string name="app_name">ADC 设备云</string>
+    <string name="ui_language">zh</string>
+    <string name="language">语言</string>
+    <string name="language_system">跟随系统</string>
+    <string name="node_service_channel">ADC Node 连接</string>
+    <string name="node_service_title">手机 Node 正在运行</string>
+    <string name="node_service_idle">等待已授权的 Agent 请求</string>
+    <string name="agent_notifications_channel">Agent 通知</string>
+    <string name="accessibility_service_description">允许已明确授权的 Agent 读取与操作当前可见的 Android 界面。本地权限开关可随时阻止读取或操作。</string>
+    <string name="default_device_name">%1$s %2$s</string>
+    <string name="node_not_paired">尚未配对</string>
+    <string name="node_pairing">正在配对…</string>
+    <string name="node_stop">停止</string>
+    <string name="node_connected">已连接 · %1$s</string>
+    <string name="node_retrying">连接中断 · 正在重试</string>
+</resources>

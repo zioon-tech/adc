@@ -58,9 +58,11 @@ import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
     private val executor = Executors.newSingleThreadExecutor()
+    private val deviceExecutor = Executors.newFixedThreadPool(2)
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var store: NodeStore
-    private lateinit var accounts: AccountStore
+    private lateinit var accounts: AccountSessionStore
+    private var fetchDevices: (AccountSession) -> List<JSONObject> = { AccountApi(it.origin, it.token).devices() }
     private lateinit var registry: CapabilityRegistry
     private lateinit var updater: AndroidUpdateManager
     private lateinit var page: LinearLayout
@@ -75,6 +77,12 @@ class MainActivity : AppCompatActivity() {
     private var busy = false
     private var devices = emptyList<JSONObject>()
     private var loadedDevices = false
+    private var devicesRefreshing = false
+    private var deviceLoadFailed = false
+    private var deviceRequest = 0L
+    private var deviceRequestIdentity: Pair<String, String>? = null
+    private val tabScroll = IntArray(4)
+    private var renderGeneration = 0L
     private var deviceFilter = 0
     private var rowContainer: LinearLayout? = null
     private var phoneStatus: TextView? = null
@@ -103,7 +111,7 @@ class MainActivity : AppCompatActivity() {
     private var recoveryLink: AccountRecoveryLink? = null
     private val formInputs = mutableListOf<TextInputEditText>()
     private var verificationResendAt = 0L
-    private val chinese get() = Locale.getDefault().language == "zh"
+    private val chinese get() = AppLanguage.uiLocale(this).language == "zh"
     private val palette by lazy { MobilePalette(this) }
     private val ink get() = palette.ink
     private val muted get() = palette.muted
@@ -179,11 +187,25 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        AppLanguage.applyBeforeCreate(this)
         super.onCreate(savedInstanceState)
         store = NodeStore(this)
         store.migrateOfficialOrigin()
         if (store.isNodeDesired() && !NodeService.isActive()) store.setRuntimeState("interrupted")
         accounts = AccountStore(this)
+        savedInstanceState?.getIntArray("tabScroll")?.copyInto(tabScroll)
+        accounts.session()?.let { session ->
+            if (savedInstanceState?.getString("devicesOrigin") == session.origin &&
+                savedInstanceState.getString("devicesAccount") == session.me.optJSONObject("account")?.optString("accountId")) {
+                savedInstanceState.getString("devices")?.let { cached ->
+                    runCatching {
+                        val array = JSONArray(cached)
+                        devices = (0 until array.length()).map { array.getJSONObject(it) }
+                        loadedDevices = true
+                    }
+                }
+            }
+        }
         registry = CapabilityRegistry(this)
         updater = AndroidUpdateManager(this)
         tab = savedInstanceState?.getInt("tab", if (accounts.session() == null) 2 else 1)
@@ -207,8 +229,7 @@ class MainActivity : AppCompatActivity() {
         }
         savedInstanceState?.getString("detailPage")?.let { renderDetail(it) }
         if (savedInstanceState == null || authPage == "reset") handleAccountLink(intent)
-        val offset = savedInstanceState?.getInt("scroll", 0) ?: 0
-        scroll.post { scroll.scrollTo(0, offset) }
+        restoreScroll(savedInstanceState?.getInt("scroll") ?: tabScroll[tab])
     }
     override fun onResume() {
         super.onResume()
@@ -223,6 +244,13 @@ class MainActivity : AppCompatActivity() {
         outState.putInt("tab", tab)
         outState.putBoolean("permissions", showingPermissions)
         outState.putInt("scroll", scroll.scrollY)
+        rememberRootScroll()
+        outState.putIntArray("tabScroll", tabScroll)
+        if (loadedDevices) accounts.session()?.let { session ->
+            outState.putString("devicesOrigin", session.origin)
+            outState.putString("devicesAccount", session.me.optJSONObject("account")?.optString("accountId"))
+            outState.putString("devices", JSONArray(devices).toString())
+        }
         captureAuthDraft()
         outState.putString("authPage", authPage)
         outState.putString("authEmail", authEmail)
@@ -247,6 +275,8 @@ class MainActivity : AppCompatActivity() {
         unregisterReceiver(receiver)
         registry.close()
         executor.shutdownNow()
+        deviceExecutor.shutdownNow()
+        handler.removeCallbacksAndMessages(null)
         super.onDestroy()
     }
     override fun onNewIntent(intent: Intent) {
@@ -283,7 +313,7 @@ class MainActivity : AppCompatActivity() {
         header.addView(toolbarAction)
         root.addView(header, LinearLayout.LayoutParams(-1, dp(64)))
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            isIndeterminate = true; visibility = View.GONE; indeterminateTintList = ColorStateList.valueOf(green)
+            isIndeterminate = true; visibility = View.INVISIBLE; indeterminateTintList = ColorStateList.valueOf(green)
         }
         root.addView(progress, LinearLayout.LayoutParams(-1, dp(2)))
         message = label("", 13, green).apply {
@@ -314,27 +344,37 @@ class MainActivity : AppCompatActivity() {
             selectedItemId = when (tab) { 1 -> R.id.nav_devices; 2 -> R.id.nav_phone; else -> R.id.nav_account }
             setOnItemSelectedListener {
                 if (busy) return@setOnItemSelectedListener false
-                tab = when (it.itemId) { R.id.nav_devices -> 1; R.id.nav_phone -> 2; else -> 3 }
-                captureAuthDraft()
-                detailPage = null; authPage = "login"
-                showingPermissions = false; showingDevice = false
-                message.visibility = View.GONE
-                phoneStatus = null; render()
-                if (tab == 1 && accounts.session() != null) refreshDevices()
+                switchTab(when (it.itemId) { R.id.nav_devices -> 1; R.id.nav_phone -> 2; else -> 3 })
                 true
             }
+            setOnItemReselectedListener { /* Keep the current page and its scroll position. */ }
         }
         root.addView(nav)
         return root
     }
 
-    private fun render() {
+    private fun isRootPage() = !showingDevice && !showingPermissions && detailPage == null && authPage == "login"
+    private fun rememberRootScroll() { if (::scroll.isInitialized && isRootPage()) tabScroll[tab] = scroll.scrollY }
+    private fun openTab(destination: Int) {
+        val item = when (destination) { 1 -> R.id.nav_devices; 2 -> R.id.nav_phone; else -> R.id.nav_account }
+        if (nav.selectedItemId == item) switchTab(destination) else nav.selectedItemId = item
+    }
+    private fun switchTab(destination: Int) {
+        if (tab == destination && isRootPage()) return
+        rememberRootScroll(); captureAuthDraft(); hideKeyboard()
+        tab = destination; authPage = "login"
+        message.visibility = View.GONE
+        render()
+        if (tab == 1) refreshDevices()
+    }
+    private fun render(offset: Int = tabScroll[tab]) {
         if (!::page.isInitialized) return
-        clearPage(); phoneStatus = null; nodeButton = null; showingPermissions = false; showingDevice = false
+        clearPage(offset); phoneStatus = null; nodeButton = null; showingPermissions = false; showingDevice = false
         detailPage = null
         selectedDevice = null; editingPolicy = null; deviceName = null; deviceDescription = null; deviceConcurrency = null
         toolbar(when (tab) { 1 -> text("Devices", "设备"); 2 -> text("This phone", "此手机"); else -> text("Account", "我的") })
         when (tab) { 1 -> renderDevices(); 2 -> renderPhone(); else -> renderAccount() }
+        updateProgress()
     }
 
     private fun renderDevices() {
@@ -342,7 +382,7 @@ class MainActivity : AppCompatActivity() {
         if (session == null) {
             emptyState(MobileGlyph.DEVICES, text("Your devices", "你的设备"),
                 text("Sign in to manage your computers and phones.", "登录后即可查看和管理电脑与手机。"))
-            action(text("Sign in", "登录账号")) { tab = 3; nav.selectedItemId = R.id.nav_account }
+            action(text("Sign in", "登录账号")) { openTab(3) }
             return
         }
         val summary = LinearLayout(this).apply {
@@ -353,19 +393,22 @@ class MainActivity : AppCompatActivity() {
             addView(label(if (loadedDevices) text("${devices.size} devices", "${devices.size} 台设备")
                 else text("Your devices", "你的设备"), 27, ink, true))
             addView(label(if (loadedDevices) text("${devices.count { it.optBoolean("online") }} online",
-                "${devices.count { it.optBoolean("online") }} 台在线") else text("Syncing…", "正在同步…"), 14, muted)
+                "${devices.count { it.optBoolean("online") }} 台在线") else if (deviceLoadFailed)
+                    text("Unable to sync", "同步失败") else text("Syncing…", "正在同步…"), 14, muted)
                 .apply { setPadding(0, dp(6), 0, 0) })
         }, LinearLayout.LayoutParams(0, -2, 1f))
         summary.addView(iconButton(MobileGlyph.PLUS, text("Connect this phone", "接入此手机")) {
-            tab = 2; nav.selectedItemId = R.id.nav_phone
+            openTab(2)
         }.apply { background = ripple(palette.tonal, 18); setImageDrawable(MobileGlyph.PLUS.drawable(green)) })
         page.addView(summary)
         if (devices.isEmpty()) {
             emptyState(MobileGlyph.PHONE,
-                text(if (loadedDevices) "Connect a device" else "Loading devices",
+                if (deviceLoadFailed && !loadedDevices) text("Unable to load devices", "设备加载失败")
+                else text(if (loadedDevices) "Connect a device" else "Loading devices",
                     if (loadedDevices) "接入一台设备" else "正在加载设备"),
-                text("Connect this phone or follow the computer setup guide.",
-                    "可接入此手机，也可按指南接入电脑。"))
+                if (deviceLoadFailed && !loadedDevices) text("Check your connection and try again.", "请检查网络后重试。")
+                else text("Connect this phone or follow the computer setup guide.", "可接入此手机，也可按指南接入电脑。"))
+            if (deviceLoadFailed && !loadedDevices) action(text("Try again", "重试")) { refreshDevices() }
         } else {
             val filters = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL; setPadding(0, 0, 0, dp(16))
@@ -377,7 +420,7 @@ class MainActivity : AppCompatActivity() {
                     insetTop = 0; insetBottom = 0
                     setTextColor(if (deviceFilter == index) green else muted)
                     backgroundTintList = ColorStateList.valueOf(if (deviceFilter == index) palette.tonal else Color.TRANSPARENT)
-                    setOnClickListener { if (!busy) { deviceFilter = index; clearPage(); renderDevices(); animatePage() } }
+                    setOnClickListener { if (!busy && deviceFilter != index) { deviceFilter = index; render(0) } }
                 }, LinearLayout.LayoutParams(0, dp(40), 1f).apply { if (index > 0) marginStart = dp(8) })
             }
             page.addView(filters)
@@ -397,7 +440,9 @@ class MainActivity : AppCompatActivity() {
                         node.optString("platform").replaceFirstChar { it.uppercase() } +
                             if (current) text(" · This phone", " · 此手机") else "",
                         state, if (mobile) MobileGlyph.PHONE else MobileGlyph.COMPUTER,
-                        if (active && online) green else muted) { renderDevice(node) }
+                        if (active && online) green else muted) {
+                            devices.find { it.optString("nodeId") == node.optString("nodeId") }?.let { renderDevice(it) }
+                        }
                 }
             }
         }
@@ -411,22 +456,61 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshDevices() {
         val session = accounts.session() ?: return
-        work({ AccountApi(session.origin, session.token).devices() }) { result ->
-            if (accounts.session()?.token != session.token) return@work
-            devices = result; loadedDevices = true
-            store.config()?.let { config ->
-                if (config.controlPlaneUrl == session.origin) result.find {
-                    it.optString("nodeId") == config.nodeId && it.optString("accountId") == config.accountId
-                }?.let { node ->
-                    store.saveConfig(config.copy(label = node.getString("label")))
-                    if (node.optString("status") != "active") NodeService.stop(this)
+        if (isDestroyed) return
+        val identity = session.origin to session.token
+        if (devicesRefreshing && deviceRequestIdentity == identity) return
+        val request = ++deviceRequest
+        deviceRequestIdentity = identity
+        devicesRefreshing = true
+        updateProgress()
+        fun isCurrent() = !isDestroyed && request == deviceRequest &&
+            accounts.session()?.let { it.origin to it.token } == identity
+        deviceExecutor.execute {
+            try {
+                val result = fetchDevices(session)
+                runOnUiThread {
+                    if (!isCurrent()) return@runOnUiThread
+                    devicesRefreshing = false
+                    val changed = !loadedDevices || deviceLoadFailed || visibleDevices(devices) != visibleDevices(result)
+                    devices = result; loadedDevices = true; deviceLoadFailed = false
+                    var phoneChanged = false
+                    store.config()?.let { config ->
+                        if (config.controlPlaneUrl == session.origin) result.find {
+                            it.optString("nodeId") == config.nodeId && it.optString("accountId") == config.accountId
+                        }?.let { node ->
+                            if (node.optString("label").isNotBlank() && node.optString("label") != config.label) {
+                                store.saveConfig(config.copy(label = node.getString("label")))
+                                phoneChanged = true
+                            }
+                            if (node.optString("status") != "active") NodeService.stop(this)
+                        }
+                    }
+                    if (isRootPage() && !busy && ((tab == 1 && changed) || (tab == 2 && phoneChanged))) render(scroll.scrollY)
+                    updateProgress()
+                }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    if (!isCurrent()) return@runOnUiThread
+                    devicesRefreshing = false
+                    deviceLoadFailed = true
+                    updateProgress()
+                    if (error is AccountApiException && error.status == 401) error(error)
+                    else if (tab == 1 && isRootPage()) {
+                        if (!loadedDevices) render(scroll.scrollY)
+                        notice(accountError(error), true)
+                    }
                 }
             }
-            if (tab == 1 || (tab == 2 && !showingDevice && !showingPermissions)) render()
         }
     }
 
+    private fun visibleDevices(list: List<JSONObject>) = list.map {
+        listOf(it.optString("nodeId"), it.optString("label"), it.optString("platform"),
+            it.optString("status"), it.optBoolean("online").toString())
+    }
+
     private fun renderDevice(node: JSONObject) {
+        rememberRootScroll()
         showingDevice = true; showingPermissions = false; phoneStatus = null; clearPage()
         selectedDevice = node
         toolbar(text("Device settings", "设备设置"), true)
@@ -502,7 +586,7 @@ class MainActivity : AppCompatActivity() {
                     if (config.controlPlaneUrl == session.origin && config.nodeId == node.getString("nodeId") &&
                         config.accountId == node.optString("accountId")) store.saveConfig(config.copy(label = it.getString("label")))
                 }
-                notice(text("Device updated.", "设备已更新。")); showingDevice = false; refreshDevices()
+                notice(text("Device updated.", "设备已更新。")); render(); refreshDevices()
             }
         }
         section(text("Connection", "连接管理"))
@@ -530,13 +614,13 @@ class MainActivity : AppCompatActivity() {
                     if (delete) store.clearConfig()
                 }
             }
-            showingDevice = false; refreshDevices()
+            render(); refreshDevices()
         }
     }
 
     private fun renderPhone() {
         val config = store.config()
-        val name = config?.label ?: "${Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${Build.MODEL}"
+        val name = config?.label ?: text("My Android phone", "我的 Android 手机")
         val controller = column().apply {
             background = rounded(palette.controller, 28)
             setPadding(dp(24), dp(24), dp(24), dp(20))
@@ -547,7 +631,7 @@ class MainActivity : AppCompatActivity() {
         identity.addView(iconView(MobileGlyph.PHONE, palette.onController, 46),
             LinearLayout.LayoutParams(dp(46), dp(54)).apply { marginEnd = dp(16) })
         identity.addView(column().apply {
-            addView(label("ANDROID NODE", 11, palette.controllerMuted, true).apply { letterSpacing = 0.1f })
+            addView(label(text("ANDROID PHONE", "ANDROID 手机"), 11, palette.controllerMuted, true).apply { letterSpacing = 0.1f })
             addView(label(name, 21, palette.onController, true).apply { setPadding(0, dp(5), 0, 0) })
         }, LinearLayout.LayoutParams(0, -2, 1f))
         controller.addView(identity)
@@ -571,7 +655,7 @@ class MainActivity : AppCompatActivity() {
                         NodeProtocol(store).pair(session.origin, code, label)
                     }) { paired -> store.saveConfig(paired); render(); notice(text("Phone connected. Choose permissions and start the Node.", "手机已接入，请选择权限并启动 Node。")) }
                 }
-            } else action(text("Sign in to connect", "登录并接入手机")) { tab = 3; nav.selectedItemId = R.id.nav_account }
+            } else action(text("Sign in to connect", "登录并接入手机")) { openTab(3) }
             section(text("Have a pairing code?", "使用配对码接入"))
             caption(text("For self-hosted services or pairing from another device.", "适用于自托管服务，或从其他设备完成配对。"))
             val origin = field(text("Service address", "服务地址"), accounts.origin(),
@@ -632,8 +716,8 @@ class MainActivity : AppCompatActivity() {
                 row(text("Battery & autostart", "省电与自启动"), text("Configure in Android settings", "在系统设置中调整后台策略"),
                     "›", MobileGlyph.BATTERY) { openAppSettings() }
             }
-            caption(text("For Xiaomi / Redmi, allow autostart and choose unrestricted battery use.",
-                "小米 / 红米建议允许自启动，并将省电策略设为不限制。"))
+            caption(text("Allow background activity and unrestricted battery use if your system offers these settings.",
+                "如系统提供相关选项，请允许后台运行与自启动，并关闭此 App 的省电限制。"))
         } else {
             caption(text("Only device status is shared by default.", "默认仅共享设备状态。"))
         }
@@ -652,6 +736,7 @@ class MainActivity : AppCompatActivity() {
         content.addView(label(config.controlPlaneUrl, 14, ink).apply { setTextIsSelectable(true) })
         content.addView(label(text("Device ID", "设备标识"), 12, muted).apply { setPadding(0, dp(20), 0, dp(6)) })
         content.addView(label(config.nodeId, 13, ink).apply { setTextIsSelectable(true) })
+        store.lastError()?.let { content.addView(label(it, 12, muted).apply { setPadding(0, dp(16), 0, 0) }) }
         action(text("Remove local pairing", "解除本机配对"), false, content) {
             dialog.dismiss()
             confirm(text("Remove local pairing?", "解除本机配对？"),
@@ -673,11 +758,12 @@ class MainActivity : AppCompatActivity() {
             !NodeService.isActive() -> text("Node interrupted · tap Start to reconnect", "Node 已中断 · 点击启动重新连接")
             store.runtimeState() == "online" -> text("Node online", "Node 在线")
             else -> text("Connection lost · retrying", "连接中断 · 正在重试")
-        } + (if (store.isNodeDesired() && store.lastError() != null) "\n${store.lastError()}" else "")
+        }
     }
 
     private fun renderPermissions() {
         if (!::page.isInitialized) return
+        rememberRootScroll()
         clearPage(if (showingPermissions) scroll.scrollY else 0)
         showingPermissions = true; showingDevice = false; phoneStatus = null
         toolbar(text("Permissions", "共享权限"), true)
@@ -862,9 +948,14 @@ class MainActivity : AppCompatActivity() {
                     }
             }) else null)
         }
+        section(text("Preferences", "偏好设置"))
+        settingsGroup {
+            row(getString(R.string.language), text("App interface and notifications", "App 界面与通知"),
+                languageLabel(AppLanguage.selected(this)), MobileGlyph.GLOBE) { chooseLanguage() }
+        }
         section(text("About", "关于"))
         settingsGroup {
-            row(text("Check for updates", "检查更新"), "Android Node v${updater.currentVersion().first} · " + text("Preview", "测试版"),
+            row(text("Check for updates", "检查更新"), "${getString(R.string.app_name)} v${updater.currentVersion().first} · " + text("Preview", "测试版"),
                 "›", MobileGlyph.DOWNLOAD) { checkUpdate() }
             row(text("Android guide", "使用指南"), text("Setup, permissions and background use", "接入、权限与后台运行"),
                 "›", MobileGlyph.BOOK) { renderDetail("guide") }
@@ -877,20 +968,39 @@ class MainActivity : AppCompatActivity() {
                     text("This login will be revoked. The phone Node keeps running until you stop it.",
                         "此登录会话会被撤销，手机 Node 会继续运行，直到你手动停止。")) {
                     work({ AccountApi(session.origin, session.token).signOut() }) {
-                        accounts.clear(); devices = emptyList(); loadedDevices = false; render()
+                        accounts.clear(); resetDevices(); render()
                     }
                 }
             }
             }
         }
     }
+    private fun languageLabel(language: AppLanguage) = when (language) {
+        AppLanguage.SYSTEM -> getString(R.string.language_system)
+        AppLanguage.CHINESE -> "中文"
+        AppLanguage.ENGLISH -> "English"
+    }
+    private fun chooseLanguage() {
+        val options = AppLanguage.entries
+        MaterialAlertDialogBuilder(this).setTitle(getString(R.string.language))
+            .setSingleChoiceItems(options.map(::languageLabel).toTypedArray(),
+                options.indexOf(AppLanguage.selected(this))) { dialog, index ->
+                dialog.dismiss()
+                hideKeyboard()
+                AppLanguage.select(this, options[index])
+            }.setNegativeButton(text("Cancel", "取消"), null).show()
+    }
+    private fun resetDevices() {
+        ++deviceRequest; deviceRequestIdentity = null; devicesRefreshing = false
+        devices = emptyList(); loadedDevices = false; deviceLoadFailed = false; tabScroll[1] = 0
+        updateProgress()
+    }
     private fun signedIn(session: AccountSession) {
         authPage = "login"; authEmail = ""; authName = ""; recoveryLink = null
         hideKeyboard()
-        accounts.save(session); devices = emptyList(); loadedDevices = false
-        tab = 1; nav.selectedItemId = R.id.nav_devices; render()
+        accounts.save(session); resetDevices()
+        openTab(1)
         notice(text("Signed in.", "登录成功。"))
-        if (!busy) refreshDevices()
     }
     private fun renderAuth() {
         toolbar(if (authPage == "login") text("Account", "我的") else when (authPage) {
@@ -909,7 +1019,7 @@ class MainActivity : AppCompatActivity() {
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }, LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginEnd = dp(12) })
         identity.addView(column().apply {
-            addView(label("ADC", 22, ink, true))
+            addView(label(getString(R.string.app_name), 22, ink, true))
             addView(label(text("Your devices, connected", "连接你的设备"), 12, muted).apply { setPadding(0, dp(3), 0, 0) })
         })
         page.addView(identity)
@@ -1067,7 +1177,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         recoveryLink = link
-        tab = 3; nav.selectedItemId = R.id.nav_account
+        openTab(3)
         if (link.kind == "reset") {
             authPage = "reset"
             clearPage(); detailPage = null
@@ -1083,6 +1193,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
     private fun renderDetail(value: String) {
+        rememberRootScroll()
         clearPage(); phoneStatus = null; showingDevice = false; showingPermissions = false
         detailPage = value
         when (value) {
@@ -1180,15 +1291,15 @@ class MainActivity : AppCompatActivity() {
         caption(text("Only device status is enabled by default. Enable each additional capability you need. Screen sharing needs Android consent for every session; interface reading and actions need Accessibility permission.",
             "新安装默认只共享设备状态。按需开启其他能力；每次屏幕共享需要系统确认，界面读取和操作需要系统无障碍授权。"))
         section(text("3. Start the Node", "3. 启动 Node"))
-        caption(text("Start and stop it from This phone. For Xiaomi / Redmi, allow autostart and unrestricted battery use in system settings. Location works only while this app is visible.",
-            "在「此手机」启动或停止。小米 / 红米可在系统设置允许自启动并关闭省电限制；位置读取仅在 App 前台可用。"))
+        caption(text("Start and stop it from This phone. Allow background activity and unrestricted battery use where available in system settings. Location works only while this app is visible.",
+            "在「此手机」启动或停止。如系统提供相关选项，请允许后台运行与自启动，并关闭省电限制；位置读取仅在 App 前台可用。"))
         section(text("Account & device connections", "账号与设备连接"))
         caption(text("Signing out does not stop the phone Node. Removing local pairing stops it; revoke or delete a device in Devices to disable its account connection.",
             "退出账号不会停止手机 Node。解除本机配对会停止 Node；在「设备」中撤销或删除设备，可停用账号侧连接。"))
         section(text("Agent access", "Agent 访问"))
         caption(text("Each agent needs a separate grant for a device and its tools. Account and agent permissions can narrow your phone's local choices.",
             "每个 Agent 需单独授权设备与工具；账号和 Agent 权限会进一步约束手机本地共享的能力。"))
-        action(text("Open phone controls", "打开手机控制页")) { tab = 2; nav.selectedItemId = R.id.nav_phone }
+        action(text("Open phone controls", "打开手机控制页")) { openTab(2) }
     }
     private fun renderComputerGuide() {
         toolbar(text("Add a computer", "接入电脑"), true)
@@ -1254,7 +1365,7 @@ class MainActivity : AppCompatActivity() {
             if (release == null || release.versionCode <= updater.currentVersion().second) {
                 notice(text("You have the latest available version.", "已是当前可用版本。")); return@work
             }
-            confirm(text("Update to ${release.versionName}?", "更新至 ${release.versionName}？"), release.notesFor()) {
+            confirm(text("Update to ${release.versionName}?", "更新至 ${release.versionName}？"), release.notesFor(AppLanguage.uiLocale(this))) {
                 work({ updater.downloadAndVerify(release) }) { apk ->
                     if (updater.canRequestPackageInstalls()) updater.launchInstaller(apk)
                     else { pendingApk = apk; installer.launch(updater.installPermissionIntent()) }
@@ -1286,22 +1397,27 @@ class MainActivity : AppCompatActivity() {
         }
     }
     private fun setBusy(value: Boolean) {
-        busy = value; progress.visibility = if (value) View.VISIBLE else View.GONE
+        busy = value; updateProgress()
         fun enable(view: View) {
             if (view is MaterialButton || view is TextInputLayout || view is TextInputEditText) view.isEnabled = !value
             if (view is ViewGroup) for (i in 0 until view.childCount) enable(view.getChildAt(i))
         }
         enable(page)
     }
+    private fun updateProgress() {
+        if (!::progress.isInitialized) return
+        progress.visibility = if (busy || (devicesRefreshing && tab == 1 && isRootPage())) View.VISIBLE else View.INVISIBLE
+    }
     private fun error(error: Exception) {
         if (error is AccountApiException && error.status == 401 && accounts.session() != null) {
-            accounts.clear(); devices = emptyList(); loadedDevices = false; tab = 3; nav.selectedItemId = R.id.nav_account; render()
+            accounts.clear(); resetDevices()
+            if (tab == 3 && isRootPage()) render() else openTab(3)
             notice(text("Your login expired. Sign in again.", "登录已过期，请重新登录。")); return
         }
         val conflict = error is AccountApiException && error.status == 409
         notice(if (conflict) text("This device changed elsewhere. Refresh it before saving again.",
-            "设备已在其他地方更新，请刷新后重新修改。") else error.message ?: text("Operation failed. Try again.", "操作失败，请重试。"), true)
-        if (conflict) { showingDevice = false; refreshDevices() }
+            "设备已在其他地方更新，请刷新后重新修改。") else accountError(error), true)
+        if (conflict) { render(); refreshDevices() }
     }
     private fun notice(value: String, failed: Boolean = false) {
         message.text = value; message.setTextColor(if (failed) palette.danger else green); message.visibility = View.VISIBLE
@@ -1391,8 +1507,14 @@ class MainActivity : AppCompatActivity() {
         "INVALID_TOKEN", "TOKEN_EXPIRED" -> text("This link has expired. Request a new one.", "链接已失效，请重新请求。")
         "SIGNUP_DISABLED" -> text("Registration is disabled for this service.", "此服务已关闭注册。")
         "RESET_PASSWORD_DISABLED" -> text("Password recovery is disabled for this service.", "此服务未启用密码找回。")
-        else -> if (error is java.io.IOException) text("Cannot connect. Check your network and try again.", "连接失败，请检查网络后重试。")
-            else error.message ?: text("Please try again.", "请重试。")
+        else -> when {
+            error is InstallPermissionRequiredException -> text("Allow installation in Android settings.", "请在系统设置允许安装此 App 的更新。")
+            error is AndroidUpdateException -> text("Unable to verify or download this update. Try again later.", "更新下载或校验失败，请稍后重试。")
+            error is java.io.IOException -> text("Cannot connect. Check your network and try again.", "连接失败，请检查网络后重试。")
+            error is AccountApiException && error.status == 429 -> text("Too many requests. Try again later.", "请求过于频繁，请稍后重试。")
+            error is AccountApiException && error.status >= 500 -> text("Service unavailable. Try again later.", "服务暂时不可用，请稍后重试。")
+            else -> text("Operation failed. Try again.", "操作失败，请重试。")
+        }
     }
     private fun submitFrom(input: TextInputEditText, button: MaterialButton) {
         input.imeOptions = EditorInfo.IME_ACTION_DONE
@@ -1437,19 +1559,18 @@ class MainActivity : AppCompatActivity() {
         page.animate().cancel()
         page.removeAllViews()
         page.alpha = 1f; page.translationY = 0f
-        scroll.post { scroll.scrollTo(0, offset) }
+        ++renderGeneration
+        restoreScroll(offset)
+    }
+    private fun restoreScroll(offset: Int) {
+        val generation = renderGeneration
+        scroll.post { if (!isDestroyed && generation == renderGeneration) scroll.scrollTo(0, offset) }
     }
     private fun toolbar(value: String, back: Boolean = false) {
         title.text = value
         toolbarBack.visibility = if (back) View.VISIBLE else View.GONE
         toolbarAction.visibility = if (!back && tab == 1 && accounts.session() != null) View.VISIBLE else View.GONE
-        animatePage()
-    }
-    private fun animatePage() {
-        if (!android.animation.ValueAnimator.areAnimatorsEnabled()) return
-        page.alpha = 0f; page.translationY = dp(6).toFloat()
-        page.animate().alpha(1f).translationY(0f).setDuration(180)
-            .setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+        updateProgress()
     }
     private fun emptyState(glyph: MobileGlyph, headline: String, description: String) {
         val block = column().apply { gravity = Gravity.CENTER; setPadding(dp(20), dp(42), dp(20), dp(34)) }

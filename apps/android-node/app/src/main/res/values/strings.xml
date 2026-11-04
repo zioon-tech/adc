@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">ADC Mobile Node</string>
+    <string name="app_name">ADC</string>
+    <string name="ui_language">en</string>
+    <string name="language">Language</string>
+    <string name="language_system">Follow system</string>
     <string name="node_service_channel">ADC Node connection</string>
-    <string name="node_service_title">ADC Mobile Node is active</string>
+    <string name="node_service_title">ADC is running on this phone</string>
     <string name="node_service_idle">Waiting for authorized Agent requests</string>
     <string name="agent_notifications_channel">Agent notifications</string>
     <string name="accessibility_service_description">Allow explicitly authorized Agents to inspect and operate the visible Android interface.</string>

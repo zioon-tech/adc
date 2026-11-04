@@ -13,13 +13,21 @@ import javax.crypto.spec.GCMParameterSpec
 
 data class AccountSession(val origin: String, val token: String, val me: JSONObject)
 
-/** Account sessions are encrypted separately from the phone's signed Node identity. */
-class AccountStore(context: Context) {
-    private val prefs = context.getSharedPreferences("adc_account", Context.MODE_PRIVATE)
-    fun origin(): String = prefs.getString("origin", "https://adc.zioon.tech")!!
-    fun setOrigin(origin: String) { check(prefs.edit().putString("origin", origin).commit()) }
+internal interface AccountSessionStore {
+    fun origin(): String
+    fun setOrigin(origin: String)
+    fun session(): AccountSession?
+    fun save(session: AccountSession)
+    fun clear()
+}
 
-    @Synchronized fun session(): AccountSession? {
+/** Account sessions are encrypted separately from the phone's signed Node identity. */
+internal class AccountStore(context: Context) : AccountSessionStore {
+    private val prefs = context.getSharedPreferences("adc_account", Context.MODE_PRIVATE)
+    override fun origin(): String = prefs.getString("origin", "https://adc.zioon.tech")!!
+    override fun setOrigin(origin: String) { check(prefs.edit().putString("origin", origin).commit()) }
+
+    @Synchronized override fun session(): AccountSession? {
         val stored = prefs.getString("session", null) ?: return null
         return try {
             val parts = stored.split(".")
@@ -34,7 +42,7 @@ class AccountStore(context: Context) {
         }
     }
 
-    @Synchronized fun save(session: AccountSession) {
+    @Synchronized override fun save(session: AccountSession) {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key())
         val content = JSONObject().put("origin", session.origin).put("token", session.token)
@@ -44,7 +52,7 @@ class AccountStore(context: Context) {
         check(prefs.edit().putString("session", encrypted).putString("origin", session.origin).commit())
     }
 
-    @Synchronized fun clear() { check(prefs.edit().remove("session").commit()) }
+    @Synchronized override fun clear() { check(prefs.edit().remove("session").commit()) }
 
     private fun key(): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }

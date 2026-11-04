@@ -6,6 +6,9 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import android.content.res.Configuration
 import android.content.pm.ServiceInfo
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -32,6 +35,11 @@ class NodeService : Service() {
     private val wakeSignals = ArrayBlockingQueue<Unit>(1)
     private var wakeChannel: NodeWakeChannel? = null
     private var wakeNodeId: String? = null
+    private val languageReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) { refreshLocalizedNotification() }
+    }
+    private fun localizedString(id: Int, vararg arguments: Any): String =
+        AppLanguage.localizedContext(this).getString(id, *arguments)
 
     override fun onCreate() {
         super.onCreate()
@@ -40,8 +48,23 @@ class NodeService : Service() {
         registry = CapabilityRegistry(this)
         execution = MobileExecutionEngine(store, registry)
         createChannel()
+        ContextCompat.registerReceiver(this, languageReceiver, IntentFilter(AppLanguage.ACTION_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED)
     }
 
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        refreshLocalizedNotification()
+    }
+
+    private fun refreshLocalizedNotification() {
+        createChannel()
+        if (active) updateNotification(when (store.runtimeState()) {
+            "online" -> localizedString(R.string.node_connected, store.config()?.label.orEmpty())
+            "retrying" -> localizedString(R.string.node_retrying)
+            else -> localizedString(R.string.node_service_idle)
+        })
+    }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_START) store.setNodeDesired(true)
         if (intent?.action == ACTION_STOP) store.setNodeDesired(false)
@@ -91,6 +114,7 @@ class NodeService : Service() {
     }
 
     override fun onDestroy() {
+        unregisterReceiver(languageReceiver)
         active = false
         store.setRuntimeState(if (store.isNodeDesired()) "interrupted" else "stopped")
         running.set(false)
@@ -137,7 +161,7 @@ class NodeService : Service() {
                 val now = DateTimeFormatter.ISO_INSTANT.format(Instant.now())
                 store.setConnectionState(now, null)
                 publishStatus(true, null)
-                updateNotification(getString(R.string.node_connected, config.label))
+                updateNotification(localizedString(R.string.node_connected, config.label))
                 backoffMs = 2_000L
                 val dispatch = response.optJSONObject("dispatch")
                 dispatch?.let { execute(config, it) }
@@ -157,7 +181,7 @@ class NodeService : Service() {
                     }
                 store.setConnectionState(null, message)
                 publishStatus(false, message)
-                updateNotification(getString(R.string.node_retrying))
+                updateNotification(localizedString(R.string.node_retrying))
                 if (error is NodeApiException && error.statusCode in listOf(401, 403)) {
                     store.setNodeDesired(false)
                     store.setRuntimeState("stopped")
@@ -279,7 +303,7 @@ class NodeService : Service() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(
                 SERVICE_CHANNEL,
-                getString(R.string.node_service_channel),
+                localizedString(R.string.node_service_channel),
                 NotificationManager.IMPORTANCE_LOW
             )
         )
@@ -300,11 +324,11 @@ class NodeService : Service() {
         )
         return NotificationCompat.Builder(this, SERVICE_CHANNEL)
             .setSmallIcon(R.drawable.ic_launcher)
-            .setContentTitle(getString(R.string.node_service_title))
+            .setContentTitle(localizedString(R.string.node_service_title))
             .setContentText(text)
             .setContentIntent(activity)
             .setOngoing(true)
-            .addAction(0, getString(R.string.node_stop), stop)
+            .addAction(0, localizedString(R.string.node_stop), stop)
             .build()
     }
 
@@ -319,7 +343,7 @@ class NodeService : Service() {
         ServiceCompat.startForeground(
             this,
             NOTIFICATION_ID,
-            serviceNotification(getString(R.string.node_service_idle)),
+            serviceNotification(localizedString(R.string.node_service_idle)),
             types
         )
     }

@@ -38,6 +38,8 @@ data class AndroidRelease(
         val exact = locale.toLanguageTag()
         return releaseNotes[exact]
             ?: releaseNotes[locale.language]
+            ?: (if (locale.language == "zh") releaseNotes["zh-CN"]
+                ?: releaseNotes.entries.firstOrNull { it.key.startsWith("zh-") }?.value else null)
             ?: releaseNotes["en"]
             ?: releaseNotes.values.first()
     }
@@ -438,4 +440,4 @@ class AndroidUpdateException(
 ) : Exception(message)
 
 class InstallPermissionRequiredException :
-    Exception("Allow ADC Mobile Node to install this verified update in Android settings.")
+    Exception("Allow ADC to install this verified update in Android settings.")

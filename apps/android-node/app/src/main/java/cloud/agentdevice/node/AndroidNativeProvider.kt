@@ -497,7 +497,7 @@ class AndroidNativeProvider(
         } else {
             unavailable(
                 "temporarily_unavailable",
-                "Disabled in ADC Mobile Node settings.",
+                "Disabled in ADC settings.",
                 observedAt
             )
         }
@@ -559,7 +559,7 @@ class AndroidNativeProvider(
         if (!store.isCapabilityEnabled(group)) {
             throw CapabilityException(
                 "denied",
-                "Device-native capabilities are disabled in ADC Mobile Node settings.",
+                "Device-native capabilities are disabled in ADC settings.",
                 false
             )
         }
