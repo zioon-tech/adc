@@ -19,6 +19,7 @@ anonymous administration endpoint is created. Use the [README](../README.md) for
 | `ADC_TRUSTED_PROXIES`                                                  | Comma-separated proxy addresses/CIDRs; never trust all public client addresses             |
 | `ADC_CONSOLE_DIR`                                                      | Optional built console path; defaults to `apps/console/dist`                               |
 | `ADC_NODE_RELEASE_DIR`                                                 | Local downloadable client directory; defaults to `dist/node`                               |
+| `ADC_SDK_RELEASE_DIR`                                                  | Downloadable npm package directory; defaults to `dist/sdk`                                 |
 | `ADC_NODE_DOWNLOAD_URL`                                                | Optional external release directory on a static website/CDN/GitHub Releases                |
 | `ADC_ANDROID_RELEASE_DIR`                                              | Verified Android manifest/APK directory; defaults to `dist/android`                        |
 | `ADC_SKILL_RELEASE_DIR`                                                | Official Skill archives and discovery indexes; defaults to `dist/skills`                   |

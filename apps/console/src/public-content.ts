@@ -41,9 +41,91 @@ export function localize(value: LocalizedText, locale: Locale): string {
 }
 
 const latestRelease: PublicContentEntry = {
+  path: "/updates/connector-0-1-7",
+  kind: "Product update",
+  title: text(
+    "CLI 0.1.7 and SDK 0.2.3: invocation intent and control sessions",
+    "CLI 0.1.7 与 SDK 0.2.3：调用意图与控制会话"
+  ),
+  summary: text(
+    "Describe the purpose of a tool call, keep screen actions in their authorized control session, and install the current CLI and SDK from official downloads.",
+    "为工具调用说明用途，让屏幕操作关联已授权的控制会话，并从官方入口安装当前 CLI 与 SDK。"
+  ),
+  publishedAt: "2026-11-04",
+  updatedAt: "2026-11-04",
+  readingMinutes: 3,
+  keywords: ["ADC CLI 0.1.7", "ADC SDK 0.2.3", "invocation intent", "screen control session"],
+  listed: true,
+  relatedPaths: ["/docs/integrations", "/docs/connector", "/updates/connector-0-1-6"],
+  sections: [
+    {
+      id: "invocation-context",
+      title: text("Keep the purpose with the invocation", "让用途随调用一起记录"),
+      paragraphs: [
+        text(
+          "CLI 0.1.7 accepts --intent and --control-session. SDK 0.2.3 accepts intent and controlSessionId in buildInvocation. These fields follow the common invocation and receipt path used by HTTP, CLI, MCP and SDK.",
+          "CLI 0.1.7 支持 --intent 与 --control-session；SDK 0.2.3 的 buildInvocation 支持 intent 与 controlSessionId。这些字段复用 HTTP、CLI、MCP 与 SDK 的统一调用和回执链路。"
+        ),
+        text(
+          "Intent is a short, single-line description of the caller's purpose, not permission or evidence of success. Use the control session identifier returned by the device for actions that require it. Device policy, human approval and local permission still decide whether an action may run.",
+          "意图是调用方对用途的一句简短描述，不代表授权，也不代表操作成功。需要控制会话的操作应使用设备返回的会话标识。设备策略、人工审批与本地权限仍决定操作能否执行。"
+        )
+      ],
+      code: `adc invoke file.read --node NODE_ID \\
+  --args '{"rootId":"ROOT_ID","path":"README.md"}' \\
+  --intent 'Read the project setup instructions' --json`,
+      links: [
+        { href: "/docs/integrations", label: text("Skills, plugins and MCP", "Skill、插件与 MCP") }
+      ]
+    },
+    {
+      id: "install-client-tools",
+      title: text("Install the current client packages", "安装当前客户端包"),
+      paragraphs: [
+        text(
+          "Update an existing desktop CLI or Connector with adc update. The five desktop archives include their runtime. SDK downloads include compiled exports, TypeScript declarations and protocol dependencies; no private npm registry is needed. The official SDK manifest supplies the immutable package filename.",
+          "已有桌面 CLI 或 Connector 使用 adc update 更新；五个平台归档自带运行时。SDK 下载包包含编译后的导出、TypeScript 声明与协议依赖，无需私有 npm 源；官方 SDK 清单提供带摘要的包名。"
+        ),
+        text(
+          "Skill 0.4.2 and harness plugins 0.1.5 already carry the current integration instructions. CLI-backed plugins need CLI 0.1.7. Android Mobile Node remains on its separately versioned 0.2.3 release and is updated through the APK entry.",
+          "Skill 0.4.2 与各 Harness 插件 0.1.5 已包含当前集成说明，依赖 CLI 的插件还需要 CLI 0.1.7。Android Mobile Node 使用独立版本 0.2.3，通过 APK 入口更新。"
+        )
+      ],
+      code: `adc update --check
+adc update
+adc --version
+SDK_FILE=$(curl -fsSL https://adc.zioon.tech/downloads/sdk/manifest.json |
+  node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>console.log(JSON.parse(s).archive.file))')
+npm install "https://adc.zioon.tech/downloads/sdk/$SDK_FILE"`,
+      links: [
+        {
+          href: "/downloads/sdk/manifest.json",
+          label: text("SDK download manifest", "SDK 下载清单")
+        }
+      ]
+    },
+    {
+      id: "follow-tasks",
+      title: text("Follow the existing task", "继续跟踪已有任务"),
+      paragraphs: [
+        text(
+          "Save the original invocationId or jobId and inspect that task after a wait ends. Intent does not make repeating a write safe. Use the same task and its receipt to determine the result.",
+          "等待结束后，保留原有 invocationId 或 jobId 并查询同一个任务。补充意图不会让重复写入变得安全，应通过同一任务和回执确认结果。"
+        )
+      ],
+      code: `adc task wait JOB_ID --wait 4000 --json
+adc invoke task.wait --args '{"jobId":"JOB_ID","waitMs":4000}' --json`
+    }
+  ]
+};
+
+const previousRelease: PublicContentEntry = {
   path: "/updates/connector-0-1-6",
   kind: "Product update",
-  title: text("Connector 0.1.6: teams, device sharing and root sharing", "Connector 0.1.6：团队、设备共享与根目录共享"),
+  title: text(
+    "Connector 0.1.6: teams, device sharing and root sharing",
+    "Connector 0.1.6：团队、设备共享与根目录共享"
+  ),
   summary: text(
     "Share a device with a team or a named account, choose how shared work runs, and see which devices need an update.",
     "把设备共享给团队或指定账号，选择共享任务的执行方式，并直接看到哪些设备需要更新。"
@@ -51,9 +133,18 @@ const latestRelease: PublicContentEntry = {
   publishedAt: "2026-11-01",
   updatedAt: "2026-11-03",
   readingMinutes: 3,
-  keywords: ["Agent Device Cloud 0.1.6", "ADC team sharing", "AI agent device sharing", "adc update"],
+  keywords: [
+    "Agent Device Cloud 0.1.6",
+    "ADC team sharing",
+    "AI agent device sharing",
+    "adc update"
+  ],
   listed: true,
-  relatedPaths: ["/articles/least-privilege-for-ai-agents", "/guides/first-device-to-first-tool-call", "/updates/connector-0-1-3"],
+  relatedPaths: [
+    "/articles/least-privilege-for-ai-agents",
+    "/guides/first-device-to-first-tool-call",
+    "/updates/connector-0-1-3"
+  ],
   sections: [
     {
       id: "sharing",
@@ -76,7 +167,12 @@ const latestRelease: PublicContentEntry = {
           "三种模式的结果不同：只读不运行命令；隔离执行在每次调用后丢弃工作区修改；宿主机信任模式可以修改真实设备。请先选择执行方式，再选择工具。Linux 隔离需要支持 seccomp 的 Docker 和固定摘要镜像，不能以整个文件系统根目录做快照。"
         )
       ],
-      links: [{ href: "/docs/collaboration", label: text("Configure teams and sharing", "配置团队与共享") }]
+      links: [
+        {
+          href: "/docs/collaboration",
+          label: text("Configure teams and sharing", "配置团队与共享")
+        }
+      ]
     },
     {
       id: "root-sharing",
@@ -96,7 +192,12 @@ const latestRelease: PublicContentEntry = {
         )
       ],
       code: "adc update --check\nadc update\nadc-node status",
-      links: [{ href: "/docs/connector", label: text("Update and inspect the Connector", "更新与检查 Connector") }]
+      links: [
+        {
+          href: "/docs/connector",
+          label: text("Update and inspect the Connector", "更新与检查 Connector")
+        }
+      ]
     },
     {
       id: "follow-tasks",
@@ -149,7 +250,10 @@ const transferRelease: PublicContentEntry = {
       id: "wait",
       title: text("Follow the existing task", "跟踪已有任务"),
       paragraphs: [
-        text("An upload response contains the existing jobId. Use task.wait to follow the destination result. Upload completion alone does not mean the destination has committed the file.", "上传响应包含已有 jobId，使用 task.wait 跟踪目标结果。上传结束时，目标可能尚未完成文件落盘。")
+        text(
+          "An upload response contains the existing jobId. Use task.wait to follow the destination result. Upload completion alone does not mean the destination has committed the file.",
+          "上传响应包含已有 jobId，使用 task.wait 跟踪目标结果。上传结束时，目标可能尚未完成文件落盘。"
+        )
       ],
       code: `adc invoke task.wait --args '{"jobId":"job_example","waitMs":4000}' --json`
     },
@@ -157,25 +261,35 @@ const transferRelease: PublicContentEntry = {
       id: "permissions",
       title: text("Check destination access", "检查目标权限"),
       paragraphs: [
-        text("Grant file.transfer and access to the destination folder. Device-to-device copies also require source access. Owner approval applies before transfer starts, and cancellation stops pending storage requests.", "授权需包含 file.transfer 和目标目录权限。设备间复制还需源目录权限。需要审批的传输在审批后开始，取消会停止待处理的存储请求。")
+        text(
+          "Grant file.transfer and access to the destination folder. Device-to-device copies also require source access. Owner approval applies before transfer starts, and cancellation stops pending storage requests.",
+          "授权需包含 file.transfer 和目标目录权限。设备间复制还需源目录权限。需要审批的传输在审批后开始，取消会停止待处理的存储请求。"
+        )
       ]
     }
   ]
 };
 
 function estimateReadingMinutes(entry: PublicContentEntry): number {
-  const english = entry.sections.flatMap((section) => [
-    section.title.en,
-    ...section.paragraphs.map((paragraph) => paragraph.en),
-    ...(section.bullets?.map((bullet) => bullet.en) ?? []),
-    section.code ?? ""
-  ]).join(" ");
-  const chinese = entry.sections.flatMap((section) => [
-    section.title["zh-CN"],
-    ...section.paragraphs.map((paragraph) => paragraph["zh-CN"]),
-    ...(section.bullets?.map((bullet) => bullet["zh-CN"]) ?? [])
-  ]).join("");
-  return Math.max(1, Math.ceil(Math.max(english.split(/\s+/).filter(Boolean).length / 220, chinese.length / 400)));
+  const english = entry.sections
+    .flatMap((section) => [
+      section.title.en,
+      ...section.paragraphs.map((paragraph) => paragraph.en),
+      ...(section.bullets?.map((bullet) => bullet.en) ?? []),
+      section.code ?? ""
+    ])
+    .join(" ");
+  const chinese = entry.sections
+    .flatMap((section) => [
+      section.title["zh-CN"],
+      ...section.paragraphs.map((paragraph) => paragraph["zh-CN"]),
+      ...(section.bullets?.map((bullet) => bullet["zh-CN"]) ?? [])
+    ])
+    .join("");
+  return Math.max(
+    1,
+    Math.ceil(Math.max(english.split(/\s+/).filter(Boolean).length / 220, chinese.length / 400))
+  );
 }
 
 const byPath = new Map(articleContent.map((entry) => [entry.path, entry]));
@@ -192,12 +306,15 @@ const olderContentOrder = [
 
 export const publicContent: PublicContentEntry[] = [
   latestRelease,
+  previousRelease,
   cloudAgentArticle,
   adcPositioningArticle,
   ...(showCloudFileTransfers ? [transferRelease] : []),
   ...olderContentOrder.map((path) => byPath.get(path)!),
   remoteAccessComparisonArticle,
-  ...["/use-cases/remote-local-development", "/privacy", "/telemetry"].map((path) => byPath.get(path)!)
+  ...["/use-cases/remote-local-development", "/privacy", "/telemetry"].map((path) =>
+    byPath.get(path)!
+  )
 ].map((entry) => ({ ...entry, readingMinutes: estimateReadingMinutes(entry) }));
 
 export const listedPublicContent = publicContent.filter((entry) => entry.listed);
@@ -212,12 +329,15 @@ export function relatedPublicContent(entry: PublicContentEntry, limit = 3): Publ
   const explicitlyRelated = (entry.relatedPaths ?? [])
     .map((path) => candidates.find((candidate) => candidate.path === path))
     .filter((candidate): candidate is PublicContentEntry => !!candidate);
-  const sameKind = candidates.filter((candidate) =>
-    candidate.kind === entry.kind && !explicitlyRelated.some((related) => related.path === candidate.path)
+  const sameKind = candidates.filter(
+    (candidate) =>
+      candidate.kind === entry.kind &&
+      !explicitlyRelated.some((related) => related.path === candidate.path)
   );
-  const remaining = candidates.filter((candidate) =>
-    !explicitlyRelated.some((related) => related.path === candidate.path) &&
-    !sameKind.some((related) => related.path === candidate.path)
+  const remaining = candidates.filter(
+    (candidate) =>
+      !explicitlyRelated.some((related) => related.path === candidate.path) &&
+      !sameKind.some((related) => related.path === candidate.path)
   );
   return [...explicitlyRelated, ...sameKind, ...remaining].slice(0, limit);
 }

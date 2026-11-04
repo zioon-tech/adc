@@ -6,7 +6,7 @@ import {
   type CapabilityAdvertisement,
   type InvocationResult,
   type NodePlatform
-} from "@adc/protocol";
+} from "../../protocol/src/index.ts";
 import { AdcClientError, type NodePollResponse } from "./index.ts";
 
 export { AdcClientError } from "./index.ts";
