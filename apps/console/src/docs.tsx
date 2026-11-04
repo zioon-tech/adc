@@ -291,9 +291,15 @@ function Introduction() {
     ["quickstart", ["Connect one device and make your first call", "连接一台设备并完成首次调用"]],
     [
       "integrations",
-      ["Connect Claude Code, Codex, Cursor or another agent", "接入 Claude Code、Codex、Cursor 或其他 Agent"]
+      [
+        "Connect Claude Code, Codex, Cursor or another agent",
+        "接入 Claude Code、Codex、Cursor 或其他 Agent"
+      ]
     ],
-    ["connector", ["Add folders, command templates or local MCP servers", "添加目录、命令模板或本地 MCP 服务"]],
+    [
+      "connector",
+      ["Add folders, command templates or local MCP servers", "添加目录、命令模板或本地 MCP 服务"]
+    ],
     ["collaboration", ["Share a device with your team", "与团队共享设备"]],
     ["self-hosting", ["Run ADC on your own server", "在自己的服务器上运行 ADC"]],
     ["troubleshooting", ["Fix a device or call that is not working", "排查设备或调用问题"]]
@@ -338,7 +344,10 @@ function Introduction() {
           "ADC 是为 Agent 设计的设备连接与工具路由基础设施。它让运行在一个地方的 Agent，发现并调用多台电脑、服务器或手机上已授权的工具。Agent 负责规划，ADC 负责路由，所选设备负责执行。"
         )}
       />
-      <Section id="why" title={copy("Why separate the agent from its devices?", "为什么要把 Agent 和设备分开？")}>
+      <Section
+        id="why"
+        title={copy("Why separate the agent from its devices?", "为什么要把 Agent 和设备分开？")}
+      >
         <p>
           {copy(
             "Your agent may run in a cloud service, an IDE or another computer, while the work requires a repository on your Mac, dependencies on a Linux server or an app on your phone. Those environments already exist. You should be able to use them without first moving every file and dependency to the agent's own machine.",
@@ -357,7 +366,10 @@ function Introduction() {
           </Link>
         </p>
       </Section>
-      <Section id="cloud-agent" title={copy("When a personal agent runs in the cloud", "当 Personal agent 在云端运行")}>
+      <Section
+        id="cloud-agent"
+        title={copy("When a personal agent runs in the cloud", "当 Personal agent 在云端运行")}
+      >
         <p>
           {copy(
             "A personal agent may work on your behalf from a cloud runtime while you talk to it from a phone. Its cloud tools can reach online services, but your computer's files, installed programs and phone apps require a separate device execution path.",
@@ -372,11 +384,17 @@ function Introduction() {
         </p>
         <p>
           <Link className="docs-text-link" to="/articles/cloud-agent-local-devices">
-            {copy("Read why cloud agents need a device access layer", "阅读云端 Agent 为什么需要设备接入层")}
+            {copy(
+              "Read why cloud agents need a device access layer",
+              "阅读云端 Agent 为什么需要设备接入层"
+            )}
           </Link>
         </p>
       </Section>
-      <Section id="how-it-works" title={copy("What happens when an agent calls a tool", "Agent 调用工具时发生了什么")}>
+      <Section
+        id="how-it-works"
+        title={copy("What happens when an agent calls a tool", "Agent 调用工具时发生了什么")}
+      >
         <ol className="docs-flow">
           {flow.map((item, index) => (
             <li key={item.title[0]}>
@@ -387,7 +405,13 @@ function Introduction() {
           ))}
         </ol>
       </Section>
-      <Section id="example" title={copy("Example: an agent builds on your Linux machine", "例子：让 Agent 在 Linux 开发机上构建")}>
+      <Section
+        id="example"
+        title={copy(
+          "Example: an agent builds on your Linux machine",
+          "例子：让 Agent 在 Linux 开发机上构建"
+        )}
+      >
         <p>
           {copy(
             "After setup, the agent discovers a device called Build Linux and its authorized /work/project folder. It sees that the device runs Linux and offers shell.exec. The agent writes a Bash command, selects that device and submits a call such as this:",
@@ -418,7 +442,10 @@ function Introduction() {
           )}
         </p>
       </Section>
-      <Section id="interfaces" title={copy("Choose how to call the service", "选择怎样调用这个服务")}>
+      <Section
+        id="interfaces"
+        title={copy("Choose how to call the service", "选择怎样调用这个服务")}
+      >
         <p>
           {copy(
             "MCP exposes callable tools and schemas. CLI offers commands to agents, scripts and people. The Skill teaches an agent how to use those commands. Plugins add host-specific setup and context. They all reach the same ADC service and device authorization; they are not separate products or execution locations.",
@@ -446,7 +473,10 @@ function Introduction() {
           )}
         </p>
       </Section>
-      <Section id="platforms" title={copy("Different systems, different Nodes", "不同系统，都可以成为 Node")}>
+      <Section
+        id="platforms"
+        title={copy("Different systems, different Nodes", "不同系统，都可以成为 Node")}
+      >
         <NodePlatforms />
         <p>
           {copy(
@@ -623,22 +653,31 @@ adc invoke file.list --args '{"path":"/Users/me/work"}' --wait --json`}
           </div>
         </li>
       </ol>
-      <Section id="android" title={copy("Using Android Node (in testing)", "使用 Android Node（测试阶段）")}>
+      <Section
+        id="android"
+        title={copy("Using Android Node (in testing)", "使用 Android Node（测试阶段）")}
+      >
         <p>
           {copy(
-            "Download the Android APK, sign in with email or approve browser / GitHub login, then open This phone to connect it to your account and start the Node. Devices lists your account's computers and phones and supports renaming, access settings and removing connections. A pairing code and HTTPS service address also work for self-hosting.",
-            "下载 Android APK，通过邮箱或浏览器 / GitHub 登录，在「此手机」接入账号并启动 Node。「设备」展示账号下的电脑与手机，支持重命名、访问策略和移除连接。自托管服务也可以使用 HTTPS 服务地址和配对码。"
+            "Download the Android APK, sign in with email or approve browser / GitHub authorization in a Custom Tab, then open This phone to connect it to your account and start the Node. Registration, recovery requests, profile/password settings and help are native screens. Devices lists your computers and phones and supports renaming, access settings and removing connections. A pairing code and HTTPS service address also work for self-hosting.",
+            "下载 Android APK，通过邮箱登录，或在应用内授权窗口完成浏览器 / GitHub 授权；在「此手机」接入账号并启动 Node。注册、找回密码请求、账号资料和密码设置、使用指南均在 App 内完成。「设备」展示账号下的电脑与手机，支持重命名、访问策略和移除连接。自托管服务也可以使用 HTTPS 服务地址和配对码。"
           )}
         </p>
         <p>
-          <a className="docs-text-link" href={`${docsOrigin()}/downloads/android/preview.apk`} download>
+          <a
+            className="docs-text-link"
+            href={`${docsOrigin()}/downloads/android/preview.apk`}
+            download
+          >
             {copy("Download Android APK (in testing)", "下载 Android APK（测试阶段）")}
           </a>
         </p>
-        <p>{copy(
-          "Device status, location, notifications, volume, vibration, app launch, flashlight, screen sharing, interface reading and interface actions have separate local controls. Android permissions and account / agent policies still apply. Screen sharing needs fresh system consent; location is available only while the app is visible. Signing out leaves the phone Node connected; stop it in This phone. Updates are checked from Account and verified before Android asks you to install. This test channel retains its development signing certificate for in-place upgrades.",
-          "设备状态、位置、通知、音量、振动、打开应用、手电筒、屏幕共享、界面读取与界面操作分别由本地开关控制，系统权限和账号 / Agent 策略仍然生效。屏幕共享每次需要系统确认，位置仅限 App 前台。退出账号不会停止手机 Node，请在「此手机」停止；可在「我的」检查更新，校验通过后由系统确认安装。测试渠道沿用开发签名证书，以支持保留身份的覆盖升级。"
-        )}</p>
+        <p>
+          {copy(
+            "Device status, location, notifications, volume, vibration, app launch, flashlight, screen sharing, interface reading and interface actions have separate local controls. Android permissions and account / agent policies still apply. Screen sharing needs fresh system consent; location is available only while the app is visible. Signing out leaves the phone Node connected; stop it in This phone. Updates are checked from Account and verified before Android asks you to install. This test channel retains its development signing certificate for in-place upgrades.",
+            "设备状态、位置、通知、音量、振动、打开应用、手电筒、屏幕共享、界面读取与界面操作分别由本地开关控制，系统权限和账号 / Agent 策略仍然生效。屏幕共享每次需要系统确认，位置仅限 App 前台。退出账号不会停止手机 Node，请在「此手机」停止；可在「我的」检查更新，校验通过后由系统确认安装。测试渠道沿用开发签名证书，以支持保留身份的覆盖升级。"
+          )}
+        </p>
       </Section>
       <NextLinks
         links={[
@@ -655,7 +694,10 @@ function Examples() {
   const copy = useDocCopy();
   const examples: Array<{ title: Text; prompt: Text; grant: Text; setup?: string }> = [
     {
-      title: ["A cloud personal agent uses your home computer", "云端 Personal agent 使用你的家庭电脑"],
+      title: [
+        "A cloud personal agent uses your home computer",
+        "云端 Personal agent 使用你的家庭电脑"
+      ],
       prompt: [
         "Check the logs on my home computer and explain why the app stopped.",
         "检查家里电脑上的日志，解释应用为什么停止运行。"
@@ -667,7 +709,10 @@ function Examples() {
     },
     {
       title: ["Fix failing tests in a repository", "修复仓库中失败的测试"],
-      prompt: ["Run the tests in ~/work/api and fix what fails.", "跑一下 ~/work/api 的测试，把失败的修好。"],
+      prompt: [
+        "Run the tests in ~/work/api and fix what fails.",
+        "跑一下 ~/work/api 的测试，把失败的修好。"
+      ],
       grant: [
         "Read & write on the repository folder, then also tick test.run. Choose Before changes or execution approval while you evaluate the agent.",
         "对仓库目录选择「读写」，再额外勾选 test.run。评估 Agent 期间，审批建议选「修改或执行前审批」。"
@@ -789,8 +834,17 @@ function Integrations() {
         "Claude Code、Codex、Cursor、Gemini CLI 等已列出的 Agent，在 Agent 内引导完成接入。"
       ]
     ],
-    ["Skill", ["Any agent that supports Skills. One install command.", "任何支持 Skill 的 Agent，一条命令安装。"]],
-    ["MCP", ["Any MCP client with OAuth. Nothing to install.", "任何支持 OAuth 的 MCP 客户端，无需安装。"]],
+    [
+      "Skill",
+      [
+        "Any agent that supports Skills. One install command.",
+        "任何支持 Skill 的 Agent，一条命令安装。"
+      ]
+    ],
+    [
+      "MCP",
+      ["Any MCP client with OAuth. Nothing to install.", "任何支持 OAuth 的 MCP 客户端，无需安装。"]
+    ],
     ["CLI", ["Terminals, scripts and CI.", "终端、脚本与 CI。"]]
   ];
   return (
@@ -803,7 +857,10 @@ function Integrations() {
           "所有接入方式共用同一套 Agent 授权、审批与活动记录，按你的 Agent 支持的方式选择即可。"
         )}
       />
-      <Section id="cloud-agent" title={copy("Connecting a cloud or personal agent", "接入云端 Agent 或 Personal agent")}>
+      <Section
+        id="cloud-agent"
+        title={copy("Connecting a cloud or personal agent", "接入云端 Agent 或 Personal agent")}
+      >
         <p>
           {copy(
             "The connection belongs in the environment where your agent runs. An OAuth MCP client can call ADC over HTTPS; an agent with shell access can use the CLI and Skill in its runtime; supported hosts can use their plugin. Your target device separately runs the Node connector.",
@@ -871,7 +928,11 @@ function Integrations() {
             "For hosts with a manual Skill importer, extract the ZIP into an agent-device-cloud folder and import it, including references/.",
             "如果宿主只支持手动导入 Skill，请把 ZIP 解压到 agent-device-cloud 文件夹后导入，保留 references/ 目录。"
           )}{" "}
-          <a className="docs-text-link" href={`${origin}/downloads/skills/agent-device-cloud.zip`} download>
+          <a
+            className="docs-text-link"
+            href={`${origin}/downloads/skills/agent-device-cloud.zip`}
+            download
+          >
             {copy("Download Skill ZIP", "下载 Skill ZIP")}
           </a>
         </p>
@@ -938,8 +999,17 @@ export const windowsInstallExample = [
 function ManageDevices() {
   const copy = useDocCopy();
   const modes: Array<[string, Text]> = [
-    ["none", ["Nothing is exposed. Use this to pause a device.", "不开放任何目录，可用于暂停设备。"]],
-    ["selected", ["Only folders you add with adc-node roots add.", "只开放通过 adc-node roots add 添加的目录。"]],
+    [
+      "none",
+      ["Nothing is exposed. Use this to pause a device.", "不开放任何目录，可用于暂停设备。"]
+    ],
+    [
+      "selected",
+      [
+        "Only folders you add with adc-node roots add.",
+        "只开放通过 adc-node roots add 添加的目录。"
+      ]
+    ],
     ["home", ["The connector user's home folder.", "连接器所属用户的主目录。"]],
     [
       "full",
@@ -959,7 +1029,10 @@ function ManageDevices() {
           "以下命令都在设备上通过 adc-node 运行。修改会自动生效，无需重新配对。"
         )}
       />
-      <Section id="platforms" title={copy("Node platforms and release stage", "Node 平台与当前阶段")}>
+      <Section
+        id="platforms"
+        title={copy("Node platforms and release stage", "Node 平台与当前阶段")}
+      >
         <NodePlatforms />
       </Section>
       <Section id="install" title={copy("Install and pair", "安装与配对")}>
@@ -1104,7 +1177,10 @@ function HowItWorks() {
     ],
     [
       ["Agent access", "Agent 授权"],
-      ["The devices, folders and tools granted to this agent.", "授予这个 Agent 的设备、目录与工具。"]
+      [
+        "The devices, folders and tools granted to this agent.",
+        "授予这个 Agent 的设备、目录与工具。"
+      ]
     ],
     [
       ["Approval", "审批"],
@@ -1116,17 +1192,44 @@ function HowItWorks() {
   ];
   const lifecycle: Array<[string, Text]> = [
     ["requested", ["The agent submits a call with its credential.", "Agent 携带凭据提交调用。"]],
-    ["authorized", ["ADC resolves the device and checks every layer.", "ADC 确定目标设备并检查每一层权限。"]],
-    ["approval", ["If required, the call waits for you without holding the device.", "如需审批，调用会等待你处理，期间不占用设备。"]],
-    ["leased", ["The device claims the work and renews a short lease while it runs.", "设备领取任务，运行期间持续续期短租约。"]],
-    ["running", ["The connector checks the path again and runs the tool.", "连接器再次校验路径并运行工具。"]],
-    ["done", ["The result and receipt return; Activity records the outcome.", "结果与回执返回，活动记录写入最终结果。"]]
+    [
+      "authorized",
+      ["ADC resolves the device and checks every layer.", "ADC 确定目标设备并检查每一层权限。"]
+    ],
+    [
+      "approval",
+      [
+        "If required, the call waits for you without holding the device.",
+        "如需审批，调用会等待你处理，期间不占用设备。"
+      ]
+    ],
+    [
+      "leased",
+      [
+        "The device claims the work and renews a short lease while it runs.",
+        "设备领取任务，运行期间持续续期短租约。"
+      ]
+    ],
+    [
+      "running",
+      ["The connector checks the path again and runs the tool.", "连接器再次校验路径并运行工具。"]
+    ],
+    [
+      "done",
+      [
+        "The result and receipt return; Activity records the outcome.",
+        "结果与回执返回，活动记录写入最终结果。"
+      ]
+    ]
   ];
   return (
     <>
       <PageIntro
         eyebrow={copy("How ADC works", "ADC 如何工作")}
-        title={copy("The agent plans, ADC routes, the device executes", "Agent 规划，ADC 路由，设备执行")}
+        title={copy(
+          "The agent plans, ADC routes, the device executes",
+          "Agent 规划，ADC 路由，设备执行"
+        )}
         description={copy(
           "An agent loop and an execution environment are separate parts. ADC connects them through device discovery, authorization and tool routing; it does not introduce another model loop. Permissions and task receipts make this connection manageable.",
           "Agent 循环与执行环境是两个独立部分。ADC 通过设备发现、授权和工具路由把它们连接起来，不增加另一个模型循环。权限和任务回执让这条连接可管理、可追踪。"
@@ -1142,7 +1245,13 @@ function HowItWorks() {
           ))}
         </dl>
       </Section>
-      <Section id="cloud-runtime" title={copy("A cloud runtime can use local execution environments", "云端 Runtime 可以使用本地执行环境")}>
+      <Section
+        id="cloud-runtime"
+        title={copy(
+          "A cloud runtime can use local execution environments",
+          "云端 Runtime 可以使用本地执行环境"
+        )}
+      >
         <p>
           {copy(
             "The runtime's own shell acts on its own machine. ADC adds tools targeted at other Nodes so the agent can use their files, programs or hardware. The route must return an observable result; registering a device without usable tools does not create the ability to operate it.",
@@ -1155,7 +1264,10 @@ function HowItWorks() {
           </Link>
         </p>
       </Section>
-      <Section id="authorization" title={copy("What decides whether a call is allowed", "调用是否被允许由什么决定")}>
+      <Section
+        id="authorization"
+        title={copy("What decides whether a call is allowed", "调用是否被允许由什么决定")}
+      >
         <p>
           {copy(
             "A call runs only if every layer allows it. No layer can widen another, and changes apply to new calls immediately.",
@@ -1384,7 +1496,12 @@ function Security() {
       </Section>
       <p>
         {copy("Report vulnerabilities privately through the ", "请通过")}
-        <a className="docs-text-link" href={`${repositoryUrl}/security`} target="_blank" rel="noreferrer">
+        <a
+          className="docs-text-link"
+          href={`${repositoryUrl}/security`}
+          target="_blank"
+          rel="noreferrer"
+        >
           {copy("repository security policy", "仓库安全策略")}
         </a>
         {copy(".", "私下报告漏洞。")}
@@ -1397,21 +1514,36 @@ function SelfHosting() {
   const copy = useDocCopy();
   const variables: Array<[string, Text]> = [
     ["ADC_PUBLIC_URL", ["The public HTTPS origin.", "对外访问的 HTTPS 地址。"]],
-    ["ADC_AUTH_SECRET", ["A stable secret of 32+ characters. Back it up.", "32 位以上的稳定密钥，务必备份。"]],
-    ["ADC_DATABASE_PASSWORD", ["PostgreSQL password (URL-safe).", "PostgreSQL 密码（需 URL 安全）。"]],
+    [
+      "ADC_AUTH_SECRET",
+      ["A stable secret of 32+ characters. Back it up.", "32 位以上的稳定密钥，务必备份。"]
+    ],
+    [
+      "ADC_DATABASE_PASSWORD",
+      ["PostgreSQL password (URL-safe).", "PostgreSQL 密码（需 URL 安全）。"]
+    ],
     ["ADC_SMTP_URL", ["Required when email verification is on.", "开启邮箱验证时必填。"]],
     [
       "ADC_TRUSTED_PROXIES",
-      ["Only the proxies allowed to set client IP headers.", "仅填写允许设置客户端 IP 请求头的代理。"]
+      [
+        "Only the proxies allowed to set client IP headers.",
+        "仅填写允许设置客户端 IP 请求头的代理。"
+      ]
     ],
     [
       "ADC_ANALYTICS_*",
-      ["Leave unset to send no external analytics (the default).", "保持未设置即不发送任何外部分析数据（默认）。"]
+      [
+        "Leave unset to send no external analytics (the default).",
+        "保持未设置即不发送任何外部分析数据（默认）。"
+      ]
     ]
   ];
   const metrics: Array<[string, Text]> = [
     ["adc_node_wake_connections", ["Connected devices right now.", "当前已连接的设备数。"]],
-    ["adc_node_poll_total", ["Device polls: dispatched, idle or denied.", "设备轮询：已派发、空闲或被拒。"]],
+    [
+      "adc_node_poll_total",
+      ["Device polls: dispatched, idle or denied.", "设备轮询：已派发、空闲或被拒。"]
+    ],
     ["adc_invocation_total", ["Calls by tool and outcome.", "按工具与结果统计的调用数。"]]
   ];
   return (
@@ -1517,7 +1649,12 @@ docker compose --env-file .env -f deploy/compose.yaml exec -T postgres \\
       </Section>
       <Section id="upgrade" title={copy("Upgrade", "升级")}>
         <ol className="docs-numbered">
-          <li>{copy("Record the running version and take a verified backup.", "记录当前版本，并完成一次经过验证的备份。")}</li>
+          <li>
+            {copy(
+              "Record the running version and take a verified backup.",
+              "记录当前版本，并完成一次经过验证的备份。"
+            )}
+          </li>
           <li>
             {copy(
               "Rebuild and recreate the control plane. Migrations run before HTTP starts.",
@@ -1559,7 +1696,7 @@ function Troubleshooting() {
         "Check the local access mode first, then the device policy in the console, then the Agent access. Each layer can only narrow the one before it.",
         "先检查本地访问模式，再看控制台中的设备策略，最后看 Agent 授权。每一层只会收窄上一层。"
       ],
-      'adc-node status\nadc-node roots list\nadc-node roots add ~/work --label Work'
+      "adc-node status\nadc-node roots list\nadc-node roots add ~/work --label Work"
     ],
     [
       ["A call is denied", "调用被拒绝"],
@@ -1874,9 +2011,7 @@ function ToolReference() {
                   </td>
                   <td>{t(group.risk)}</td>
                   <td>
-                    {typeof group.purpose === "string"
-                      ? t(group.purpose)
-                      : copy(...group.purpose)}
+                    {typeof group.purpose === "string" ? t(group.purpose) : copy(...group.purpose)}
                   </td>
                 </tr>
               ))
@@ -1884,7 +2019,10 @@ function ToolReference() {
           </tbody>
         </table>
       </div>
-      <Section id="command-tools" title={copy("Shell, templates and tests", "Shell、命令模板与测试")}>
+      <Section
+        id="command-tools"
+        title={copy("Shell, templates and tests", "Shell、命令模板与测试")}
+      >
         <p>
           {copy(
             "With shell.exec, the agent supplies the command. With a template, the device owner presets it and the agent selects its ID. For example:",
@@ -1948,10 +2086,30 @@ adc-node templates add test --root ROOT_ID --command "npm test"`}
 function ApiReference() {
   const copy = useDocCopy();
   const endpoints: Array<[string, string, Text, Text]> = [
-    ["GET", "/api/v1/me", ["Owner or Agent", "账号用户或 Agent"], ["Current identity and scope.", "当前身份与权限范围。"]],
-    ["GET", "/api/v1/nodes", ["Owner", "账号用户"], ["Paired devices and capabilities.", "已配对设备与能力。"]],
-    ["POST", "/api/v1/pairing-codes", ["Owner", "账号用户"], ["Create a one-time pairing code.", "创建一次性配对码。"]],
-    ["GET · POST", "/api/v1/grants", ["Owner", "账号用户"], ["List or create Agent access.", "列出或创建 Agent 授权。"]],
+    [
+      "GET",
+      "/api/v1/me",
+      ["Owner or Agent", "账号用户或 Agent"],
+      ["Current identity and scope.", "当前身份与权限范围。"]
+    ],
+    [
+      "GET",
+      "/api/v1/nodes",
+      ["Owner", "账号用户"],
+      ["Paired devices and capabilities.", "已配对设备与能力。"]
+    ],
+    [
+      "POST",
+      "/api/v1/pairing-codes",
+      ["Owner", "账号用户"],
+      ["Create a one-time pairing code.", "创建一次性配对码。"]
+    ],
+    [
+      "GET · POST",
+      "/api/v1/grants",
+      ["Owner", "账号用户"],
+      ["List or create Agent access.", "列出或创建 Agent 授权。"]
+    ],
     [
       "PATCH · DELETE",
       "/api/v1/grants/:grantId",
@@ -1965,30 +2123,72 @@ function ApiReference() {
       ["Owner or Agent", "账号用户或 Agent"],
       ["Follow a call through approval and dispatch.", "跟踪调用的审批与派发状态。"]
     ],
-    ["GET", "/api/v1/tasks/:jobId", ["Agent", "Agent"], ["Task state or final result.", "任务状态或最终结果。"]],
-    ["POST", "/api/v1/tasks/:jobId/cancel", ["Agent", "Agent"], ["Cancel a running task.", "取消运行中的任务。"]],
+    [
+      "GET",
+      "/api/v1/tasks/:jobId",
+      ["Agent", "Agent"],
+      ["Task state or final result.", "任务状态或最终结果。"]
+    ],
+    [
+      "POST",
+      "/api/v1/tasks/:jobId/cancel",
+      ["Agent", "Agent"],
+      ["Cancel a running task.", "取消运行中的任务。"]
+    ],
     [
       "GET",
       "/api/v1/approvals",
       ["Owner", "账号用户"],
       ["Pending or resolved approvals (cursor paging).", "待处理或已处理审批（游标分页）。"]
     ],
-    ["GET", "/api/v1/audit", ["Owner", "账号用户"], ["Activity records (cursor paging).", "活动记录（游标分页）。"]]
+    [
+      "GET",
+      "/api/v1/audit",
+      ["Owner", "账号用户"],
+      ["Activity records (cursor paging).", "活动记录（游标分页）。"]
+    ]
   ];
   const errors: Array<[string, Text, Text]> = [
     ["invalid_request", ["No", "否"], ["Fix the arguments.", "修正参数。"]],
-    ["expired", ["No", "否"], ["Submit a new call with a new deadline.", "以新的截止时间重新提交。"]],
-    ["denied", ["No", "否"], ["Review Agent access, device policy and local scope.", "检查 Agent 授权、设备策略与本地范围。"]],
-    ["approval_required", ["After approval", "审批后"], ["Approve before it expires.", "在过期前完成审批。"]],
+    [
+      "expired",
+      ["No", "否"],
+      ["Submit a new call with a new deadline.", "以新的截止时间重新提交。"]
+    ],
+    [
+      "denied",
+      ["No", "否"],
+      [
+        "Review Agent access, device policy and local scope.",
+        "检查 Agent 授权、设备策略与本地范围。"
+      ]
+    ],
+    [
+      "approval_required",
+      ["After approval", "审批后"],
+      ["Approve before it expires.", "在过期前完成审批。"]
+    ],
     ["offline", ["Yes", "是"], ["Wait for the device to reconnect.", "等待设备重新连接。"]],
-    ["conflict", ["Conditionally", "视情况"], ["Refresh; never overwrite a newer revision.", "刷新后再处理，不要覆盖更新的版本。"]],
-    ["lease_expired", ["Conditionally", "视情况"], ["Read the task state before creating new work.", "创建新任务前先读取原任务状态。"]],
+    [
+      "conflict",
+      ["Conditionally", "视情况"],
+      ["Refresh; never overwrite a newer revision.", "刷新后再处理，不要覆盖更新的版本。"]
+    ],
+    [
+      "lease_expired",
+      ["Conditionally", "视情况"],
+      ["Read the task state before creating new work.", "创建新任务前先读取原任务状态。"]
+    ],
     [
       "unknown_outcome",
       ["Never automatically", "不可自动重试"],
       ["Check the device and receipt first.", "先核对设备侧结果与回执。"]
     ],
-    ["internal", ["When retryable", "仅 retryable 为真时"], ["Back off and keep the same request identity.", "退避重试，并保持相同请求身份。"]]
+    [
+      "internal",
+      ["When retryable", "仅 retryable 为真时"],
+      ["Back off and keep the same request identity.", "退避重试，并保持相同请求身份。"]
+    ]
   ];
   return (
     <>
@@ -2258,17 +2458,29 @@ function Roadmap() {
     {
       state: ["Available now", "已提供"],
       items: [
-        ["macOS and Linux connectors; Windows Node and Android Node in testing", "macOS 与 Linux 连接器；Windows Node 和 Android Node 处于测试阶段"],
-        ["Agent access, approvals, Activity and durable receipts", "Agent 授权、审批、活动记录与持久回执"],
+        [
+          "macOS and Linux connectors; Windows Node and Android Node in testing",
+          "macOS 与 Linux 连接器；Windows Node 和 Android Node 处于测试阶段"
+        ],
+        [
+          "Agent access, approvals, Activity and durable receipts",
+          "Agent 授权、审批、活动记录与持久回执"
+        ],
         ["Plugins, Skill, MCP OAuth, CLI and SDK", "插件、Skill、MCP OAuth、CLI 与 SDK"],
         ["Teams, member policies and named device sharing", "团队、成员策略与指定账号设备共享"],
-        ["Official hosted service and the same app for self-hosting", "官方托管服务，以及可自部署的同一套应用"]
+        [
+          "Official hosted service and the same app for self-hosting",
+          "官方托管服务，以及可自部署的同一套应用"
+        ]
       ]
     },
     {
       state: ["Next", "下一步"],
       items: [
-        ["Validate Windows and Android compatibility and runtime reliability", "继续验证 Windows 与 Android 的兼容性和运行可靠性"],
+        [
+          "Validate Windows and Android compatibility and runtime reliability",
+          "继续验证 Windows 与 Android 的兼容性和运行可靠性"
+        ],
         ["Direct device-to-device transfer with a rate-limited relay", "设备间直连传输与限速中继"],
         ["Signed releases and unattended updates", "签名发布包与无人值守更新"],
         ["Keychain and keyring storage for device keys", "使用 Keychain / keyring 保存设备密钥"],
@@ -2306,7 +2518,10 @@ function Roadmap() {
           </section>
         ))}
       </div>
-      <Section id="device-possibilities" title={copy("The opportunity beyond one computer", "从一台电脑到更多设备能力")}>
+      <Section
+        id="device-possibilities"
+        title={copy("The opportunity beyond one computer", "从一台电脑到更多设备能力")}
+      >
         <p>
           {copy(
             "Different Nodes can contribute different environments to the same agent: code on a Mac, builds and GPU programs on Linux, local Windows tools and Android app actions. This enables device-spanning workflows when the relevant tools, permissions and dependencies exist.",
@@ -2327,8 +2542,15 @@ function Roadmap() {
       </Section>
       <Section id="principles" title={copy("What will not change", "不会改变的原则")}>
         <ul className="docs-checklist">
-          <li>{copy("The device keeps the final say over what runs on it.", "设备对在其上运行的内容拥有最终决定权。")}</li>
-          <li>{copy("Hosted and self-hosted run the same product.", "托管与自部署始终是同一个产品。")}</li>
+          <li>
+            {copy(
+              "The device keeps the final say over what runs on it.",
+              "设备对在其上运行的内容拥有最终决定权。"
+            )}
+          </li>
+          <li>
+            {copy("Hosted and self-hosted run the same product.", "托管与自部署始终是同一个产品。")}
+          </li>
           <li>
             {copy(
               "Permissions and receipts stay independent of any single agent vendor.",
@@ -2344,10 +2566,16 @@ function Roadmap() {
 function Contributing() {
   const copy = useDocCopy();
   const areas: Array<[string, Text]> = [
-    ["packages/protocol", ["Invocation, result and receipt schemas.", "调用、结果与回执的 Schema。"]],
+    [
+      "packages/protocol",
+      ["Invocation, result and receipt schemas.", "调用、结果与回执的 Schema。"]
+    ],
     ["packages/policy", ["Permission intersection and decisions.", "权限交集与策略决策。"]],
     ["apps/control-plane", ["Accounts, APIs, dispatch and audit.", "账号、API、任务派发与审计。"]],
-    ["apps/node", ["Connector: local checks, tools and receipts.", "连接器：本地校验、工具执行与回执。"]],
+    [
+      "apps/node",
+      ["Connector: local checks, tools and receipts.", "连接器：本地校验、工具执行与回执。"]
+    ],
     ["apps/console", ["Website, docs and console.", "官网、文档与控制台。"]]
   ];
   return (
@@ -2517,7 +2745,10 @@ export function Documentation({ signedIn }: { signedIn: boolean }) {
               <article>
                 <DocContent page={page} />
               </article>
-              <nav className="docs-pagination" aria-label={copy("Previous and next", "上一页与下一页")}>
+              <nav
+                className="docs-pagination"
+                aria-label={copy("Previous and next", "上一页与下一页")}
+              >
                 {previous ? (
                   <Link to={docsPath(previous.id)}>
                     <ChevronLeft size={16} />

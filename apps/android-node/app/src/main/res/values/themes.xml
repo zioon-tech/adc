@@ -16,4 +16,9 @@
         <item name="android:windowBackground">#F4F6F3</item>
         <item name="android:navigationBarColor">#F4F6F3</item>
     </style>
+    <style name="Widget.Adc.TextInput" parent="Widget.Material3.TextInputLayout.OutlinedBox">
+        <item name="boxBackgroundMode">outline</item>
+        <item name="hintEnabled">false</item>
+        <item name="boxCollapsedPaddingTop">0dp</item>
+    </style>
 </resources>
