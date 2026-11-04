@@ -39,6 +39,33 @@ function invocation(overrides: Record<string, unknown> = {}) {
 }
 
 describe("InvocationSchema", () => {
+  it("validates explicit control leases and bounded intent metadata independently of business args", () => {
+    const begin = invocation({
+      tool: "screen.control",
+      args: { action: "begin" },
+      idempotencyKey: "begin-screen-1",
+      metadata: { source: "mcp", intent: " 查找旅游攻略 " }
+    });
+    expect(InvocationSchema.parse(begin)).toMatchObject({
+      args: { action: "begin", leaseMs: 120000 },
+      metadata: { intent: "查找旅游攻略" }
+    });
+    expect(
+      InvocationSchema.safeParse({ ...begin, args: { action: "begin", leaseMs: 180001 } }).success
+    ).toBe(false);
+    expect(InvocationSchema.safeParse({ ...begin, args: { action: "end" } }).success).toBe(false);
+    for (const intent of ["", "x".repeat(161), "next\nstep"]) {
+      expect(
+        InvocationSchema.safeParse({ ...begin, metadata: { source: "mcp", intent } }).success
+      ).toBe(false);
+    }
+    expect(
+      InvocationSchema.safeParse({
+        ...begin,
+        metadata: { source: "mcp", controlSessionId: "foreign" }
+      }).success
+    ).toBe(false);
+  });
   it("validates committed cross-adapter protocol vectors", async () => {
     const vectors = resolve(fileURLToPath(new URL(".", import.meta.url)), "../vectors");
     const valid = JSON.parse(await readFile(resolve(vectors, "invocation.valid.json"), "utf8"));

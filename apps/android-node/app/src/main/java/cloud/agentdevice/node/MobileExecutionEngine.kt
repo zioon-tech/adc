@@ -153,9 +153,14 @@ class MobileExecutionEngine(
         }
 
         var artifacts = emptyList<MobileArtifact>()
+        var operation: ScreenControl.Operation? = null
+        var uncertain = false
         val completed =
             try {
-                val capability = registry.execute(tool, args, cancelled)
+                ScreenControl.declaredIntent(invocation)
+                if (tool in ScreenControl.MUTATIONS) operation = registry.screenControl.acquire(invocation)
+                else if (tool != "screen.control") registry.screenControl.noteIntent(invocation)
+                val capability = registry.execute(tool, args, { cancelled() || operation?.cancelled() == true }, invocation, operation)
                 artifacts = capability.artifacts
                 result(
                     nodeId,
@@ -171,6 +176,7 @@ class MobileExecutionEngine(
                     artifacts.map(MobileArtifact::artifactId)
                 )
             } catch (exception: CapabilityException) {
+                uncertain = exception.code == "unknown_outcome"
                 result(
                     nodeId,
                     invocation,
@@ -189,22 +195,25 @@ class MobileExecutionEngine(
                     false
                 )
             } catch (_: Exception) {
+                uncertain = operation != null
                 result(
                     nodeId,
                     invocation,
                     policy,
-                    "failed",
+                    if (uncertain) "unknown_outcome" else "failed",
                     startedAt,
                     argsHash,
                     null,
                     error(
-                        "execution_failed",
+                        if (uncertain) "unknown_outcome" else "execution_failed",
                         "Mobile capability failed; inspect the phone for its current state.",
-                        true
+                        !uncertain
                     ),
                     sideEffect,
                     false
                 )
+            } finally {
+                operation?.close(uncertain)
             }
         return MobileExecutionResult(
             completeLedger(
@@ -353,6 +362,12 @@ class MobileExecutionEngine(
             .takeIf(String::isNotBlank)
             ?.let { receipt.put("idempotencyKeyHash", sha256Text(it)) }
         if (output != null) receipt.put("outputHash", sha256(output))
+        invocation.optJSONObject("metadata")?.let { metadata ->
+            runCatching { ScreenControl.declaredIntent(invocation) }.getOrNull()?.let { receipt.put("intent", it) }
+            metadata.optString("controlSessionId").takeIf { it.matches(Regex("^ctl_[a-f0-9]{32}$")) }
+                ?.let { receipt.put("controlSessionId", it) }
+        }
+        registry.screenControl.record(invocation, status)
 
         return JSONObject()
             .put("schemaVersion", "0.1")
@@ -374,6 +389,7 @@ class MobileExecutionEngine(
 
     companion object {
         private val SIDE_EFFECT_TOOLS = setOf(
+            "screen.control",
             "notification.show",
             "ui.action",
             "ui.gesture",

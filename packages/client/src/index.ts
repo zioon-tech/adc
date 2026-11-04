@@ -1,6 +1,22 @@
 import { createHash } from "node:crypto";
-import type { Accounts, DeviceShare, Invitation, InvitationCreated, Team, TeamMember } from "./collaboration.ts";
-export type { Accounts, DeviceShare, Invitation, InvitationCreated, Team, TeamMember, TeamRole, CollaborationScope } from "./collaboration.ts";
+import type {
+  Accounts,
+  DeviceShare,
+  Invitation,
+  InvitationCreated,
+  Team,
+  TeamMember
+} from "./collaboration.ts";
+export type {
+  Accounts,
+  DeviceShare,
+  Invitation,
+  InvitationCreated,
+  Team,
+  TeamMember,
+  TeamRole,
+  CollaborationScope
+} from "./collaboration.ts";
 import {
   ControlPlaneTools,
   ErrorSchema,
@@ -38,7 +54,11 @@ export interface InvocationContext {
     description?: string;
     platform: NodePlatform;
     lastSeenAt?: string;
-    access?: { kind: "shared" | "team"; bindingId?: string; execution: CollaborationScope["execution"] };
+    access?: {
+      kind: "shared" | "team";
+      bindingId?: string;
+      execution: CollaborationScope["execution"];
+    };
   }>;
   allowedTools?: ToolId[];
   toolNodeIds?: Partial<Record<ToolId, string[]>>;
@@ -80,18 +100,20 @@ export interface NodeReleaseSummary {
   buildId: string;
 }
 
-export type NodeReleaseUpdate = {
-  state: "current" | "update_available" | "ahead";
-  currentBuildId: string | null;
-  currentVersion?: string;
-  latest: NodeReleaseSummary;
-} | {
-  state: "unknown";
-  currentBuildId: string | null;
-  currentVersion?: string;
-  reason: "release_unavailable" | "version_unreported" | "build_unreported";
-  latest?: NodeReleaseSummary;
-};
+export type NodeReleaseUpdate =
+  | {
+      state: "current" | "update_available" | "ahead";
+      currentBuildId: string | null;
+      currentVersion?: string;
+      latest: NodeReleaseSummary;
+    }
+  | {
+      state: "unknown";
+      currentBuildId: string | null;
+      currentVersion?: string;
+      reason: "release_unavailable" | "version_unreported" | "build_unreported";
+      latest?: NodeReleaseSummary;
+    };
 
 export interface ManagedNode {
   nodeId: string;
@@ -259,6 +281,8 @@ export function buildInvocation(input: {
   idempotencyKey?: string;
   timeoutMs?: number;
   executionTimeoutMs?: number;
+  intent?: string;
+  controlSessionId?: string;
 }): Invocation {
   const issuedAt = new Date();
   const tool = input.tool;
@@ -341,7 +365,11 @@ export function buildInvocation(input: {
       ? { executionTimeoutMs: input.executionTimeoutMs }
       : {}),
     ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
-    metadata: { source: input.source }
+    metadata: {
+      source: input.source,
+      ...(input.intent !== undefined ? { intent: input.intent } : {}),
+      ...(input.controlSessionId !== undefined ? { controlSessionId: input.controlSessionId } : {})
+    }
   });
 }
 
@@ -369,11 +397,13 @@ export class AdcClient {
 
   private headers(): Record<string, string> {
     const selection = this.selectedAccountId ? { "x-adc-account": this.selectedAccountId } : {};
-    if (typeof this.credential === "string") return { authorization: `Bearer ${this.credential}`, ...selection };
+    if (typeof this.credential === "string")
+      return { authorization: `Bearer ${this.credential}`, ...selection };
     if ("sessionToken" in this.credential)
       return {
         authorization: `Bearer ${this.credential.sessionToken}`,
-        origin: new URL(this.baseUrl).origin, ...selection
+        origin: new URL(this.baseUrl).origin,
+        ...selection
       };
     return { cookie: this.credential.cookie, origin: new URL(this.baseUrl).origin, ...selection };
   }
@@ -502,55 +532,134 @@ export class AdcClient {
   }
 
   async accounts(): Promise<Accounts> {
-    return await this.request("/api/v1/accounts") as Accounts;
+    return (await this.request("/api/v1/accounts")) as Accounts;
   }
   async createTeam(name: string): Promise<Team> {
-    return await this.request("/api/v1/teams", { method: "POST", body: JSON.stringify({ name }) }) as Team;
+    return (await this.request("/api/v1/teams", {
+      method: "POST",
+      body: JSON.stringify({ name })
+    })) as Team;
   }
   async teamMembers(accountId: string): Promise<TeamMember[]> {
-    return (await this.request(`/api/v1/teams/${encodeURIComponent(accountId)}/members`) as { members: TeamMember[] }).members;
+    return (
+      (await this.request(`/api/v1/teams/${encodeURIComponent(accountId)}/members`)) as {
+        members: TeamMember[];
+      }
+    ).members;
   }
   async teamDevices(accountId: string): Promise<ManagedNode[]> {
-    return (await this.request(`/api/v1/teams/${encodeURIComponent(accountId)}/devices`) as { nodes: ManagedNode[] }).nodes;
+    return (
+      (await this.request(`/api/v1/teams/${encodeURIComponent(accountId)}/devices`)) as {
+        nodes: ManagedNode[];
+      }
+    ).nodes;
   }
-  async updateTeamMember(accountId: string, userId: string, input: Pick<TeamMember, "revision" | "role" | "state" | "rules"> & { acknowledgeHostTrust?: boolean }): Promise<TeamMember> {
-    return await this.request(`/api/v1/teams/${encodeURIComponent(accountId)}/members/${encodeURIComponent(userId)}`,
-      { method: "PATCH", body: JSON.stringify(input) }) as TeamMember;
+  async updateTeamMember(
+    accountId: string,
+    userId: string,
+    input: Pick<TeamMember, "revision" | "role" | "state" | "rules"> & {
+      acknowledgeHostTrust?: boolean;
+    }
+  ): Promise<TeamMember> {
+    return (await this.request(
+      `/api/v1/teams/${encodeURIComponent(accountId)}/members/${encodeURIComponent(userId)}`,
+      { method: "PATCH", body: JSON.stringify(input) }
+    )) as TeamMember;
   }
-  async inviteTeamMember(accountId: string, email: string, role: "member" | "admin" = "member"): Promise<InvitationCreated> {
-    return await this.request(`/api/v1/teams/${encodeURIComponent(accountId)}/invitations`,
-      { method: "POST", body: JSON.stringify({ email, role }) }) as InvitationCreated;
+  async inviteTeamMember(
+    accountId: string,
+    email: string,
+    role: "member" | "admin" = "member"
+  ): Promise<InvitationCreated> {
+    return (await this.request(`/api/v1/teams/${encodeURIComponent(accountId)}/invitations`, {
+      method: "POST",
+      body: JSON.stringify({ email, role })
+    })) as InvitationCreated;
   }
   async leaveTeam(accountId: string, revision: number): Promise<unknown> {
-    return this.request(`/api/v1/teams/${encodeURIComponent(accountId)}/leave`, { method: "POST", body: JSON.stringify({ revision }) });
+    return this.request(`/api/v1/teams/${encodeURIComponent(accountId)}/leave`, {
+      method: "POST",
+      body: JSON.stringify({ revision })
+    });
   }
-  async linkTeamDevice(accountId: string, input: { nodeId: string; scope: CollaborationScope; acknowledgeHostTrust?: boolean }): Promise<DeviceShare> {
-    return await this.request(`/api/v1/teams/${encodeURIComponent(accountId)}/devices`, { method: "POST", body: JSON.stringify(input) }) as DeviceShare;
+  async linkTeamDevice(
+    accountId: string,
+    input: { nodeId: string; scope: CollaborationScope; acknowledgeHostTrust?: boolean }
+  ): Promise<DeviceShare> {
+    return (await this.request(`/api/v1/teams/${encodeURIComponent(accountId)}/devices`, {
+      method: "POST",
+      body: JSON.stringify(input)
+    })) as DeviceShare;
   }
-  async inviteDeviceShare(nodeId: string, input: { email: string; scope: CollaborationScope; durationDays?: number | null; acknowledgeHostTrust?: boolean }): Promise<InvitationCreated> {
-    return await this.request(`/api/v1/nodes/${encodeURIComponent(nodeId)}/share-invitations`, { method: "POST", body: JSON.stringify(input) }) as InvitationCreated;
+  async inviteDeviceShare(
+    nodeId: string,
+    input: {
+      email: string;
+      scope: CollaborationScope;
+      durationDays?: number | null;
+      acknowledgeHostTrust?: boolean;
+    }
+  ): Promise<InvitationCreated> {
+    return (await this.request(`/api/v1/nodes/${encodeURIComponent(nodeId)}/share-invitations`, {
+      method: "POST",
+      body: JSON.stringify(input)
+    })) as InvitationCreated;
   }
   async invitations(): Promise<Invitation[]> {
-    return (await this.request("/api/v1/share-invitations") as { invitations: Invitation[] }).invitations;
+    return ((await this.request("/api/v1/share-invitations")) as { invitations: Invitation[] })
+      .invitations;
   }
   async invitation(invitationId: string, token?: string): Promise<Invitation> {
-    return await this.request(`/api/v1/share-invitations/${encodeURIComponent(invitationId)}${token ? `?token=${encodeURIComponent(token)}` : ""}`) as Invitation;
+    return (await this.request(
+      `/api/v1/share-invitations/${encodeURIComponent(invitationId)}${token ? `?token=${encodeURIComponent(token)}` : ""}`
+    )) as Invitation;
   }
-  async respondInvitation(invitationId: string, revision: number, decision: "accept" | "decline" | "revoke", token?: string): Promise<{ invitation: Invitation; binding?: DeviceShare }> {
-    return await this.request(`/api/v1/share-invitations/${encodeURIComponent(invitationId)}/${decision}`,
-      { method: "POST", body: JSON.stringify({ revision, ...(token ? { token } : {}) }) }) as { invitation: Invitation; binding?: DeviceShare };
+  async respondInvitation(
+    invitationId: string,
+    revision: number,
+    decision: "accept" | "decline" | "revoke",
+    token?: string
+  ): Promise<{ invitation: Invitation; binding?: DeviceShare }> {
+    return (await this.request(
+      `/api/v1/share-invitations/${encodeURIComponent(invitationId)}/${decision}`,
+      { method: "POST", body: JSON.stringify({ revision, ...(token ? { token } : {}) }) }
+    )) as { invitation: Invitation; binding?: DeviceShare };
   }
   async deviceShares(direction: "received" | "owned" = "received"): Promise<DeviceShare[]> {
-    return (await this.request(`/api/v1/device-shares?direction=${direction}`) as { shares: DeviceShare[] }).shares;
+    return (
+      (await this.request(`/api/v1/device-shares?direction=${direction}`)) as {
+        shares: DeviceShare[];
+      }
+    ).shares;
   }
-  async updateDeviceShare(bindingId: string, input: { revision: number; scope?: CollaborationScope; expiresAt?: string | null; state?: "active" | "paused"; acknowledgeHostTrust?: boolean }): Promise<DeviceShare | InvitationCreated> {
-    return await this.request(`/api/v1/device-shares/${encodeURIComponent(bindingId)}`, { method: "PATCH", body: JSON.stringify(input) }) as DeviceShare | InvitationCreated;
+  async updateDeviceShare(
+    bindingId: string,
+    input: {
+      revision: number;
+      scope?: CollaborationScope;
+      expiresAt?: string | null;
+      state?: "active" | "paused";
+      acknowledgeHostTrust?: boolean;
+    }
+  ): Promise<DeviceShare | InvitationCreated> {
+    return (await this.request(`/api/v1/device-shares/${encodeURIComponent(bindingId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(input)
+    })) as DeviceShare | InvitationCreated;
   }
-  async endDeviceShare(bindingId: string, revision: number, action: "revoke" | "leave"): Promise<DeviceShare> {
-    return await this.request(`/api/v1/device-shares/${encodeURIComponent(bindingId)}/${action}`, { method: "POST", body: JSON.stringify({ revision }) }) as DeviceShare;
+  async endDeviceShare(
+    bindingId: string,
+    revision: number,
+    action: "revoke" | "leave"
+  ): Promise<DeviceShare> {
+    return (await this.request(`/api/v1/device-shares/${encodeURIComponent(bindingId)}/${action}`, {
+      method: "POST",
+      body: JSON.stringify({ revision })
+    })) as DeviceShare;
   }
   async sharedDeviceActivity(): Promise<unknown[]> {
-    return (await this.request("/api/v1/device-shares/activity") as { activity: unknown[] }).activity;
+    return ((await this.request("/api/v1/device-shares/activity")) as { activity: unknown[] })
+      .activity;
   }
 
   async nodeInstallation(): Promise<NodeInstallation> {
@@ -598,16 +707,21 @@ export class AdcClient {
     })) as Project;
   }
 
-  async updateProject(projectId: string, input: { label: string; revision: number }): Promise<Project> {
-    return await this.request(`/api/v1/projects/${encodeURIComponent(projectId)}`, {
-      method: "PATCH", body: JSON.stringify(input)
-    }) as Project;
+  async updateProject(
+    projectId: string,
+    input: { label: string; revision: number }
+  ): Promise<Project> {
+    return (await this.request(`/api/v1/projects/${encodeURIComponent(projectId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(input)
+    })) as Project;
   }
 
   async deleteProject(projectId: string, revision: number): Promise<{ deleted: boolean }> {
-    return await this.request(`/api/v1/projects/${encodeURIComponent(projectId)}`, {
-      method: "DELETE", body: JSON.stringify({ revision })
-    }) as { deleted: boolean };
+    return (await this.request(`/api/v1/projects/${encodeURIComponent(projectId)}`, {
+      method: "DELETE",
+      body: JSON.stringify({ revision })
+    })) as { deleted: boolean };
   }
 
   async listProjectRoots(projectId: string): Promise<ProjectRoot[]> {
@@ -627,16 +741,32 @@ export class AdcClient {
     })) as ProjectRoot;
   }
 
-  async updateProjectRoot(projectId: string, rootId: string, input: { label: string; writable: boolean; revision: number }): Promise<ProjectRoot> {
-    return await this.request(`/api/v1/projects/${encodeURIComponent(projectId)}/roots/${encodeURIComponent(rootId)}`, {
-      method: "PATCH", body: JSON.stringify(input)
-    }) as ProjectRoot;
+  async updateProjectRoot(
+    projectId: string,
+    rootId: string,
+    input: { label: string; writable: boolean; revision: number }
+  ): Promise<ProjectRoot> {
+    return (await this.request(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/roots/${encodeURIComponent(rootId)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(input)
+      }
+    )) as ProjectRoot;
   }
 
-  async removeProjectRoot(projectId: string, rootId: string, revision: number): Promise<{ deleted: boolean }> {
-    return await this.request(`/api/v1/projects/${encodeURIComponent(projectId)}/roots/${encodeURIComponent(rootId)}`, {
-      method: "DELETE", body: JSON.stringify({ revision })
-    }) as { deleted: boolean };
+  async removeProjectRoot(
+    projectId: string,
+    rootId: string,
+    revision: number
+  ): Promise<{ deleted: boolean }> {
+    return (await this.request(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/roots/${encodeURIComponent(rootId)}`,
+      {
+        method: "DELETE",
+        body: JSON.stringify({ revision })
+      }
+    )) as { deleted: boolean };
   }
 
   async createPairingCode(ttlSeconds = 600): Promise<{ code: string; expiresAt: string }> {

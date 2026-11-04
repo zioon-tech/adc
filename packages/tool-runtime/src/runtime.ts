@@ -214,7 +214,10 @@ export class ToolRuntime {
     this.fullTrust = fullTrust;
     this.roots.clear();
     for (const root of roots)
-      this.roots.set(root.rootId, { ...root, allowSensitivePaths: fullTrust && !this.options.protectSensitivePaths });
+      this.roots.set(root.rootId, {
+        ...root,
+        allowSensitivePaths: fullTrust && !this.options.protectSensitivePaths
+      });
     this.templates.clear();
     for (const template of templates)
       this.templates.set(
@@ -259,7 +262,9 @@ export class ToolRuntime {
           scope: `${invocation.accountId}:${invocation.actor.id}`,
           idempotencyKey: invocation.idempotencyKey!,
           input: {
-            tool: invocation.tool, args: invocation.args, target: invocation.target,
+            tool: invocation.tool,
+            args: invocation.args,
+            target: invocation.target,
             ...(invocation.delegation ? { delegation: invocation.delegation } : {})
           },
           invocationId: invocation.invocationId,
@@ -990,6 +995,10 @@ export class ToolRuntime {
       nodeId: this.options.nodeId,
       ...(input.invocation.delegation ? { delegation: input.invocation.delegation } : {}),
       tool: input.invocation.tool,
+      ...(input.invocation.metadata.intent ? { intent: input.invocation.metadata.intent } : {}),
+      ...(input.invocation.metadata.controlSessionId
+        ? { controlSessionId: input.invocation.metadata.controlSessionId }
+        : {}),
       terminalStatus: input.status,
       sideEffect: isSideEffectTool(input.invocation.tool),
       replayed: false,

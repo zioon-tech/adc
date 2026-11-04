@@ -40,6 +40,7 @@ Usage:
   adc tool list|show [TOOL]
   adc invoke TOOL --args JSON [--node DEVICE] [--wait [MILLISECONDS]]
              [--idempotency-key KEY] [--execution-timeout MILLISECONDS]
+             [--intent PURPOSE] [--control-session TOKEN]
   adc invocation status INVOCATION
   adc task status|result|wait|cancel JOB [--wait MILLISECONDS]
   adc transfer create --source-node NODE --source-root ROOT --source-path PATH
@@ -215,10 +216,16 @@ async function main(): Promise<void> {
   const account = stringFlag(flags, "account");
   if (management && account) {
     const accounts = await client.accounts();
-    const matches = accounts.teams.filter(team => team.accountId === account || team.name === account);
-    if (account === accounts.personalAccountId || account === "personal") client = client.withAccount(accounts.personalAccountId);
+    const matches = accounts.teams.filter(
+      (team) => team.accountId === account || team.name === account
+    );
+    if (account === accounts.personalAccountId || account === "personal")
+      client = client.withAccount(accounts.personalAccountId);
     else if (matches.length === 1) client = client.withAccount(matches[0]!.accountId);
-    else throw new Error("--account must select your personal account or an exact team ID/unambiguous name.");
+    else
+      throw new Error(
+        "--account must select your personal account or an exact team ID/unambiguous name."
+      );
   }
 
   if (management) {
@@ -424,6 +431,12 @@ async function main(): Promise<void> {
             }
           : {}),
       source: stringFlag(flags, "source") === "skill" ? "skill" : "cli",
+      ...(stringFlag(flags, "intent") !== undefined
+        ? { intent: stringFlag(flags, "intent")! }
+        : {}),
+      ...(stringFlag(flags, "control-session") !== undefined
+        ? { controlSessionId: stringFlag(flags, "control-session")! }
+        : {}),
       ...(idempotencyKey ? { idempotencyKey } : {}),
       ...(stringFlag(flags, "execution-timeout")
         ? { executionTimeoutMs: Number(stringFlag(flags, "execution-timeout")) }
