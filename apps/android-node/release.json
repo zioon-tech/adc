@@ -1,19 +1,19 @@
 {
   "schemaVersion": 1,
   "packageName": "cloud.agentdevice.node",
-  "versionName": "0.2.1",
-  "versionCode": 7,
+  "versionName": "0.2.2",
+  "versionCode": 8,
   "minSdk": 26,
-  "publishedAt": "2026-11-04T03:57:01.246Z",
+  "publishedAt": "2026-11-04T05:22:01.397Z",
   "required": false,
   "releaseNotes": {
-    "zh-CN": "Android Node 0.2.1（测试版）\n\n统一所有输入框和服务地址弹窗，移除双底线，使用原生圆角边框、清晰标签与就地错误提示。\n登录、注册、邮箱验证与密码找回采用一致的原生页面；页面恢复保留名称和邮箱，密码不保存。\n新增 App 内账号名称与密码设置、已关联登录方式展示、退出其他登录会话。\n使用指南与电脑配对指引在 App 内查看，不再打开网页控制台。\nGitHub / 浏览器授权改用带 App 配色的 Custom Tab。\n官方服务的邮箱验证和密码重置支持 Android App Links；开启受支持链接后可在 App 内完成。\n应用图标沿用官网的 ADC 连接线标志，支持自适应形状与 Android 13 主题图标。\n\n沿用已安装测试版的签名，可覆盖升级。Android 系统授权和第三方账号授权仍需用户确认。",
-    "en": "Android Node 0.2.1 (preview)\n\nOne native rounded field treatment across forms and service dialogs, with clear labels and inline errors; removes duplicated platform underlines.\nConsistent native login, registration, email verification and password recovery. Form restoration preserves name and email, never passwords.\nIn-app profile/password settings, linked sign-in method information and revocation of other sessions.\nNative phone help and computer pairing instructions replace routine web-console navigation.\nGitHub/browser authorization uses an app-themed Custom Tab.\nOfficial service verification/reset links support verified Android App Links when supported-link handling is enabled.\nThe launcher uses the official ADC cable mark with adaptive shapes and Android 13 themed icon support.\n\nRetains the installed preview certificate for in-place upgrades. System permission and third-party authorization remain under user control."
+    "zh-CN": "ADC 0.2.2（测试版）\n\n中文名称为「ADC 设备云」，英文名称为「ADC」。\n修复页面与底部标签切换时的闪动：移除整页淡入，保留各页面滚动位置，加载条不再挤动内容。\n设备列表在后台刷新时保留已有内容，允许正常切换页面；相同内容不再重复重建，刷新不会覆盖正在编辑的设备设置。\n「我的 → 语言」支持跟随系统、中文与 English。Android 13 及以上同时支持系统的单应用语言设置。\n界面、后台通知与更新说明跟随所选语言，切换语言不会重启手机 Node。\n此手机与使用指南改为通用 Android 后台运行说明，移除品牌专属提示。\n\n沿用已安装测试版的签名，可覆盖升级并保留配对、账号和本地权限。安装仍需 Android 系统确认。",
+    "en": "ADC 0.2.2 (preview)\n\nThe app is named ADC in English and ADC 设备云 in Chinese.\nRemoves page fades that caused flashes during navigation. Each tab retains its scroll position and the loading bar no longer shifts content.\nBackground device refresh keeps cached content and navigation available. Unchanged rows remain in place, and refresh never replaces an open device-settings draft.\nAccount → Language offers Follow system, 中文 and English. Android 13+ also supports the system's per-app language setting.\nThe interface, background notifications and update notes use the selected language. Changing language does not restart the phone Node.\nPhone controls and the guide now use general Android background-availability instructions.\n\nRetains the installed preview certificate for in-place upgrades, preserving pairing, account and local permissions. Android confirmation is still required for installation."
   },
   "apk": {
-    "url": "https://adc.zioon.tech/downloads/android/adc-mobile-node-0.2.1-555692a0dc436cc9.apk",
-    "sha256": "555692a0dc436cc9478b1d3492c9e5ddaa2c36088ae0e5e58882c7874d52cd31",
-    "bytes": 5429148,
+    "url": "https://adc.zioon.tech/downloads/android/adc-mobile-node-0.2.2-42a085ca1c19e9d5.apk",
+    "sha256": "42a085ca1c19e9d58950ee8c6c0c38aa50fe2abd1bb621275b5b0066ae105000",
+    "bytes": 5437396,
     "signingCertificateSha256": "12addbdd332aed29ac79f85fddbfd5399ddeb8a8226d3d09fe21e2e094d2f10f"
   }
 }
