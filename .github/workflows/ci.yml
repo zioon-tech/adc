@@ -15,6 +15,7 @@ jobs:
     outputs:
       service: ${{ steps.affected.outputs.service }}
       site: ${{ steps.affected.outputs.site }}
+      client-tools: ${{ steps.affected.outputs.client-tools }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -45,11 +46,22 @@ jobs:
       release-component: console-and-site
       artifact-name: adc-console-and-site-${{ github.sha }}
       artifact-path: .release-out/console-and-site
+  client-tools:
+    needs: changes
+    if: needs.changes.outputs.client-tools == 'true'
+    uses: zioon-tech/workflows/.github/workflows/node-ci.yml@c393e2bb7646ec3e3ac889c5548f6c719d3ca2bc
+    with:
+      package-manager: pnpm
+      install: pnpm install --frozen-lockfile
+      command: pnpm build:node && pnpm build:sdk && pnpm verify:client-tools
+      release-component: client-tools
+      artifact-name: adc-client-tools-${{ github.sha }}
+      artifact-path: .release-out/client-tools
   required:
     name: CI
     runs-on: ubuntu-24.04
     if: always()
-    needs: [changes, secrets, service, website]
+    needs: [changes, secrets, service, website, client-tools]
     steps:
       - env:
           FAILED: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}

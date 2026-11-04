@@ -37,8 +37,8 @@ import {
   type PolicyDecision,
   type ToolCapability,
   type ToolId
-} from "@adc/protocol";
-import type { CollaborationScope, Delegation } from "@adc/protocol";
+} from "../../protocol/src/index.ts";
+import type { CollaborationScope, Delegation } from "../../protocol/src/index.ts";
 
 type Fetch = typeof globalThis.fetch;
 

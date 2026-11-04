@@ -1,20 +1,27 @@
 # @adc/client
 
-Typed client for the [Agent Device Cloud](https://github.com/zionforge/agent-device-cloud)
+Typed client for the [Agent Device Cloud](https://github.com/zioon-tech/adc)
 Control Plane API. One contract across HTTP, CLI, MCP and SDK.
 
 ## Install
 
 ```sh
-npm install @adc/client
+# Read the versioned package URL from the official download manifest.
+SDK_FILE=$(curl -fsSL https://adc.zioon.tech/downloads/sdk/manifest.json |
+  node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>console.log(JSON.parse(s).archive.file))')
+npm install "https://adc.zioon.tech/downloads/sdk/$SDK_FILE"
 ```
+
+The release includes compiled JavaScript, TypeScript declarations, the ADC protocol
+and Zod. Installation needs no private registry or separate `@adc/protocol` package.
+The public npm package name is not currently a supported installation source.
 
 ## Usage
 
-### Browser and shared (no Node built-ins)
+### Node client
 
 ```ts
-import { AdcClient } from "@adc/client";
+import { AdcClient, buildInvocation } from "@adc/client";
 
 const client = new AdcClient(
   "https://devices.example.com",
@@ -25,6 +32,17 @@ const client = new AdcClient(
 // Agent scope: one call returns grant + authorized nodes (with root paths
 // and descriptions) + tool-to-node mapping.
 const me = await client.me();
+if (me.kind === "agent") {
+  const invocation = buildInvocation({
+    context: me.context,
+    tool: "file.read",
+    args: { absolutePath: "/workspace/README.md" },
+    source: "sdk",
+    intent: "Read the project setup instructions"
+    // For an active screen control session, also pass controlSessionId.
+  });
+  const result = await client.invoke(invocation);
+}
 
 // Owner scope (owner PAT or session credential)
 const nodes = await client.listNodes();
@@ -37,8 +55,8 @@ await client.updateNode(nodes[0]!.nodeId, {
 const approvals = await client.listApprovalsPage({ status: "pending" });
 ```
 
-The main entry runs in browsers, Workers and Node without any Node built-in,
-so harness plugins and consoles can bundle it directly.
+The client currently uses Node crypto; use a bundler with the required adaptation
+for other runtimes.
 
 ### Node-only device protocol
 

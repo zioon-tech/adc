@@ -1,0 +1,44 @@
+name: Activate qualified client tool downloads
+on:
+  workflow_dispatch:
+    inputs:
+      ci-run:
+        description: Successful main CI whose service and client-tools are already deployed
+        type: string
+        required: true
+      check-only:
+        description: Validate the exact production state without switching download paths
+        type: boolean
+        default: true
+        required: true
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+concurrency:
+  group: production-${{ github.repository }}-service
+  cancel-in-progress: false
+jobs:
+  activate:
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: zioon-tech/workflows
+          ref: f2365c046bb40aa9e5cebaba924983e9e7a154d7
+          path: .production-workflows
+          persist-credentials: false
+      - name: Activate versioned client downloads with backup and rollback
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_ROLE_ARN: ${{ vars.DEPLOY_ROLE_ARN }}
+          DEPLOY_OIDC_PROVIDER_ARN: ${{ vars.DEPLOY_OIDC_PROVIDER_ARN }}
+          DEPLOY_INSTANCE_ID: ${{ vars.DEPLOY_INSTANCE_ID }}
+          CLIENT_CI_RUN: ${{ inputs.ci-run }}
+          CHECK_ONLY: ${{ inputs.check-only }}
+        run: python3 scripts/activate-client-downloads.py

@@ -1,10 +1,12 @@
 {
   "name": "agent-device-cloud",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@9.14.2",
-  "volta": { "node": "22.18.0" },
+  "volta": {
+    "node": "22.18.0"
+  },
   "pnpm": {
     "overrides": {
       "@better-auth/utils": "0.4.2"
@@ -16,6 +18,8 @@
   "scripts": {
     "build": "pnpm schema:check && tsc --noEmit && pnpm build:skill && pnpm build:plugins && pnpm --filter @adc/console build",
     "build:node": "tsx scripts/build-node.ts",
+    "build:sdk": "tsx scripts/build-sdk.ts",
+    "verify:client-tools": "node --import tsx scripts/ci/verify-client-tools.mjs",
     "build:skill": "tsx scripts/build-skill.ts",
     "build:plugins": "tsx scripts/build-plugins.ts",
     "publish:android": "tsx scripts/publish-android-release.ts",

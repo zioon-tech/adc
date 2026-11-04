@@ -4,7 +4,7 @@ on:
     inputs:
       component:
         type: choice
-        options: [console-and-site, service]
+        options: [console-and-site, service, client-tools]
         required: true
       ci-run:
         description: Successful main-branch ADC CI run ID
@@ -24,7 +24,7 @@ permissions:
   id-token: write
 jobs:
   release:
-    uses: zioon-tech/workflows/.github/workflows/deploy.yml@4ca8b3e2162c138e85f68815614106ee7008735e
+    uses: zioon-tech/workflows/.github/workflows/deploy.yml@07588ea773519388f315880d2def1d524b50aae3
     with:
       component: ${{ inputs.component }}
       ci-run: ${{ inputs.ci-run }}

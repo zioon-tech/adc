@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: zioon-tech/workflows
-          ref: f2365c046bb40aa9e5cebaba924983e9e7a154d7
+          ref: c95a126e6ce76bce48d69fe5df916601f84987bf
           path: .production-workflows
           persist-credentials: false
       - name: Inspect disk and release references

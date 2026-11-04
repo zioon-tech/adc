@@ -1,6 +1,6 @@
-import type { CollaborationScope } from "@adc/protocol";
+import type { CollaborationScope } from "../../protocol/src/index.ts";
 
-export type { CollaborationScope } from "@adc/protocol";
+export type { CollaborationScope } from "../../protocol/src/index.ts";
 export type TeamRole = "owner" | "admin" | "member";
 export interface TeamMember {
   accountId: string;

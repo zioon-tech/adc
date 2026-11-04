@@ -65,11 +65,19 @@ const mailer = process.env.ADC_SMTP_URL
   : undefined;
 if (mailer) await mailer.verify();
 const accountOrigin = process.env.ZIOON_ACCOUNT_ISSUER
-  ? new URL(process.env.ZIOON_ACCOUNT_ISSUER).origin : undefined;
+  ? new URL(process.env.ZIOON_ACCOUNT_ISSUER).origin
+  : undefined;
 const accountCookieDomain = process.env.ZIOON_ACCOUNT_COOKIE_DOMAIN;
-if (accountCookieDomain && (!/^[a-z0-9.-]+$/.test(accountCookieDomain)
-  || ![publicURL, accountOrigin].every(value => value && new URL(value).protocol === "https:"
-    && new URL(value).hostname.endsWith(`.${accountCookieDomain}`)))) {
+if (
+  accountCookieDomain &&
+  (!/^[a-z0-9.-]+$/.test(accountCookieDomain) ||
+    ![publicURL, accountOrigin].every(
+      (value) =>
+        value &&
+        new URL(value).protocol === "https:" &&
+        new URL(value).hostname.endsWith(`.${accountCookieDomain}`)
+    ))
+) {
   throw new Error("The common cookie domain must contain both HTTPS account and product origins.");
 }
 const authenticationOptions: AuthenticationOptions = {
@@ -79,18 +87,22 @@ const authenticationOptions: AuthenticationOptions = {
   registrationEnabled: process.env.ADC_REGISTRATION_ENABLED !== "false",
   requireEmailVerification: process.env.ADC_REQUIRE_EMAIL_VERIFICATION === "true",
   allowDynamicClientRegistration: process.env.ADC_OAUTH_DYNAMIC_REGISTRATION === "true",
-  ...(accountOrigin ? {
-    trustedOrigins: [accountOrigin],
-    ...(accountCookieDomain ? { sharedCookieDomain: accountCookieDomain } : {})
-  } : {}),
+  ...(accountOrigin
+    ? {
+        trustedOrigins: [accountOrigin],
+        ...(accountCookieDomain ? { sharedCookieDomain: accountCookieDomain } : {})
+      }
+    : {}),
   ...(process.env.ADC_GITHUB_CLIENT_ID || process.env.ADC_GITHUB_CLIENT_SECRET
     ? {
         github: {
           clientId: process.env.ADC_GITHUB_CLIENT_ID ?? "",
           clientSecret: process.env.ADC_GITHUB_CLIENT_SECRET ?? "",
-          ...(process.env.ZIOON_GITHUB_REDIRECT_URI ? {
-            redirectURI: process.env.ZIOON_GITHUB_REDIRECT_URI
-          } : {})
+          ...(process.env.ZIOON_GITHUB_REDIRECT_URI
+            ? {
+                redirectURI: process.env.ZIOON_GITHUB_REDIRECT_URI
+              }
+            : {})
         }
       }
     : {}),
@@ -101,8 +113,10 @@ const authenticationOptions: AuthenticationOptions = {
             ...mail,
             from: process.env.ZIOON_ACCOUNT_SMTP_FROM ?? {
               name: "Zioon Account",
-              address: process.env.ADC_SMTP_FROM?.match(/<([^<>]+)>/)?.[1]
-                ?? process.env.ADC_SMTP_FROM ?? "no-reply@localhost"
+              address:
+                process.env.ADC_SMTP_FROM?.match(/<([^<>]+)>/)?.[1] ??
+                process.env.ADC_SMTP_FROM ??
+                "no-reply@localhost"
             }
           });
           if (!result.accepted.length || result.rejected.length) {
@@ -114,8 +128,12 @@ const authenticationOptions: AuthenticationOptions = {
 };
 const authentication = createAuthentication(authenticationOptions);
 const accountAuthentication = accountOrigin
-  ? createAuthentication({ ...authenticationOptions, baseURL: accountOrigin,
-      trustedOrigins: [origin.origin], allowDynamicClientRegistration: false })
+  ? createAuthentication({
+      ...authenticationOptions,
+      baseURL: accountOrigin,
+      trustedOrigins: [origin.origin],
+      allowDynamicClientRegistration: false
+    })
   : undefined;
 const corsOrigins = parseCorsOrigins(process.env.ADC_CORS_ORIGINS);
 const assetStore = process.env.ADC_ASSET_DIR
@@ -151,7 +169,11 @@ const maxTransferBytes = Number(process.env.ADC_TRANSFER_MAX_BYTES ?? 1024 * 102
 if (!Number.isSafeInteger(maxTransferBytes) || maxTransferBytes < 1) {
   throw new Error("ADC_TRANSFER_MAX_BYTES must be a positive safe integer.");
 }
-const access = createAccessService(authentication, new IdentityStore(store.pool), accountAuthentication);
+const access = createAccessService(
+  authentication,
+  new IdentityStore(store.pool),
+  accountAuthentication
+);
 const app = await createControlPlane({
   store,
   access,
@@ -183,6 +205,11 @@ const app = await createControlPlane({
       process.env.ADC_ANDROID_RELEASE_DIR ||
       fileURLToPath(new URL("../../../dist/android", import.meta.url)),
     publicUrl: publicURL
+  },
+  sdkDistribution: {
+    directory:
+      process.env.ADC_SDK_RELEASE_DIR ??
+      fileURLToPath(new URL("../../../dist/sdk", import.meta.url))
   },
   skillDistribution: {
     directory:

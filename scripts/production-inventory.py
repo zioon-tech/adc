@@ -23,7 +23,7 @@ if pid <= 0:
     raise RuntimeError("ADC service has no running main process")
 process = pathlib.Path("/proc") / str(pid)
 keys = ("ADC_SKILL_RELEASE_DIR", "ADC_PLUGIN_RELEASE_DIR",
-        "ADC_NODE_RELEASE_DIR", "ADC_ANDROID_RELEASE_DIR", "ADC_CONSOLE_DIR")
+        "ADC_NODE_RELEASE_DIR", "ADC_SDK_RELEASE_DIR", "ADC_ANDROID_RELEASE_DIR", "ADC_CONSOLE_DIR")
 environment = {}
 for item in (process / "environ").read_bytes().split(b"\\0"):
     name, _, value = item.partition(b"=")
@@ -59,11 +59,15 @@ root = pathlib.Path("/opt/agent-device-cloud")
 usage = shutil.disk_usage(str(root))
 bases = list(RETIRED_BUILDS) + [
     "/opt/agent-device-cloud/releases/87489f74762bae0456f412774bf649eb4ddeb8ec-41686300466",
+    "/opt/agent-device-cloud/releases/000b0a19808d4a3e92ddd7bffa812f256989f04c-41770857505",
     "/opt/agent-device-cloud/backups/console-refinement-20261101",
     "/opt/agent-device-cloud/backups/root-sharing-20261101",
     "/opt/agent-device-cloud/backups/collaboration-20261031",
 ]
-references = build_references(bases)
+stores = ("/root/.local/share/pnpm/store/v3/files",
+          "/var/lib/agent-device-cloud/.local/share/pnpm/store/v3/files")
+RETIRED_STORES = stores
+references = build_references(bases + list(stores))
 dependencies = []
 for base in bases:
     try:
@@ -72,6 +76,16 @@ for base in bases:
         dependencies.append(dict(base=base, paths=paths, references=references[base], sizes=size))
     except RuntimeError as error:
         dependencies.append(dict(base=base, validationError=str(error)))
+package_caches = []
+for base in stores:
+    try:
+        paths = retired_store(base)
+        package_caches.append(dict(path=base, references=references[base],
+                                   sizes=disk_command(["du", "-x", "-s", "-B1", *paths]) if paths else None,
+                                   contentValidated=True,
+                                   **dependency_file_usage(paths)))
+    except RuntimeError as error:
+        package_caches.append(dict(path=base, validationError=str(error)))
 pointers = {}
 journals = {}
 for parent in [pathlib.Path("/opt"), pathlib.Path("/srv")]:
@@ -95,7 +109,7 @@ print(json.dumps(dict(
     backups=disk_sizes(root / "backups", 4, 16),
     rootPackageStore=disk_sizes("/root/.local/share/pnpm", 5, 16),
     docker=disk_command(["docker", "system", "df"]),
-    dependencies=dependencies, currentPointers=pointers, journals=journals,
+    dependencies=dependencies, packageCaches=package_caches, currentPointers=pointers, journals=journals,
 )), flush=True)
 """
     return source
