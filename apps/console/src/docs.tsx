@@ -209,6 +209,7 @@ export const documentedTools = [
   "location.get",
   "notification.show",
   "screen.capture",
+  "screen.control",
   "ui.inspect",
   "ui.wait",
   "ui.action",

@@ -48,6 +48,7 @@ The live schema is authoritative. These examples show the protocol 0.1 shapes:
 | `location.get`          | `{"desiredAccuracy":"balanced","maxAgeMs":15000,"timeoutMs":10000}`                                                                                                    |
 | `notification.show`     | `{"title":"ADC","body":"Task completed"}`                                                                                                                              |
 | `screen.capture`        | `{"format":"png","maxWidth":1080}`                                                                                                                                     |
+| `screen.control`        | `{"action":"begin","leaseMs":120000}`; `{"action":"end","controlSessionId":"ctl_0123456789abcdef0123456789abcdef"}`                                                   |
 | `ui.inspect`            | `{"maxDepth":12,"maxNodes":500}`                                                                                                                                       |
 | `ui.wait`               | `{"condition":"element","selector":{"text":"Save"},"state":"present","timeoutMs":10000}`                                                                               |
 | `ui.action`             | `{"selector":{"text":"Save"},"action":"click"}`                                                                                                                        |
@@ -74,6 +75,12 @@ CLI calls use `--wait 4000`; SDK calls use `client.invoke(invocation, { waitMs: 
 Waiting returns a terminal result or the current task state without cancelling or restarting it.
 Continue with `task.wait`, `adc task wait JOB --wait 4000 --json`, or `client.taskWait(jobId)`.
 
+Every invocation can declare an optional single-line `intent` of up to 160 characters. MCP and
+SDK builders accept it alongside `args`; CLI uses `--intent`; HTTP uses `metadata.intent`.
+Describe the current purpose without including secrets. Intent is a declaration retained with
+the receipt, not proof of an action or permission to perform it. Changing this declaration does
+not create a different idempotent operation.
+
 `file.transfer` supports a two-device job or a local Agent upload to one device. For two devices, both devices and both roots must be present in the
 current authorization; the source root may be read-only and the destination root must be writable.
 Use `adc transfer create` for its dedicated CLI, then `adc transfer status|wait|cancel` with the
@@ -87,6 +94,41 @@ on expiry. Waiting never extends this budget. Existing tool-specific `args.timeo
 Existing grants must explicitly include `task.wait` to expose that tool.
 Use `--args @/absolute/input.json` when shell quoting would make a large JSON value unsafe or
 ambiguous, and remove temporary inputs that contain sensitive data.
+
+## Android Screen Control
+
+For Android 0.2.3+, location, battery, screenshots and interface inspection are observation.
+Before `ui.action`, `ui.gesture`, `device.navigation` or `app.open`, explicitly acquire screen
+control. Existing Agent grants must add `screen.control`; refresh the MCP tool list after updating.
+The phone owner enables Accessibility, screen actions and system notifications locally.
+
+```bash
+adc invoke screen.control \
+  --node node_example \
+  --args '{"action":"begin","leaseMs":120000}' \
+  --intent "查找旅游攻略" \
+  --idempotency-key trip-42-screen-begin-1 \
+  --wait 1500 \
+  --json
+```
+
+Save the successful output's `controlSessionId`. Pass that exact token on every screen mutation:
+MCP and SDK builders use `controlSessionId` alongside `args`, CLI uses `--control-session`,
+and HTTP uses `metadata.controlSessionId`. Tokens belong to the authenticated actor that began
+the session. Do not reuse another actor's token or a completed, interrupted or expired session.
+
+Release in a finally step with `screen.control` arguments
+`{"action":"end","controlSessionId":"<the returned token>"}` and a distinct idempotency key.
+Use `status` to inspect the session, or explicitly `renew` with its token and `leaseMs` if more
+time is needed. The default lease is 120 seconds and a single lease is bounded to 180 seconds.
+Waiting for a tool or polling device status does not renew it.
+
+The phone shows active control, waiting, release and interruption separately. “I'll take over”
+fences old actions and pauses new sessions until the owner locally allows screen control again.
+Stop after takeover; do not try to reacquire, dismiss the notification or tap ADC's indicator.
+An already accepted gesture can still be settling. Expiry, disconnection and unknown outcome
+are interruption, not task completion; inspect the existing invocation and current screen before
+deciding what to do next. No tool should claim success solely because the screen became idle.
 
 ## Platform-Aware Execution
 
