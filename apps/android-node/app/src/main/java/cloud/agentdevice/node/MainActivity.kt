@@ -101,6 +101,10 @@ class MainActivity : AppCompatActivity() {
     private var deviceDescription: TextInputEditText? = null
     private var deviceConcurrency: TextInputEditText? = null
     private var detailPage: String? = null
+    private var controlTitle: TextView? = null
+    private var controlDetail: TextView? = null
+    private var controlButton: MaterialButton? = null
+    private var controlHistory: LinearLayout? = null
     private var authPage = "login"
     private var authEmail = ""
     private var authName = ""
@@ -152,6 +156,7 @@ class MainActivity : AppCompatActivity() {
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             updatePhoneStatus()
+            updateControlStatus()
             if (intent?.action == ScreenCaptureSession.ACTION_CAPABILITY_CHANGED && showingPermissions) renderPermissions()
         }
     }
@@ -221,6 +226,7 @@ class MainActivity : AppCompatActivity() {
         ContextCompat.registerReceiver(this, receiver, IntentFilter().apply {
             addAction(NodeService.ACTION_STATUS)
             addAction(ScreenCaptureSession.ACTION_CAPABILITY_CHANGED)
+            addAction(ScreenControl.ACTION_CHANGED)
         }, ContextCompat.RECEIVER_NOT_EXPORTED)
         render()
         if (savedInstanceState?.getBoolean("permissions") == true) renderPermissions()
@@ -236,6 +242,7 @@ class MainActivity : AppCompatActivity() {
         AppVisibility.setForeground(true)
         if (!::store.isInitialized) return
         updatePhoneStatus()
+        updateControlStatus()
         if (showingPermissions) renderPermissions()
         if (tab == 1 && !showingDevice && detailPage == null && accounts.session() != null && !busy) refreshDevices()
     }
@@ -688,6 +695,35 @@ class MainActivity : AppCompatActivity() {
                 iconSize = dp(20); iconPadding = dp(10)
             }
         }
+        section(getString(R.string.screen_section))
+        controlTitle = label("", 19, ink, true).also { page.addView(it) }
+        controlDetail = label("", 14, muted).apply {
+            setPadding(0, dp(8), 0, dp(8))
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+        }.also { page.addView(it) }
+        controlButton = action(getString(R.string.screen_takeover), false) {
+            runCatching {
+                val control = registry.screenControl
+                if (control.view().optBoolean("paused")) control.resume() else control.takeover()
+            }.onFailure { error(it) }
+            updateControlStatus()
+        }.apply {
+            backgroundTintList = ColorStateList.valueOf(palette.tonal)
+            setTextColor(green)
+            icon = MobileGlyph.TOUCH.drawable(green)
+            iconTint = ColorStateList.valueOf(green)
+            iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
+            iconSize = dp(20); iconPadding = dp(8)
+        }
+        caption(getString(R.string.screen_help))
+        val controlPreferences = getSharedPreferences("adc_screen_control", MODE_PRIVATE)
+        toggle(getString(R.string.screen_edge), getString(R.string.screen_edge_help), controlPreferences.getBoolean("edge", false)) {
+            controlPreferences.edit().putBoolean("edge", it).apply()
+            sendBroadcast(Intent(ScreenControl.ACTION_CHANGED).setPackage(packageName))
+        }
+        section(getString(R.string.screen_history))
+        controlHistory = column().also { page.addView(it) }
+        updateControlStatus()
         section(text("Sharing & connection", "共享与连接"))
         val count = CapabilityGroup.entries.count { store.isCapabilityEnabled(it) }
         settingsGroup {
@@ -720,6 +756,36 @@ class MainActivity : AppCompatActivity() {
                 "如系统提供相关选项，请允许后台运行与自启动，并关闭此 App 的省电限制。"))
         } else {
             caption(text("Only device status is shared by default.", "默认仅共享设备状态。"))
+        }
+    }
+
+    private fun updateControlStatus() {
+        if (!::registry.isInitialized || tab != 2 || showingDevice || showingPermissions || detailPage != null) return
+        val state = registry.screenControl.view()
+        controlTitle?.text = ScreenControlText.title(this, state)
+        controlDetail?.text = ScreenControlText.detail(this, state).ifBlank { getString(R.string.screen_no_intent) }
+        controlButton?.apply {
+            text = getString(if (state.optBoolean("paused")) R.string.screen_resume else R.string.screen_takeover)
+            isEnabled = state.optString("mode") != "handing_back" && state.optInt("pendingActions") == 0
+                || !state.optBoolean("paused") && state.optString("mode") == "using"
+        }
+        controlHistory?.apply {
+            removeAllViews()
+            val records = registry.screenControl.records()
+            if (records.length() == 0) addView(label(getString(R.string.screen_history_empty), 14, muted))
+            for (index in (records.length() - 1) downTo (records.length() - 5).coerceAtLeast(0)) {
+                val record = records.getJSONObject(index)
+                val status = when (record.optString("status")) {
+                    "succeeded" -> getString(R.string.screen_result_ok)
+                    "denied" -> getString(R.string.screen_result_denied)
+                    "unknown_outcome" -> getString(R.string.screen_result_unknown)
+                    "cancelled" -> getString(R.string.screen_result_cancelled)
+                    else -> getString(R.string.screen_result_failed)
+                }
+                addView(label(record.optString("intent").ifBlank { record.optString("tool") }, 14, ink, true)
+                    .apply { setPadding(0, dp(10), 0, dp(4)) })
+                addView(label("${record.optString("tool")} · $status", 12, muted))
+            }
         }
     }
 
@@ -1299,6 +1365,10 @@ class MainActivity : AppCompatActivity() {
         section(text("Agent access", "Agent 访问"))
         caption(text("Each agent needs a separate grant for a device and its tools. Account and agent permissions can narrow your phone's local choices.",
             "每个 Agent 需单独授权设备与工具；账号和 Agent 权限会进一步约束手机本地共享的能力。"))
+        section(getString(R.string.screen_section))
+        caption(getString(R.string.screen_help))
+        caption(text("For screen actions, explicitly grant screen.control to the agent and refresh its MCP tool list. The model begins a session, passes its token on actions, then releases it. Updating the app does not expand existing grants.",
+            "操作屏幕前，请在 Agent 授权中明确加入 screen.control，并刷新 MCP 工具列表。模型先开始控制，每步携带控制凭据，最后交还。更新 App 不会自动扩大已有授权。"))
         action(text("Open phone controls", "打开手机控制页")) { openTab(2) }
     }
     private fun renderComputerGuide() {

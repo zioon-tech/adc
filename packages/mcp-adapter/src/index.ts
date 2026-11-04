@@ -40,6 +40,8 @@ interface AdapterInput {
   idempotencyKey?: string;
   waitMs?: number;
   executionTimeoutMs?: number;
+  intent?: string;
+  controlSessionId?: string;
 }
 
 function nodeIdsForTool(context: InvocationContext, tool: ToolId): string[] | undefined {
@@ -63,8 +65,13 @@ function targetDescription(context: InvocationContext, tool: ToolId, nodeIds: st
     const node = nodes.get(nodeId);
     if (!node) return nodeId;
     const isolated = node.access?.execution === "isolated";
-    const executor = tool === "shell.exec" ? `; shell: ${isolated ? "Bash in a temporary Linux container" : shellExecutor(node.platform)}` : "";
-    const access = node.access ? `; ${node.access.kind}; access: ${node.access.execution}${isolated ? "; no network; changes discarded; artifact output retained" : ""}` : "";
+    const executor =
+      tool === "shell.exec"
+        ? `; shell: ${isolated ? "Bash in a temporary Linux container" : shellExecutor(node.platform)}`
+        : "";
+    const access = node.access
+      ? `; ${node.access.kind}; access: ${node.access.execution}${isolated ? "; no network; changes discarded; artifact output retained" : ""}`
+      : "";
     return `${nodeId} (${node.label}; platform: ${node.platform}${executor}${access})`;
   });
   return `Choose a device that advertises ${tool}. Available targets: ${targets.join(", ")}.`;
@@ -144,6 +151,19 @@ function inputJsonSchema(
       args: argsSchema,
       target: targetSchema,
       idempotencyKey: { type: "string", minLength: 8, maxLength: 256 },
+      intent: {
+        type: "string",
+        minLength: 1,
+        maxLength: 160,
+        description:
+          "Short current purpose shown on the device and retained with the receipt. Declared intent does not grant permission; omit sensitive details."
+      },
+      controlSessionId: {
+        type: "string",
+        pattern: "^ctl_[a-f0-9]{32}$",
+        description:
+          "For Android screen mutations, use the active token returned by screen.control begin. Reads do not need screen control."
+      },
       waitMs: {
         type: "integer",
         minimum: 0,
@@ -252,6 +272,8 @@ export class McpInvocationAdapter {
       args: input.args,
       ...(target ? { target } : {}),
       source: "mcp",
+      ...(input.intent !== undefined ? { intent: input.intent } : {}),
+      ...(input.controlSessionId !== undefined ? { controlSessionId: input.controlSessionId } : {}),
       ...(input.executionTimeoutMs !== undefined
         ? { executionTimeoutMs: ExecutionTimeoutMsSchema.parse(input.executionTimeoutMs) }
         : {}),
@@ -349,7 +371,15 @@ export function createMcpServer(options: McpAdapterOptions): Server {
       if (
         Object.keys(input).some(
           (key) =>
-            !["args", "target", "idempotencyKey", "waitMs", "executionTimeoutMs"].includes(key)
+            ![
+              "args",
+              "target",
+              "idempotencyKey",
+              "waitMs",
+              "executionTimeoutMs",
+              "intent",
+              "controlSessionId"
+            ].includes(key)
         )
       )
         throw new Error("Unknown tool call field.");
@@ -357,6 +387,10 @@ export function createMcpServer(options: McpAdapterOptions): Server {
         tool,
         {
           args: validation.data,
+          ...(input.intent !== undefined ? { intent: input.intent } : {}),
+          ...(input.controlSessionId !== undefined
+            ? { controlSessionId: input.controlSessionId }
+            : {}),
           ...(input.target ? { target: input.target } : {}),
           ...(input.waitMs !== undefined ? { waitMs: input.waitMs } : {}),
           ...(input.executionTimeoutMs !== undefined
@@ -408,8 +442,8 @@ function descriptionFor(tool: ToolName, context?: InvocationContext): string {
     "device.network.get": "Read the active network type and metering state from a mobile device.",
     "device.storage.get": "Read internal storage capacity and free space from a mobile device.",
     "device.vibrate": "Vibrate an Android device for a bounded duration and amplitude.",
-    "device.navigation": "Perform an Android system navigation action through Accessibility.",
-    "app.open": "Open an installed Android app by package name and wait for it to become visible.",
+    "device.navigation": "Perform an Android system navigation action through Accessibility. Requires an active screen.control token in controlSessionId.",
+    "app.open": "Open an installed Android app by package name and wait for it to become visible. Requires an active screen.control token in controlSessionId.",
     "display.status": "Read Android display dimensions, density, refresh rate and power state.",
     "audio.status": "Read Android audio mode, ringer state and stream volumes.",
     "audio.volume.set": "Set one Android audio stream to a percentage of its supported range.",
@@ -419,10 +453,14 @@ function descriptionFor(tool: ToolName, context?: InvocationContext): string {
       "Read a fresh or recently cached location from a mobile device within its local permission.",
     "notification.show": "Show a notification on a mobile device.",
     "screen.capture": "Capture the current Android display after local screen-share consent.",
+    "screen.control":
+      "Explicitly begin, renew, end or inspect Android screen control. Begin before app.open, navigation, typing, taps or swipes; pass its token as controlSessionId on each mutation and end in finally. Default lease 120 seconds; renew explicitly up to 180 seconds. A user takeover blocks new control until the user resumes locally. Location, screenshots and UI reads do not acquire control. Existing grants must explicitly allow this tool.",
     "ui.inspect": "Read a bounded semantic snapshot of the active Android UI.",
     "ui.wait": "Wait for an Android UI element, foreground app or accessibility idle state.",
-    "ui.action": "Perform a semantic action on an Android UI element.",
-    "ui.gesture": "Perform a tap or swipe gesture on an Android device.",
+    "ui.action":
+      "Perform a semantic action on an Android UI element. Requires an active screen.control token in controlSessionId.",
+    "ui.gesture":
+      "Perform a tap or swipe gesture on an Android device. Requires an active screen.control token in controlSessionId.",
     "file.list": "List files below an authorized root on target.nodeId.",
     "file.read": "Read a UTF-8 file below an authorized root on target.nodeId.",
     "file.search": "Search text below an authorized root on target.nodeId.",
@@ -445,9 +483,11 @@ function descriptionFor(tool: ToolName, context?: InvocationContext): string {
   const targetIds = new Set(nodeIdsForTool(context, tool) ?? []);
   const executors = (context.nodes ?? [])
     .filter((node) => targetIds.has(node.nodeId))
-    .map((node) => node.access?.execution === "isolated"
-      ? `${node.label} (temporary Linux container: Bash; no network; changes discarded, artifacts retained)`
-      : `${node.label} (${node.platform}: ${shellExecutor(node.platform)})`);
+    .map((node) =>
+      node.access?.execution === "isolated"
+        ? `${node.label} (temporary Linux container: Bash; no network; changes discarded, artifacts retained)`
+        : `${node.label} (${node.platform}: ${shellExecutor(node.platform)})`
+    );
   return executors.length
     ? `${descriptions[tool]} Target executors: ${executors.join(", ")}. Use syntax for the selected target's shell.`
     : descriptions[tool];

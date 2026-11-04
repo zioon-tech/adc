@@ -209,6 +209,7 @@ export const documentedTools = [
   "location.get",
   "notification.show",
   "screen.capture",
+  "screen.control",
   "ui.inspect",
   "ui.wait",
   "ui.action",
@@ -753,8 +754,8 @@ adc-node templates add test --root ROOT_ID --command "npm test"`
         "截一张手机屏幕，然后打开设置。"
       ],
       grant: [
-        "screen.capture, ui.inspect, app.open and ui.action. Enable Accessibility and screen capture in ADC Mobile Node first.",
-        "screen.capture、ui.inspect、app.open 和 ui.action。需要先在 ADC Mobile Node 中开启无障碍和屏幕截图权限。"
+        "screen.capture, ui.inspect, screen.control, app.open and ui.action. Enable Accessibility, screen actions and notifications in ADC first. Add screen.control explicitly to existing grants and refresh the MCP tool list. Begin control, pass its token on actions, then end it; reads do not acquire control.",
+        "screen.capture、ui.inspect、screen.control、app.open 和 ui.action。先开启无障碍、屏幕操作与系统通知；已有授权需明确加入 screen.control，并刷新 MCP 工具列表。模型先开始，每步携带控制凭据，最后交还；读取不算接管。"
       ]
     },
     {
@@ -1972,6 +1973,7 @@ function ToolReference() {
     {
       tools: [
         "device.navigation",
+        "screen.control",
         "device.vibrate",
         "app.open",
         "audio.volume.set",

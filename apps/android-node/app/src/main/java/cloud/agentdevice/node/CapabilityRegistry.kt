@@ -41,6 +41,7 @@ class CapabilityRegistry(
     private val context: Context
 ) {
     private val store = NodeStore(context)
+    val screenControl = ScreenControl.get(context)
     private val nativeProvider: MobileCapabilityProvider =
         AndroidNativeProvider(context, store)
 
@@ -254,6 +255,17 @@ class CapabilityRegistry(
                     )
                     .put(
                         descriptor(
+                            "screen.control",
+                            "Screen control session",
+                            "Explicitly begin, renew, end or inspect screen control. UI mutations require its token. Local takeover pauses new sessions.",
+                            "execute",
+                            uiControlAvailability(now),
+                            JSONObject("""{"type":"object","properties":{"action":{"type":"string","enum":["begin","renew","end","status"]},"leaseMs":{"type":"integer","minimum":10000,"maximum":180000},"controlSessionId":{"type":"string","pattern":"^ctl_[a-f0-9]{32}$"}},"required":["action"],"additionalProperties":false}"""),
+                            objectSchema("mode", "paused", "intent", "remainingMs", "pendingActions", "controlSessionId")
+                        )
+                    )
+                    .put(
+                        descriptor(
                             "ui.action",
                             "Operate visible UI",
                             "Click, focus, scroll or enter text through Android Accessibility.",
@@ -311,15 +323,44 @@ class CapabilityRegistry(
     fun execute(
         tool: String,
         args: JSONObject,
-        cancelled: () -> Boolean = { false }
+        cancelled: () -> Boolean = { false },
+        invocation: JSONObject? = null,
+        operation: ScreenControl.Operation? = null
+    ): MobileCapabilityResult {
+        val screenRelated = tool in ScreenControl.MUTATIONS || tool in setOf("screen.capture", "ui.inspect", "ui.wait")
+        val freshAfter = if (screenRelated) AdcAccessibilityService.hideIndicator() else 0L
+        return try { executeVisible(tool, args, cancelled, invocation, operation, freshAfter) }
+        finally { if (screenRelated) AdcAccessibilityService.restoreIndicator() }
+    }
+
+    private fun executeVisible(
+        tool: String, args: JSONObject, cancelled: () -> Boolean, invocation: JSONObject?,
+        operation: ScreenControl.Operation?, freshAfter: Long
     ): MobileCapabilityResult {
         if (cancelled()) {
             throw CapabilityException("cancelled", "Invocation was cancelled.", false)
         }
         if (tool in nativeProvider.toolNames) {
-            return nativeProvider.execute(tool, args, cancelled)
+            return if (tool == "app.open") {
+                requireEnabled(CapabilityGroup.UI_OBSERVE)
+                requireEnabled(CapabilityGroup.UI_CONTROL)
+                (nativeProvider as AndroidNativeProvider).launch(args, cancelled, operation
+                    ?: throw CapabilityException("denied", "Begin screen.control before app.open.", false))
+            } else nativeProvider.execute(tool, args, cancelled)
         }
         return when (tool) {
+            "screen.control" -> {
+                if (args.getString("action") in setOf("begin", "renew")) {
+                    requireEnabled(CapabilityGroup.UI_CONTROL)
+                    requireEnabled(CapabilityGroup.UI_OBSERVE)
+                    if (!AdcAccessibilityService.isConnected()) throw CapabilityException("denied", "Enable ADC Accessibility before beginning screen control.", false)
+                    if (!androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+                        throw CapabilityException("denied", "Allow ADC system notifications so screen control and takeover alerts are visible.", false)
+                    }
+                }
+                MobileCapabilityResult(screenControl.execute(invocation
+                    ?: throw CapabilityException("denied", "Authenticated invocation context is required.", false), args))
+            }
             "device.battery.get" -> {
                 requireEnabled(CapabilityGroup.DEVICE_STATUS)
                 MobileCapabilityResult(batteryStatus())
@@ -338,7 +379,7 @@ class CapabilityRegistry(
             }
             "screen.capture" -> {
                 requireEnabled(CapabilityGroup.SCREEN_CAPTURE)
-                captureScreen(args, cancelled)
+                captureScreen(args, cancelled, freshAfter)
             }
             "ui.inspect" -> {
                 requireEnabled(CapabilityGroup.UI_OBSERVE)
@@ -356,18 +397,18 @@ class CapabilityRegistry(
             "ui.action" -> {
                 requireEnabled(CapabilityGroup.UI_OBSERVE)
                 requireEnabled(CapabilityGroup.UI_CONTROL)
-                MobileCapabilityResult(AdcAccessibilityService.action(args))
+                MobileCapabilityResult(AdcAccessibilityService.action(args, cancelled, operation!!))
             }
             "ui.gesture" -> {
                 requireEnabled(CapabilityGroup.UI_OBSERVE)
                 requireEnabled(CapabilityGroup.UI_CONTROL)
-                MobileCapabilityResult(AdcAccessibilityService.gesture(args))
+                MobileCapabilityResult(AdcAccessibilityService.gesture(args, cancelled, operation!!))
             }
             "device.navigation" -> {
                 requireEnabled(CapabilityGroup.UI_OBSERVE)
                 requireEnabled(CapabilityGroup.UI_CONTROL)
                 MobileCapabilityResult(
-                    AdcAccessibilityService.navigation(args.getString("action"))
+                    AdcAccessibilityService.navigation(args.getString("action"), cancelled, operation!!)
                 )
             }
             else -> throw CapabilityException(
@@ -708,11 +749,13 @@ class CapabilityRegistry(
 
     private fun captureScreen(
         args: JSONObject,
-        cancelled: () -> Boolean
+        cancelled: () -> Boolean,
+        freshAfter: Long
     ): MobileCapabilityResult {
         val captured = ScreenCaptureSession.capture(
             args.optInt("maxWidth", 1080),
-            cancelled
+            cancelled,
+            freshAfter
         )
         val artifactId = "${NodeProtocol.invocationId("artifact")}.png"
         return MobileCapabilityResult(

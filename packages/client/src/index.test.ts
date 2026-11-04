@@ -13,6 +13,24 @@ const context: InvocationContext = {
 };
 
 describe("device invocation context", () => {
+  it("forwards current purpose and screen session only in invocation metadata", () => {
+    const token = "ctl_" + "a".repeat(32);
+    const invocation = buildInvocation({
+      context,
+      tool: "device.navigation",
+      args: { action: "home" },
+      source: "sdk",
+      idempotencyKey: "navigate-home-1",
+      intent: "返回首页",
+      controlSessionId: token
+    });
+    expect(invocation.metadata).toEqual({
+      source: "sdk",
+      intent: "返回首页",
+      controlSessionId: token
+    });
+    expect(invocation.args).toEqual({ action: "home" });
+  });
   it("validates execution budgets and derives submission expiry", () => {
     const invocation = buildInvocation({
       context,

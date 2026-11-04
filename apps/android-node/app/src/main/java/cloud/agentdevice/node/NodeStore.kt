@@ -35,6 +35,7 @@ enum class CapabilityGroup(
 }
 
 class NodeStore(context: Context) {
+    private val controlContext = context.applicationContext
     private val preferences =
         context.getSharedPreferences("adc_mobile_node", Context.MODE_PRIVATE)
 
@@ -113,6 +114,9 @@ class NodeStore(context: Context) {
     fun setCapabilityEnabled(group: CapabilityGroup, enabled: Boolean) {
         check(preferences.edit().putBoolean(group.preferenceKey, enabled).commit()) {
             "Unable to persist the local capability setting"
+        }
+        if (!enabled && group in setOf(CapabilityGroup.UI_CONTROL, CapabilityGroup.UI_OBSERVE)) {
+            ScreenControl.get(controlContext).interrupt("permission")
         }
     }
 

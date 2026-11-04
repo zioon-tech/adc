@@ -1,19 +1,19 @@
 {
   "schemaVersion": 1,
   "packageName": "cloud.agentdevice.node",
-  "versionName": "0.2.2",
-  "versionCode": 8,
+  "versionName": "0.2.3",
+  "versionCode": 9,
   "minSdk": 26,
-  "publishedAt": "2026-11-04T05:22:01.397Z",
+  "publishedAt": "2026-11-04T11:57:21.173Z",
   "required": false,
   "releaseNotes": {
-    "zh-CN": "ADC 0.2.2（测试版）\n\n中文名称为「ADC 设备云」，英文名称为「ADC」。\n修复页面与底部标签切换时的闪动：移除整页淡入，保留各页面滚动位置，加载条不再挤动内容。\n设备列表在后台刷新时保留已有内容，允许正常切换页面；相同内容不再重复重建，刷新不会覆盖正在编辑的设备设置。\n「我的 → 语言」支持跟随系统、中文与 English。Android 13 及以上同时支持系统的单应用语言设置。\n界面、后台通知与更新说明跟随所选语言，切换语言不会重启手机 Node。\n此手机与使用指南改为通用 Android 后台运行说明，移除品牌专属提示。\n\n沿用已安装测试版的签名，可覆盖升级并保留配对、账号和本地权限。安装仍需 Android 系统确认。",
-    "en": "ADC 0.2.2 (preview)\n\nThe app is named ADC in English and ADC 设备云 in Chinese.\nRemoves page fades that caused flashes during navigation. Each tab retains its scroll position and the loading bar no longer shifts content.\nBackground device refresh keeps cached content and navigation available. Unchanged rows remain in place, and refresh never replaces an open device-settings draft.\nAccount → Language offers Follow system, 中文 and English. Android 13+ also supports the system's per-app language setting.\nThe interface, background notifications and update notes use the selected language. Changing language does not restart the phone Node.\nPhone controls and the guide now use general Android background-availability instructions.\n\nRetains the installed preview certificate for in-place upgrades, preserving pairing, account and local permissions. Android confirmation is still required for installation."
+    "zh-CN": "ADC 0.2.3（测试版）\n\n屏幕操作需由模型显式开始与交还。顶部通知与短振动会提示开始、等待下一步、交还或控制中断。\n通知和「此手机」提供「我来接管」：先停止旧操作，再暂停新的屏幕控制；准备好后由你允许再次使用，手机 Node 保持连接。\n增加可选的屏幕边缘小提示，默认关闭，可拖动、展开与隐藏；截图和操作时自动收起。\n每个工具可携带当前意图；回执保留声明的目的，手机展示最近 40 条工具、意图与执行结果，不记录工具参数或截图内容。\n读取位置、电量、截图或界面不算接管。控制默认 120 秒，续期需显式请求，单次最长 180 秒；超时、断线或结果未知会显示中断。\n\n更新后，请在已有 Agent 授权中明确加入 screen.control，并刷新 MCP 工具列表。模型先调用 begin，每步携带 controlSessionId，最后调用 end；请开启界面读取、屏幕操作、无障碍与系统通知。\n沿用已安装测试版签名，可覆盖升级并保留配对、账号与本地权限。安装需 Android 系统确认。",
+    "en": "ADC 0.2.3 (preview)\n\nModels explicitly begin and release screen control. Top notifications and distinct short vibrations announce start, waiting, release and interruption.\nI'll take over in the notification or This phone fences old actions and pauses new screen sessions until you allow them again. The phone Node stays connected.\nAdds an optional draggable edge indicator, off by default. It can expand or be hidden, and is suppressed during screenshots and screen actions.\nEvery tool can declare its current intent. Receipts preserve the declared purpose; the phone retains the last 40 tool, intent and outcome records without tool arguments or screenshot content.\nLocation, battery, screenshots and UI reads are observation. The default screen lease is 120 seconds, with explicit renewals bounded to 180 seconds. Expiry, disconnection and unknown outcomes are shown as interruption.\n\nAfter updating, explicitly add screen.control to existing Agent grants and refresh the MCP catalog. Begin a session, pass controlSessionId on each action, then end it. Enable interface reading, screen actions, Accessibility and system notifications.\nRetains the installed preview certificate for in-place upgrades and preserves pairing, account and local permissions. Installation requires Android confirmation."
   },
   "apk": {
-    "url": "https://adc.zioon.tech/downloads/android/adc-mobile-node-0.2.2-42a085ca1c19e9d5.apk",
-    "sha256": "42a085ca1c19e9d58950ee8c6c0c38aa50fe2abd1bb621275b5b0066ae105000",
-    "bytes": 5437396,
+    "url": "https://adc.zioon.tech/downloads/android/adc-mobile-node-0.2.3-2ac39b47ab406bfa.apk",
+    "sha256": "2ac39b47ab406bfad6ab38da747208987732025839e881f84e5e776b6ec6a65b",
+    "bytes": 5470164,
     "signingCertificateSha256": "12addbdd332aed29ac79f85fddbfd5399ddeb8a8226d3d09fe21e2e094d2f10f"
   }
 }

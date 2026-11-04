@@ -5,6 +5,52 @@ import { ResultSchema, type Invocation } from "@adc/protocol";
 import { McpInvocationAdapter, createMcpServer } from "./index.ts";
 
 describe("McpInvocationAdapter", () => {
+  it("preserves intent metadata and fails closed when screen control is not granted", async () => {
+    let captured: Invocation | undefined;
+    const adapter = new McpInvocationAdapter({
+      client: {
+        invoke: async (invocation) => {
+          captured = invocation;
+          return ResultSchema.parse({
+            schemaVersion: "0.1",
+            invocationId: invocation.invocationId,
+            attemptId: invocation.attemptId,
+            status: "queued",
+            jobId: "job_control"
+          });
+        }
+      },
+      context: {
+        accountId: "acct_example",
+        actorId: "actor_example",
+        grantId: "grant_example",
+        rootIds: [],
+        nodeIds: ["node_android"],
+        allowedTools: ["ui.action"],
+        toolNodeIds: { "ui.action": ["node_android"] }
+      }
+    });
+    await adapter.invoke("ui.action", {
+      args: { action: "click", selector: { text: "攻略" } },
+      target: { nodeId: "node_android" },
+      idempotencyKey: "tap-guide-1",
+      intent: "打开攻略",
+      controlSessionId: "ctl_" + "a".repeat(32)
+    });
+    expect(captured?.metadata).toEqual({
+      source: "mcp",
+      intent: "打开攻略",
+      controlSessionId: "ctl_" + "a".repeat(32)
+    });
+    expect(captured?.args).not.toHaveProperty("intent");
+    await expect(
+      adapter.invoke("screen.control", {
+        args: { action: "begin" },
+        target: { nodeId: "node_android" },
+        idempotencyKey: "begin-control-1"
+      })
+    ).rejects.toThrow(/grant/);
+  });
   it("accepts an absolute path with a device grant and no project", async () => {
     let captured: Invocation | undefined;
     const adapter = new McpInvocationAdapter({

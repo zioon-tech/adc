@@ -97,7 +97,7 @@ object ScreenCaptureSession {
         context?.let(::notifyCapabilityChanged)
     }
 
-    fun capture(maxWidth: Int, cancelled: () -> Boolean): CapturedScreen {
+    fun capture(maxWidth: Int, cancelled: () -> Boolean, freshAfter: Long = 0L): CapturedScreen {
         synchronized(lock) {
             val currentReader = reader
                 ?: throw CapabilityException(
@@ -112,12 +112,18 @@ object ScreenCaptureSession {
                     true
                 )
             var image = currentReader.acquireLatestImage()
+            if (image != null && freshAfter > 0 && image!!.timestamp < freshAfter) {
+                image!!.close(); image = null
+            }
             if (image == null) {
                 val ready = CountDownLatch(1)
                 currentReader.setOnImageAvailableListener(
                     {
-                        image = it.acquireLatestImage()
-                        if (image != null) ready.countDown()
+                        val next = it.acquireLatestImage()
+                        if (next != null && next.timestamp >= freshAfter) {
+                            image = next
+                            ready.countDown()
+                        } else next?.close()
                     },
                     currentHandler
                 )

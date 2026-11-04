@@ -23,8 +23,13 @@ import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicBoolean
 
 class AdcAccessibilityService : AccessibilityService() {
+    private var overlay: ScreenControlOverlay? = null
+    private val overlayReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: Intent?) { overlay?.refresh() }
+    }
     private val snapshotSession = UUID.randomUUID().toString().replace("-", "").take(12)
     private val snapshotRevision = AtomicLong()
 
@@ -33,19 +38,28 @@ class AdcAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         active = this
+        overlay = ScreenControlOverlay(this)
+        androidx.core.content.ContextCompat.registerReceiver(this, overlayReceiver, android.content.IntentFilter().apply {
+            addAction(ScreenControl.ACTION_CHANGED); addAction(AppLanguage.ACTION_CHANGED)
+        }, androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
+        overlay?.refresh()
         snapshotRevision.incrementAndGet()
         lastEventAt = SystemClock.elapsedRealtime()
         notifyCapabilityChanged()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event != null && overlay?.windowId?.let { it >= 0 && it == event.windowId } == true) return
         snapshotRevision.incrementAndGet()
         lastEventAt = SystemClock.elapsedRealtime()
     }
 
-    override fun onInterrupt() = Unit
+    override fun onInterrupt() { ScreenControl.get(this).interrupt("accessibility") }
 
     override fun onDestroy() {
+        ScreenControl.get(this).interrupt("accessibility")
+        overlay?.close()
+        runCatching { unregisterReceiver(overlayReceiver) }
         if (active === this) active = null
         notifyCapabilityChanged()
         super.onDestroy()
@@ -118,7 +132,7 @@ class AdcAccessibilityService : AccessibilityService() {
         )
     }
 
-    private fun performAction(args: JSONObject): JSONObject {
+    private fun performAction(args: JSONObject, cancelled: () -> Boolean, operation: ScreenControl.Operation): JSONObject {
         val selector = args.getJSONObject("selector")
         val requested = args.getString("action")
         val before = snapshot(DEFAULT_MAX_DEPTH, DEFAULT_MAX_NODES)
@@ -176,7 +190,7 @@ class AdcAccessibilityService : AccessibilityService() {
                         null
                     }
                 val performed =
-                    onMainThread {
+                    onMainThread(cancelled, operation) {
                         if (
                             selector.optString("snapshotId").isNotBlank() &&
                             snapshotRevision.get() != before.revision
@@ -223,7 +237,7 @@ class AdcAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun performGesture(args: JSONObject): JSONObject {
+    private fun performGesture(args: JSONObject, cancelled: () -> Boolean, operation: ScreenControl.Operation): JSONObject {
         val metrics = resources.displayMetrics
         val type = args.getString("type")
         val path = Path()
@@ -259,7 +273,7 @@ class AdcAccessibilityService : AccessibilityService() {
         val completed = CountDownLatch(1)
         var succeeded = false
         val accepted =
-            onMainThread {
+            onMainThread(cancelled, operation) {
                 dispatchGesture(
                     gesture,
                     object : GestureResultCallback() {
@@ -275,17 +289,21 @@ class AdcAccessibilityService : AccessibilityService() {
                     null
                 )
             }
-        if (!accepted || !completed.await(durationMs + 2_000L, TimeUnit.MILLISECONDS) || !succeeded) {
+        if (!accepted) {
             throw CapabilityException(
                 "execution_failed",
-                "Android did not complete the requested gesture.",
-                true
+                "Android rejected the requested gesture.",
+                false
             )
         }
+        if (!completed.await(durationMs + 2_000L, TimeUnit.MILLISECONDS)) {
+            throw CapabilityException("unknown_outcome", "Gesture was accepted but its completion is unknown. Inspect the screen before acting again.", false)
+        }
+        if (!succeeded) throw CapabilityException("cancelled", "Android cancelled the gesture.", false)
         return JSONObject().put("performed", true).put("type", type)
     }
 
-    private fun performNavigation(action: String): JSONObject {
+    private fun performNavigation(action: String, cancelled: () -> Boolean, operation: ScreenControl.Operation): JSONObject {
         val globalAction =
             when (action) {
                 "back" -> GLOBAL_ACTION_BACK
@@ -299,7 +317,7 @@ class AdcAccessibilityService : AccessibilityService() {
                     false
                 )
             }
-        if (!onMainThread { performGlobalAction(globalAction) }) {
+        if (!onMainThread(cancelled, operation) { performGlobalAction(globalAction) }) {
             throw CapabilityException(
                 "execution_failed",
                 "Android rejected the requested navigation action.",
@@ -576,7 +594,7 @@ class AdcAccessibilityService : AccessibilityService() {
         val currentWindows = windows
         return try {
             JSONArray().apply {
-                currentWindows.forEach { window ->
+                currentWindows.filter { it.id != overlay?.windowId }.forEach { window ->
                     val bounds = Rect()
                     window.getBoundsInScreen(bounds)
                     put(
@@ -652,19 +670,21 @@ class AdcAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun <T> onMainThread(action: () -> T): T {
-        if (Looper.myLooper() == Looper.getMainLooper()) return action()
+    private fun <T> onMainThread(cancelled: () -> Boolean, operation: ScreenControl.Operation, action: () -> T): T {
+        if (Looper.myLooper() == Looper.getMainLooper()) return operation.guard(cancelled, action)
         val latch = CountDownLatch(1)
+        val abandoned = AtomicBoolean(false)
         var result: Result<T>? = null
         Handler(Looper.getMainLooper()).post {
-            result = runCatching(action)
+            result = runCatching { operation.guard({ abandoned.get() || cancelled() }, action) }
             latch.countDown()
         }
         if (!latch.await(5, TimeUnit.SECONDS)) {
+            abandoned.set(true)
             throw CapabilityException(
-                "execution_failed",
-                "Android accessibility service did not respond.",
-                true
+                "unknown_outcome",
+                "Android did not confirm the screen action. Inspect the screen before acting again.",
+                false
             )
         }
         return result!!.getOrThrow()
@@ -699,6 +719,8 @@ class AdcAccessibilityService : AccessibilityService() {
         private var active: AdcAccessibilityService? = null
 
         fun isConnected(): Boolean = active != null
+        fun hideIndicator(): Long = active?.overlay?.hide() ?: 0L
+        fun restoreIndicator() { active?.overlay?.restore() }
 
         fun inspect(maxDepth: Int, maxNodes: Int): JSONObject =
             requireService().inspect(maxDepth.coerceIn(1, 30), maxNodes.coerceIn(1, 1000))
@@ -706,11 +728,11 @@ class AdcAccessibilityService : AccessibilityService() {
         fun wait(args: JSONObject, cancelled: () -> Boolean): JSONObject =
             requireService().performWait(args, cancelled)
 
-        fun action(args: JSONObject): JSONObject = requireService().performAction(args)
+        fun action(args: JSONObject, cancelled: () -> Boolean, operation: ScreenControl.Operation): JSONObject = requireService().performAction(args, cancelled, operation)
 
-        fun gesture(args: JSONObject): JSONObject = requireService().performGesture(args)
+        fun gesture(args: JSONObject, cancelled: () -> Boolean, operation: ScreenControl.Operation): JSONObject = requireService().performGesture(args, cancelled, operation)
 
-        fun navigation(action: String): JSONObject = requireService().performNavigation(action)
+        fun navigation(action: String, cancelled: () -> Boolean, operation: ScreenControl.Operation): JSONObject = requireService().performNavigation(action, cancelled, operation)
 
         fun currentPackage(): String? = active?.currentPackage()
 

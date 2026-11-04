@@ -212,7 +212,7 @@ class AndroidNativeProvider(
                 "device.info.get" -> deviceInfo()
                 "device.storage.get" -> storageStatus()
                 "device.vibrate" -> vibrate(args)
-                "app.open" -> openApp(args, cancelled)
+                "app.open" -> throw CapabilityException("denied", "Begin screen.control before app.open.", false)
                 "display.status" -> displayStatus()
                 "audio.status" -> audioStatus()
                 "audio.volume.set" -> setAudioVolume(args)
@@ -361,7 +361,10 @@ class AndroidNativeProvider(
             .put("amplitude", amplitude)
     }
 
-    private fun openApp(args: JSONObject, cancelled: () -> Boolean): JSONObject {
+    fun launch(args: JSONObject, cancelled: () -> Boolean, operation: ScreenControl.Operation): MobileCapabilityResult =
+        MobileCapabilityResult(openApp(args, cancelled, operation))
+
+    private fun openApp(args: JSONObject, cancelled: () -> Boolean, operation: ScreenControl.Operation): JSONObject {
         val packageName = args.getString("packageName")
         val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
             ?: throw CapabilityException(
@@ -370,15 +373,20 @@ class AndroidNativeProvider(
                 false
             )
         launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-        try {
-            context.startActivity(launchIntent)
-        } catch (error: Exception) {
-            throw CapabilityException(
-                "execution_failed",
-                error.message ?: "Android could not open the requested application.",
-                false
-            )
+        val latch = java.util.concurrent.CountDownLatch(1)
+        val abandoned = java.util.concurrent.atomic.AtomicBoolean(false)
+        var launchResult: Result<Unit>? = null
+        val launch = {
+            launchResult = runCatching { operation.guard({ abandoned.get() || cancelled() }) { context.startActivity(launchIntent) } }
+            latch.countDown()
         }
+        if (Looper.myLooper() == Looper.getMainLooper()) launch()
+        else Handler(Looper.getMainLooper()).post { launch() }
+        if (!latch.await(5, java.util.concurrent.TimeUnit.SECONDS)) {
+            abandoned.set(true)
+            throw CapabilityException("unknown_outcome", "Android did not confirm the app launch. Inspect the screen.", false)
+        }
+        launchResult!!.getOrThrow()
         val waitMs = args.optLong("waitForForegroundMs", 5_000L).coerceIn(0L, 15_000L)
         val deadline = SystemClock.elapsedRealtime() + waitMs
         var foreground = AdcAccessibilityService.currentPackage()

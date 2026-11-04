@@ -300,6 +300,15 @@
             "expiresAt"
           ],
           "additionalProperties": false
+        },
+        "intent": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "controlSessionId": {
+          "type": "string",
+          "pattern": "^ctl_[a-f0-9]{32}$"
         }
       },
       "required": [
@@ -343,6 +352,7 @@
             "location.get",
             "notification.show",
             "screen.capture",
+            "screen.control",
             "ui.inspect",
             "ui.wait",
             "ui.action",

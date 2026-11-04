@@ -32,11 +32,16 @@ class NodeService : Service() {
     private lateinit var protocol: NodeProtocol
     private lateinit var registry: CapabilityRegistry
     private lateinit var execution: MobileExecutionEngine
+    private var controlFingerprint = ""
+    private var lastControlMode = "idle"
     private val wakeSignals = ArrayBlockingQueue<Unit>(1)
     private var wakeChannel: NodeWakeChannel? = null
     private var wakeNodeId: String? = null
     private val languageReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) { refreshLocalizedNotification() }
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == ScreenControl.ACTION_CHANGED) refreshControl()
+            else refreshLocalizedNotification()
+        }
     }
     private fun localizedString(id: Int, vararg arguments: Any): String =
         AppLanguage.localizedContext(this).getString(id, *arguments)
@@ -48,8 +53,13 @@ class NodeService : Service() {
         registry = CapabilityRegistry(this)
         execution = MobileExecutionEngine(store, registry)
         createChannel()
-        ContextCompat.registerReceiver(this, languageReceiver, IntentFilter(AppLanguage.ACTION_CHANGED),
+        lastControlMode = registry.screenControl.view().optString("mode")
+        ContextCompat.registerReceiver(this, languageReceiver, IntentFilter().apply {
+            addAction(AppLanguage.ACTION_CHANGED)
+            addAction(ScreenControl.ACTION_CHANGED)
+        },
             ContextCompat.RECEIVER_NOT_EXPORTED)
+        leaseExecutor.scheduleWithFixedDelay({ if (active) refreshControl() }, 1, 1, TimeUnit.SECONDS)
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -66,6 +76,8 @@ class NodeService : Service() {
         })
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_TAKEOVER) registry.screenControl.takeover()
+        if (intent?.action == ACTION_RESUME) runCatching { registry.screenControl.resume() }
         if (intent?.action == ACTION_START) store.setNodeDesired(true)
         if (intent?.action == ACTION_STOP) store.setNodeDesired(false)
         if (!store.isNodeDesired()) {
@@ -114,6 +126,7 @@ class NodeService : Service() {
     }
 
     override fun onDestroy() {
+        registry.screenControl.interrupt("service_stopped")
         unregisterReceiver(languageReceiver)
         active = false
         store.setRuntimeState(if (store.isNodeDesired()) "interrupted" else "stopped")
@@ -174,6 +187,7 @@ class NodeService : Service() {
                 ) return
             } catch (error: Exception) {
                 if (!running.get() || !store.isNodeDesired()) return
+                registry.screenControl.interrupt("connection")
                 val message =
                     when (error) {
                         is NodeApiException -> "${error.code}: ${error.message}"
@@ -240,6 +254,7 @@ class NodeService : Service() {
         val isCancelled = {
             val expired = System.currentTimeMillis() >= leaseExpiresAt.get()
             if (expired) {
+                registry.screenControl.interrupt("invocation_lease")
                 leaseValid.set(false)
                 cancelled.set(true)
             }
@@ -264,6 +279,7 @@ class NodeService : Service() {
                             error is NodeApiException &&
                             error.statusCode in listOf(401, 403, 409)
                         ) {
+                            registry.screenControl.interrupt("invocation_lease")
                             leaseValid.set(false)
                             cancelled.set(true)
                         }
@@ -282,12 +298,16 @@ class NodeService : Service() {
                 }
                 protocol.complete(config, dispatchId, leaseToken, executionResult.result)
             }
+        } catch (error: Exception) {
+            registry.screenControl.interrupt("result_delivery")
+            throw error
         } finally {
             renewal.cancel(true)
         }
     }
 
     private fun stopNode() {
+        registry.screenControl.interrupt("service_stopped")
         store.setNodeDesired(false)
         store.setRuntimeState("stopped")
         running.set(false)
@@ -307,9 +327,15 @@ class NodeService : Service() {
                 NotificationManager.IMPORTANCE_LOW
             )
         )
+        getSystemService(NotificationManager::class.java).createNotificationChannel(
+            NotificationChannel(CONTROL_CHANNEL, localizedString(R.string.screen_channel),
+                NotificationManager.IMPORTANCE_HIGH).apply { setSound(null, null); enableVibration(false) }
+        )
     }
 
     private fun serviceNotification(text: String): android.app.Notification {
+        val state = registry.screenControl.view()
+        val controlling = state.optString("mode") in setOf("using", "waiting", "handing_back")
         val activity = PendingIntent.getActivity(
             this,
             0,
@@ -322,14 +348,57 @@ class NodeService : Service() {
             Intent(this, NodeService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
+        val controlAction = PendingIntent.getService(this, 2,
+            Intent(this, NodeService::class.java).setAction(if (state.optBoolean("paused")) ACTION_RESUME else ACTION_TAKEOVER),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         return NotificationCompat.Builder(this, SERVICE_CHANNEL)
             .setSmallIcon(R.drawable.ic_launcher)
-            .setContentTitle(localizedString(R.string.node_service_title))
-            .setContentText(text)
+            .setContentTitle(if (state.optString("mode") == "idle") localizedString(R.string.node_service_title)
+                else ScreenControlText.title(AppLanguage.localizedContext(this), state))
+            .setContentText(if (state.optString("mode") == "idle") text else ScreenControlText.detail(AppLanguage.localizedContext(this), state))
             .setContentIntent(activity)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .apply {
+                if (controlling || state.optBoolean("paused")) addAction(0,
+                    localizedString(if (state.optBoolean("paused")) R.string.screen_resume else R.string.screen_takeover), controlAction)
+            }
             .addAction(0, localizedString(R.string.node_stop), stop)
             .build()
+    }
+
+    @Synchronized private fun refreshControl() {
+        val state = registry.screenControl.view()
+        val fingerprint = state.toString()
+        if (fingerprint == controlFingerprint) return
+        controlFingerprint = fingerprint
+        val mode = state.optString("mode")
+        if (mode != lastControlMode) {
+            val began = mode in setOf("using", "waiting") && lastControlMode !in setOf("using", "waiting")
+            if (began || mode in setOf("released", "interrupted")) {
+                runCatching {
+                    val vibrator = getSystemService(android.os.Vibrator::class.java)
+                    vibrator.vibrate(android.os.VibrationEffect.createWaveform(
+                        if (began) longArrayOf(0, 60) else longArrayOf(0, 40, 70, 40), -1))
+                    val activity = PendingIntent.getActivity(this, 3, Intent(this, MainActivity::class.java),
+                        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+                    val takeover = PendingIntent.getService(this, 4,
+                        Intent(this, NodeService::class.java).setAction(ACTION_TAKEOVER),
+                        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+                    getSystemService(NotificationManager::class.java).notify(CONTROL_NOTIFICATION_ID,
+                        NotificationCompat.Builder(this, CONTROL_CHANNEL)
+                            .setSmallIcon(R.drawable.ic_launcher)
+                            .setContentTitle(ScreenControlText.title(AppLanguage.localizedContext(this), state))
+                            .setContentText(ScreenControlText.detail(AppLanguage.localizedContext(this), state))
+                            .setContentIntent(activity).setAutoCancel(true)
+                            .setPriority(NotificationCompat.PRIORITY_HIGH)
+                            .apply { if (began) addAction(0, localizedString(R.string.screen_takeover), takeover) }
+                            .build())
+                }
+            }
+            lastControlMode = mode
+        }
+        refreshLocalizedNotification()
     }
 
     private fun startForegroundNotification(screenCapture: Boolean) {
@@ -380,6 +449,10 @@ class NodeService : Service() {
         private const val EXTRA_SCREEN_CAPTURE_RESULT_CODE = "screenCaptureResultCode"
         private const val EXTRA_SCREEN_CAPTURE_DATA = "screenCaptureData"
         private const val SERVICE_CHANNEL = "adc-node-service"
+        private const val CONTROL_CHANNEL = "adc-screen-control"
+        private const val CONTROL_NOTIFICATION_ID = 4102
+        private const val ACTION_TAKEOVER = "cloud.agentdevice.node.TAKEOVER_SCREEN"
+        private const val ACTION_RESUME = "cloud.agentdevice.node.RESUME_SCREEN"
         private const val NOTIFICATION_ID = 4101
         private const val POLL_INTERVAL_MS = 1_000L
         private const val WS_CONNECT_GRACE_MS = 500L
