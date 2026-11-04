@@ -24,7 +24,7 @@ permissions:
   id-token: write
 jobs:
   release:
-    uses: zioon-tech/workflows/.github/workflows/deploy.yml@269d8274de425c5915ffdb9d8977dba1121a698f
+    uses: zioon-tech/workflows/.github/workflows/deploy.yml@a31a4246195dd72ecbb427f0e204acdd85aea6eb
     with:
       component: ${{ inputs.component }}
       ci-run: ${{ inputs.ci-run }}
