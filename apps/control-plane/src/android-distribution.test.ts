@@ -53,6 +53,30 @@ async function fixture() {
 }
 
 describe("Android release distribution", () => {
+  it("binds email app links to the qualified APK certificate", async () => {
+    const { distribution, directory, file, manifest } = await fixture();
+    const app = Fastify();
+    apps.push(app);
+    registerAndroidDistributionRoutes(app, distribution);
+    const response = await app.inject({ url: "/.well-known/assetlinks.json" });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("application/json");
+    expect(response.json()).toEqual([
+      {
+        relation: ["delegate_permission/common.handle_all_urls"],
+        target: {
+          namespace: "android_app",
+          package_name: manifest.packageName,
+          sha256_cert_fingerprints: [Array(32).fill("BB").join(":")]
+        }
+      }
+    ]);
+    await rm(resolve(directory, file));
+    const missing = await app.inject({ url: "/.well-known/assetlinks.json" });
+    expect(missing.statusCode).toBe(503);
+    expect(missing.json()).not.toHaveProperty("target");
+  });
+
   it("validates and serves only the current manifest and APK", async () => {
     const { distribution, apk, file } = await fixture();
     const app = Fastify();

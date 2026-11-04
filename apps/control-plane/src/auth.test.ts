@@ -102,6 +102,76 @@ describe("GitHub account authentication", () => {
     await postgres?.stop();
   });
 
+  it("supports native registration, email verification and one-use password recovery", async () => {
+    const mail: { text: string }[] = [];
+    const native = createAuthentication({
+      pool: store.pool,
+      baseURL: origin,
+      secret,
+      requireEmailVerification: true,
+      sendMail: async (message) => {
+        mail.push(message);
+      }
+    });
+    const request = (path: string, body?: object, token?: string) =>
+      native.handle(
+        new Request(`${origin}/api/auth${path}`, {
+          method: body ? "POST" : "GET",
+          headers: {
+            origin,
+            "content-type": "application/json",
+            "x-adc-client-ip": `127.0.0.${++client}`,
+            ...(token ? { authorization: `Bearer ${token}` } : {})
+          },
+          ...(body ? { body: JSON.stringify(body) } : {})
+        })
+      );
+    const email = "native-recovery@example.com";
+    const password = "native original password";
+    const signup = await request("/sign-up/email", {
+      name: "Native user",
+      email,
+      password,
+      callbackURL: `${origin}/login?verification=1`
+    });
+    expect(signup.status).toBe(200);
+    expect((await signup.json()).token).toBeNull();
+    const verifyUrl = new URL(mail[0]!.text.split("\n").find((line) => line.startsWith(origin))!);
+    const verification = await request(
+      `/verify-email?token=${verifyUrl.searchParams.get("token")}`
+    );
+    expect(verification.status).toBe(200);
+    const login = await request("/sign-in/email", { email, password });
+    expect(login.status).toBe(200);
+    const token = (await login.json()).token as string;
+    const methods = await request("/list-accounts", undefined, token);
+    expect(methods.status).toBe(200);
+    expect(await methods.json()).toEqual(
+      expect.arrayContaining([expect.objectContaining({ providerId: "credential" })])
+    );
+    expect((await request("/update-user", { name: "Updated native user" }, token)).status).toBe(
+      200
+    );
+    const reset = await request("/request-password-reset", {
+      email,
+      redirectTo: `${origin}/reset-password`
+    });
+    expect(reset.status).toBe(200);
+    const resetUrl = new URL(
+      mail
+        .at(-1)!
+        .text.split("\n")
+        .find((line) => line.startsWith(origin))!
+    );
+    const resetToken = resetUrl.pathname.split("/").at(-1)!;
+    const newPassword = "native replacement password";
+    const changed = await request("/reset-password", { token: resetToken, newPassword });
+    expect(changed.status).toBe(200);
+    expect((await request("/reset-password", { token: resetToken, newPassword })).status).toBe(400);
+    expect((await request("/sign-in/email", { email, password })).status).toBe(401);
+    expect((await request("/sign-in/email", { email, password: newPassword })).status).toBe(200);
+  });
+
   it("resumes the signed MCP authorization flow after GitHub login", async () => {
     const registered = await call(authentication, "/oauth2/register", {
       client_name: "GitHub to MCP",
@@ -173,86 +243,91 @@ describe("GitHub account authentication", () => {
     expect(config.body).not.toContain(credentials.clientSecret);
   });
 
-  it.each(["adc-cli", "adc-android"])("authorizes %s from an existing browser session", async (clientId) => {
-    expect(
-      (
-        await call(authentication, "/device/code", {
-          client_id: "unknown-client",
-          scope: "adc:manage"
-        })
-      ).status
-    ).toBe(400);
-    expect(
-      (
-        await call(authentication, "/device/code", {
-          client_id: clientId,
-          scope: "adc:tools"
-        })
-      ).status
-    ).toBe(400);
-    const requested = await call(authentication, "/device/code", {
-      client_id: clientId,
-      scope: "adc:manage"
-    });
-    expect(requested.status, await requested.clone().text()).toBe(200);
-    const authorization = await requested.json();
-    expect(authorization).toMatchObject({
-      device_code: expect.any(String),
-      user_code: expect.any(String),
-      verification_uri: `${origin}/cli-login`,
-      verification_uri_complete: expect.stringContaining(`${origin}/cli-login?user_code=`)
-    });
-    const email = `${clientId}-browser@example.com`;
-    githubUser(clientId === "adc-cli" ? 105 : 106, email);
-    const signedIn = await signIn(authentication, authorization.verification_uri_complete);
-    expect(signedIn.response.headers.get("location")).toBe(authorization.verification_uri_complete);
-    const browserCookie = cookies(signedIn.response);
-    const claimed = await call(
-      authentication,
-      `/device?user_code=${encodeURIComponent(authorization.user_code)}`,
-      undefined,
-      browserCookie
-    );
-    expect(claimed.status, await claimed.clone().text()).toBe(200);
-    expect((await claimed.json()).status).toBe("pending");
-    const forged = await app.inject({
-      method: "POST",
-      url: "/api/auth/device/approve",
-      headers: { origin: "https://evil.example", cookie: browserCookie },
-      payload: { userCode: authorization.user_code }
-    });
-    expect(forged.statusCode).toBe(403);
-    const approved = await call(
-      authentication,
-      "/device/approve",
-      { userCode: authorization.user_code },
-      browserCookie
-    );
-    expect(approved.status, await approved.clone().text()).toBe(200);
-    const exchanged = await call(authentication, "/device/token", {
-      grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-      device_code: authorization.device_code,
-      client_id: clientId
-    });
-    expect(exchanged.status, await exchanged.clone().text()).toBe(200);
-    const cliToken = (await exchanged.json()).access_token;
-    expect(cliToken).toEqual(expect.any(String));
-    const me = await app.inject({
-      url: "/api/v1/me",
-      headers: { authorization: `Bearer ${cliToken}` }
-    });
-    expect(me.statusCode, me.body).toBe(200);
-    expect(me.json()).toMatchObject({
-      kind: "session",
-      user: { email }
-    });
-    const replay = await call(authentication, "/device/token", {
-      grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-      device_code: authorization.device_code,
-      client_id: clientId
-    });
-    expect(replay.status).toBe(400);
-  });
+  it.each(["adc-cli", "adc-android"])(
+    "authorizes %s from an existing browser session",
+    async (clientId) => {
+      expect(
+        (
+          await call(authentication, "/device/code", {
+            client_id: "unknown-client",
+            scope: "adc:manage"
+          })
+        ).status
+      ).toBe(400);
+      expect(
+        (
+          await call(authentication, "/device/code", {
+            client_id: clientId,
+            scope: "adc:tools"
+          })
+        ).status
+      ).toBe(400);
+      const requested = await call(authentication, "/device/code", {
+        client_id: clientId,
+        scope: "adc:manage"
+      });
+      expect(requested.status, await requested.clone().text()).toBe(200);
+      const authorization = await requested.json();
+      expect(authorization).toMatchObject({
+        device_code: expect.any(String),
+        user_code: expect.any(String),
+        verification_uri: `${origin}/cli-login`,
+        verification_uri_complete: expect.stringContaining(`${origin}/cli-login?user_code=`)
+      });
+      const email = `${clientId}-browser@example.com`;
+      githubUser(clientId === "adc-cli" ? 105 : 106, email);
+      const signedIn = await signIn(authentication, authorization.verification_uri_complete);
+      expect(signedIn.response.headers.get("location")).toBe(
+        authorization.verification_uri_complete
+      );
+      const browserCookie = cookies(signedIn.response);
+      const claimed = await call(
+        authentication,
+        `/device?user_code=${encodeURIComponent(authorization.user_code)}`,
+        undefined,
+        browserCookie
+      );
+      expect(claimed.status, await claimed.clone().text()).toBe(200);
+      expect((await claimed.json()).status).toBe("pending");
+      const forged = await app.inject({
+        method: "POST",
+        url: "/api/auth/device/approve",
+        headers: { origin: "https://evil.example", cookie: browserCookie },
+        payload: { userCode: authorization.user_code }
+      });
+      expect(forged.statusCode).toBe(403);
+      const approved = await call(
+        authentication,
+        "/device/approve",
+        { userCode: authorization.user_code },
+        browserCookie
+      );
+      expect(approved.status, await approved.clone().text()).toBe(200);
+      const exchanged = await call(authentication, "/device/token", {
+        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+        device_code: authorization.device_code,
+        client_id: clientId
+      });
+      expect(exchanged.status, await exchanged.clone().text()).toBe(200);
+      const cliToken = (await exchanged.json()).access_token;
+      expect(cliToken).toEqual(expect.any(String));
+      const me = await app.inject({
+        url: "/api/v1/me",
+        headers: { authorization: `Bearer ${cliToken}` }
+      });
+      expect(me.statusCode, me.body).toBe(200);
+      expect(me.json()).toMatchObject({
+        kind: "session",
+        user: { email }
+      });
+      const replay = await call(authentication, "/device/token", {
+        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+        device_code: authorization.device_code,
+        client_id: clientId
+      });
+      expect(replay.status).toBe(400);
+    }
+  );
 
   it("rejects unverified email and prevents social login from bypassing disabled registration", async () => {
     githubUser(102, "unverified@example.com", false);

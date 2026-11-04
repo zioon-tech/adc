@@ -21,6 +21,7 @@ class MobilePalette(context: Context) {
     val accent = Color.parseColor(if (dark) "#8ED8B4" else "#087A5B")
     val tonal = Color.parseColor(if (dark) "#2B4437" else "#E4F0E8")
     val line = Color.parseColor(if (dark) "#303C34" else "#EDF0EB")
+    val outline = Color.parseColor(if (dark) "#435449" else "#D5DDD6")
     val danger = Color.parseColor(if (dark) "#FFB4A8" else "#B33F32")
     val controller = Color.parseColor(if (dark) "#203D31" else "#183E31")
     val onController = Color.parseColor("#F3FAF4")

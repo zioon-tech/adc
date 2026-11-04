@@ -103,6 +103,31 @@ export function registerAndroidDistributionRoutes(
   app: FastifyInstance,
   distribution?: AndroidDistribution
 ) {
+  app.get("/.well-known/assetlinks.json", async (request, reply) => {
+    let release: AndroidReleaseManifest | undefined;
+    try {
+      release = await readAndroidRelease(distribution);
+    } catch (error) {
+      request.log.error({ err: error }, "Android app-link release validation failed");
+      return reply.code(503).send({ error: "Android app links are temporarily unavailable." });
+    }
+    if (!release) return reply.code(404).send({ error: "Android release is not published." });
+    const fingerprint = release.apk.signingCertificateSha256
+      .toUpperCase()
+      .match(/.{2}/g)!
+      .join(":");
+    return reply.header("cache-control", "public, max-age=300").send([
+      {
+        relation: ["delegate_permission/common.handle_all_urls"],
+        target: {
+          namespace: "android_app",
+          package_name: release.packageName,
+          sha256_cert_fingerprints: [fingerprint]
+        }
+      }
+    ]);
+  });
+
   app.get("/downloads/android/preview.apk", async (_request, reply) => {
     const preview = await androidPreviewInfo(distribution);
     if (!preview) return reply.code(404).send({ error: "Android preview is not published." });

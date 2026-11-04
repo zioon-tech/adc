@@ -57,8 +57,13 @@ The client uses native Material 3 navigation and controls, a compact phone contr
 device filters and grouped permission rows. It follows the system light/dark appearance and font
 size. Connection identifiers are available in a bottom sheet; they do not crowd the phone controls.
 Configuration changes preserve the current page, scroll position and device settings draft.
+Every page and dialog uses the same labeled rounded input fields, inline errors and password
+visibility controls. The adaptive launcher icon uses the official ADC cable mark.
 
-1. Open **Account** and sign in with email/password, or approve browser/GitHub login.
+1. Open **Account** and sign in with email/password, create an account or request password recovery
+   within the App. GitHub/browser authorization opens a themed Custom Tab rather than a separate
+   browser task. The official service's verification and reset email links can open native screens
+   through verified Android App Links when the device allows supported links.
    Passwords are not persisted. Account session tokens use an Android Keystore AES-GCM key in
    a separate store from the phone's P-256 Node identity.
 2. **Devices** lists the account's devices, online state and settings. Renaming, folder scope,
@@ -69,6 +74,12 @@ Configuration changes preserve the current page, scroll position and device sett
 4. Choose local permissions, then select **Start Node**. Status distinguishes unpaired, stopped,
    connecting, online, retrying and interrupted. Changing permissions never starts a stopped Node.
 5. In ADC Agent access, explicitly authorize this phone and the tools each Agent may use.
+
+**Account settings** edits the profile name and password, displays linked sign-in methods and can
+sign out other sessions. The setup/permission guide and computer-pairing instructions are native
+screens. Email links for self-hosted domains use their website unless that installation also
+configures and verifies its own Android App Links; the App does not bypass external-provider
+authorization or Android's system permission screens.
 
 Only read-only device status is enabled by default for a fresh installation. Location, notifications,
 volume control, vibration, app launch, flashlight, screen sharing, visible-interface reading and

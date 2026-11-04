@@ -4,9 +4,12 @@
 > permissions. The manually installed hosted APK is a test build; availability does not certify all
 > phones or operations. The release-channel design below does not change that maturity status.
 
-ADC Mobile Node 0.2.0 provides account login, device management and independent phone permissions.
+ADC Mobile Node 0.2.1 provides account login, device management and independent phone permissions.
 The native Material 3 client supports system light/dark appearance, larger fonts, device filters
 and grouped permission controls.
+Login, registration, recovery requests, profile/password settings and help use native screens.
+Input fields and dialogs share the same styling and inline errors. The adaptive launcher icon
+reuses the official website's cable mark.
 **Account → Check for updates** checks the paired service and presents localized release notes.
 Updates are downloaded and verified before Android asks the device owner to install.
 
@@ -14,6 +17,18 @@ Android updates use a separate release channel from desktop Node archives:
 
 - `GET /downloads/android/manifest.json`
 - `GET /downloads/android/adc-mobile-node-<version>-<digest>.apk`
+- `GET /.well-known/assetlinks.json`
+
+The App Links document binds the package to the qualified release's signing certificate. The
+official App declares only the service's exact email verification and password recovery routes.
+When supported-link handling is enabled, mailed links open native verification or new-password
+screens; tokens are checked by the same account API and are not persisted in App preferences or
+saved instance state. Password reset tokens remain one-use.
+
+GitHub/browser authorization uses a themed Custom Tab with the existing device authorization
+flow. Normal settings, registration/recovery requests and help do not launch web pages. Self-hosted
+domains need their own manifest host declarations and verified App Links configuration to open
+mail links in the App; otherwise those links keep working through the account website.
 
 An empty release directory returns HTTP 404 and the App reports that no Android release is
 published. It never treats a debug build or a desktop Node archive as a mobile update.
