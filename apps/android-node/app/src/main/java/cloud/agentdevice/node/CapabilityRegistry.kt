@@ -407,7 +407,7 @@ class CapabilityRegistry(
         } else {
             unavailable(
                 "temporarily_unavailable",
-                "Disabled in ADC Mobile Node settings.",
+                "Disabled in ADC settings.",
                 now
             )
         }
@@ -442,7 +442,7 @@ class CapabilityRegistry(
         if (!AppVisibility.isForeground()) {
             return unavailable(
                 "foreground_required",
-                "Open ADC Mobile Node before requesting location.",
+                "Open ADC before requesting location.",
                 now
             )
         }
@@ -473,7 +473,7 @@ class CapabilityRegistry(
         if (!ScreenCaptureSession.isActive()) {
             return unavailable(
                 "permission_required",
-                "Allow screen capture in ADC Mobile Node.",
+                "Allow screen capture in ADC.",
                 now
             )
         }
@@ -493,7 +493,7 @@ class CapabilityRegistry(
         if (!AdcAccessibilityService.isConnected()) {
             return unavailable(
                 "permission_required",
-                "Enable ADC Mobile Node in Android Accessibility settings.",
+                "Enable ADC in Android Accessibility settings.",
                 now
             )
         }
@@ -548,7 +548,7 @@ class CapabilityRegistry(
         if (!AppVisibility.isForeground()) {
             throw CapabilityException(
                 "denied",
-                "Location is available only while ADC Mobile Node is open.",
+                "Location is available only while ADC is open.",
                 false
             )
         }
@@ -691,7 +691,7 @@ class CapabilityRegistry(
         manager.createNotificationChannel(
             NotificationChannel(
                 AGENT_CHANNEL,
-                context.getString(R.string.agent_notifications_channel),
+                AppLanguage.localizedContext(context).getString(R.string.agent_notifications_channel),
                 NotificationManager.IMPORTANCE_DEFAULT
             )
         )
@@ -738,7 +738,7 @@ class CapabilityRegistry(
         if (!store.isCapabilityEnabled(group)) {
             throw CapabilityException(
                 "denied",
-                "This capability is disabled in ADC Mobile Node settings.",
+                "This capability is disabled in ADC settings.",
                 false
             )
         }

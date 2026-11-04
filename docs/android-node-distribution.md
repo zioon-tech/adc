@@ -4,12 +4,18 @@
 > permissions. The manually installed hosted APK is a test build; availability does not certify all
 > phones or operations. The release-channel design below does not change that maturity status.
 
-ADC Mobile Node 0.2.1 provides account login, device management and independent phone permissions.
+ADC 0.2.2 provides account login, device management and independent phone permissions.
+The English app name is **ADC**; the Chinese app name is **ADC 设备云**.
 The native Material 3 client supports system light/dark appearance, larger fonts, device filters
 and grouped permission controls.
 Login, registration, recovery requests, profile/password settings and help use native screens.
 Input fields and dialogs share the same styling and inline errors. The adaptive launcher icon
 reuses the official website's cable mark.
+Device refresh keeps cached rows and navigation available, preserves each tab's scroll position
+and never replaces an open device-settings draft. The interface does not fade on each page change.
+**Account → Language** offers **Follow system**, **中文** and **English**. Android 13+ also exposes
+the system's per-app language setting. Interface text, notifications and update notes follow the
+chosen language; changing it does not restart the phone Node or change permissions.
 **Account → Check for updates** checks the paired service and presents localized release notes.
 Updates are downloaded and verified before Android asks the device owner to install.
 
@@ -55,7 +61,7 @@ Before opening Android's package installer, the App verifies all of the followin
 5. The APK signing certificate matches both the manifest and the currently installed App.
 
 The App downloads into its private cache and exposes only the verified APK through a non-exported
-`FileProvider`. Android still requires the device owner to allow installs from ADC Mobile Node and
+`FileProvider`. Android still requires the device owner to allow installs from ADC and
 confirm each installation. The App does not perform silent installation. Signing-key rotation is
 not supported by this initial channel; publish with the same protected release key.
 

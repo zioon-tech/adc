@@ -1,4 +1,6 @@
-# ADC Mobile Node for Android
+# ADC for Android
+
+The app is named **ADC** in English and **ADC 设备云** in Chinese.
 
 This module is the first native mobile Node. It connects an Android phone to the same Control Plane,
 authorization and receipt path used by desktop Nodes without exposing a shell or filesystem.
@@ -57,6 +59,10 @@ The client uses native Material 3 navigation and controls, a compact phone contr
 device filters and grouped permission rows. It follows the system light/dark appearance and font
 size. Connection identifiers are available in a bottom sheet; they do not crowd the phone controls.
 Configuration changes preserve the current page, scroll position and device settings draft.
+Background device refresh keeps navigation available and preserves cached rows and open drafts.
+**Account → Language** offers **Follow system**, **中文** and **English**, including notifications
+and update notes. Android 13+ also supports the system's per-app language setting; older versions
+retain the preference locally. Changing language does not restart the phone Node.
 Every page and dialog uses the same labeled rounded input fields, inline errors and password
 visibility controls. The adaptive launcher icon uses the official ADC cable mark.
 
@@ -110,10 +116,10 @@ the trust boundary are documented in
 [Android Mobile Node distribution](../../docs/android-node-distribution.md). Debug APKs are for
 local development and must not be published through the production update channel.
 
-## Xiaomi and HyperOS
+## Background availability
 
-For a longer foreground session, allow ADC Mobile Node to run in the background and remove battery
-restrictions for the App in the phone's system settings. Exact labels vary by MIUI/HyperOS version.
+For a longer foreground session, allow ADC to run in the background and remove battery
+restrictions for the App in the phone's system settings. Exact options and labels vary by device.
 These settings improve availability but do not override Android permission checks. If the system
 stops the service, ADC reports the Node offline.
 

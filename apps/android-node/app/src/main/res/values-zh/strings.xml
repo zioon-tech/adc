@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">ADC Mobile Node</string>
+    <string name="app_name">ADC 设备云</string>
+    <string name="ui_language">zh</string>
+    <string name="language">语言</string>
+    <string name="language_system">跟随系统</string>
     <string name="node_service_channel">ADC Node 连接</string>
     <string name="node_service_title">手机 Node 正在运行</string>
     <string name="node_service_idle">等待已授权的 Agent 请求</string>

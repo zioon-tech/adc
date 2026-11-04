@@ -655,12 +655,15 @@ adc invoke file.list --args '{"path":"/Users/me/work"}' --wait --json`}
       </ol>
       <Section
         id="android"
-        title={copy("Using Android Node (in testing)", "使用 Android Node（测试阶段）")}
+        title={copy(
+          "Using ADC for Android (in testing)",
+          "使用 ADC 设备云 Android App（测试阶段）"
+        )}
       >
         <p>
           {copy(
-            "Download the Android APK, sign in with email or approve browser / GitHub authorization in a Custom Tab, then open This phone to connect it to your account and start the Node. Registration, recovery requests, profile/password settings and help are native screens. Devices lists your computers and phones and supports renaming, access settings and removing connections. A pairing code and HTTPS service address also work for self-hosting.",
-            "下载 Android APK，通过邮箱登录，或在应用内授权窗口完成浏览器 / GitHub 授权；在「此手机」接入账号并启动 Node。注册、找回密码请求、账号资料和密码设置、使用指南均在 App 内完成。「设备」展示账号下的电脑与手机，支持重命名、访问策略和移除连接。自托管服务也可以使用 HTTPS 服务地址和配对码。"
+            "Download ADC for Android, sign in with email or approve browser / GitHub authorization in a Custom Tab, then open This phone to connect it to your account and start the Node. Registration, recovery requests, profile/password settings and help are native screens. Devices lists your computers and phones and supports renaming, access settings and removing connections. A pairing code and HTTPS service address also work for self-hosting. Account → Language offers Follow system, 中文 and English; notifications and update notes follow that choice without restarting the Node.",
+            "下载 ADC 设备云 Android App，通过邮箱登录，或在应用内授权窗口完成浏览器 / GitHub 授权；在「此手机」接入账号并启动 Node。注册、找回密码请求、账号资料和密码设置、使用指南均在 App 内完成。「设备」展示账号下的电脑与手机，支持重命名、访问策略和移除连接。自托管服务也可以使用 HTTPS 服务地址和配对码。「我的 → 语言」支持跟随系统、中文与 English；通知和更新说明随语言切换，不会重启 Node。"
           )}
         </p>
         <p>
