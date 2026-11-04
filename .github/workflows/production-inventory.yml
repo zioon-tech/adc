@@ -1,0 +1,30 @@
+name: Production disk inventory
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: production-${{ github.repository }}-inventory
+  cancel-in-progress: false
+jobs:
+  inventory:
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: zioon-tech/workflows
+          ref: f2365c046bb40aa9e5cebaba924983e9e7a154d7
+          path: .production-workflows
+          persist-credentials: false
+      - name: Inspect disk and release references
+        env:
+          DEPLOY_ROLE_ARN: ${{ vars.DEPLOY_ROLE_ARN }}
+          DEPLOY_OIDC_PROVIDER_ARN: ${{ vars.DEPLOY_OIDC_PROVIDER_ARN }}
+          DEPLOY_INSTANCE_ID: ${{ vars.DEPLOY_INSTANCE_ID }}
+        run: python3 scripts/production-inventory.py
