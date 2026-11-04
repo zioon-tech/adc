@@ -87,8 +87,8 @@ const latestRelease: PublicContentEntry = {
           "已有桌面 CLI 或 Connector 使用 adc update 更新；五个平台归档自带运行时。SDK 下载包包含编译后的导出、TypeScript 声明与协议依赖，无需私有 npm 源；官方 SDK 清单提供带摘要的包名。"
         ),
         text(
-          "Skill and harness plugins 0.1.5 already carry the current integration instructions. CLI-backed plugins need CLI 0.1.7. Android Mobile Node remains on its separately versioned 0.2.3 release and is updated through the APK entry.",
-          "Skill 与各 Harness 插件 0.1.5 已包含当前集成说明，依赖 CLI 的插件还需要 CLI 0.1.7。Android Mobile Node 使用独立版本 0.2.3，通过 APK 入口更新。"
+          "Skill 0.4.2 and harness plugins 0.1.5 already carry the current integration instructions. CLI-backed plugins need CLI 0.1.7. Android Mobile Node remains on its separately versioned 0.2.3 release and is updated through the APK entry.",
+          "Skill 0.4.2 与各 Harness 插件 0.1.5 已包含当前集成说明，依赖 CLI 的插件还需要 CLI 0.1.7。Android Mobile Node 使用独立版本 0.2.3，通过 APK 入口更新。"
         )
       ],
       code: `adc update --check
