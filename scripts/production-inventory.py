@@ -12,6 +12,47 @@ from cloud import python_command, request, rpc
 
 
 def remote_source():
+    if os.environ.get("INVENTORY_KIND") == "downloads":
+        return """
+import hashlib, json, os, pathlib, subprocess, urllib.request
+root = pathlib.Path("/opt/agent-device-cloud")
+pid = int(subprocess.check_output(
+    ["systemctl", "show", "agent-device-cloud.service", "-p", "MainPID", "--value"],
+    universal_newlines=True).strip())
+if pid <= 0:
+    raise RuntimeError("ADC service has no running main process")
+process = pathlib.Path("/proc") / str(pid)
+keys = ("ADC_SKILL_RELEASE_DIR", "ADC_PLUGIN_RELEASE_DIR",
+        "ADC_NODE_RELEASE_DIR", "ADC_ANDROID_RELEASE_DIR", "ADC_CONSOLE_DIR")
+environment = {}
+for item in (process / "environ").read_bytes().split(b"\\0"):
+    name, _, value = item.partition(b"=")
+    if name.decode("utf-8", "replace") in keys:
+        environment[name.decode()] = value.decode("utf-8", "replace")
+arguments = [item.decode("utf-8", "replace")
+             for item in (process / "cmdline").read_bytes().split(b"\\0") if item]
+release = json.loads((root / "current/.release-manifest.json").read_text())
+distributions = {}
+for kind, variable in (("skills", "ADC_SKILL_RELEASE_DIR"), ("plugins", "ADC_PLUGIN_RELEASE_DIR")):
+    directory = pathlib.Path(environment.get(variable, str(root / "current/dist" / kind)))
+    row = dict(directory=str(directory), resolvedDirectory=str(directory.resolve()))
+    index = directory / "index.json"
+    if index.is_file():
+        raw = index.read_bytes()
+        row["indexSha256"] = hashlib.sha256(raw).hexdigest()
+        row["version"] = json.loads(raw).get("version")
+    distributions[kind] = row
+with urllib.request.urlopen("http://127.0.0.1:8788/downloads/plugins/index.json", timeout=5) as response:
+    raw = response.read()
+    served = dict(version=json.loads(raw)["version"], sha256=hashlib.sha256(raw).hexdigest())
+print(json.dumps(dict(
+    status="production_download_inventory", readOnly=True,
+    currentRelease=str((root / "current").resolve()), processCwd=os.path.realpath(str(process / "cwd")),
+    supportedEntryPoint=arguments == ["/usr/local/bin/node", "--import", "tsx", "apps/control-plane/src/main.ts"],
+    release={key: release.get(key) for key in ("repository", "commit", "ciRun", "component")},
+    distributionEnvironment=environment, distributions=distributions, servedPlugins=served,
+)), flush=True)
+"""
     source = (WORKFLOWS / "disk.py").read_text() + "\n" + (WORKFLOWS / "retire.py").read_text()
     source += """
 root = pathlib.Path("/opt/agent-device-cloud")

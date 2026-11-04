@@ -1,6 +1,12 @@
 name: Production disk inventory
 on:
   workflow_dispatch:
+    inputs:
+      kind:
+        description: Read-only production inventory
+        type: choice
+        options: [disk, downloads]
+        default: disk
 permissions:
   contents: read
   id-token: write
@@ -27,4 +33,5 @@ jobs:
           DEPLOY_ROLE_ARN: ${{ vars.DEPLOY_ROLE_ARN }}
           DEPLOY_OIDC_PROVIDER_ARN: ${{ vars.DEPLOY_OIDC_PROVIDER_ARN }}
           DEPLOY_INSTANCE_ID: ${{ vars.DEPLOY_INSTANCE_ID }}
+          INVENTORY_KIND: ${{ inputs.kind }}
         run: python3 scripts/production-inventory.py
