@@ -16,9 +16,9 @@ ExecStart=
 ExecStart=/usr/bin/env ADC_CONSOLE_DIR=/srv/adc-console/current /usr/local/bin/node --import tsx apps/control-plane/src/main.ts
 """
 CONFIG = """[Service]
-Environment=ADC_CONSOLE_DIR=/srv/adc-console/current ADC_NODE_RELEASE_DIR=/opt/agent-device-cloud/current/dist/node ADC_SKILL_RELEASE_DIR=/opt/agent-device-cloud/current/dist/skills ADC_PLUGIN_RELEASE_DIR=/opt/agent-device-cloud/current/dist/plugins
+Environment=ADC_CONSOLE_DIR=/srv/adc-console/current ADC_SKILL_RELEASE_DIR=/opt/agent-device-cloud/current/dist/skills ADC_PLUGIN_RELEASE_DIR=/opt/agent-device-cloud/current/dist/plugins
 ExecStart=
-ExecStart=/usr/bin/env ADC_CONSOLE_DIR=/srv/adc-console/current ADC_NODE_RELEASE_DIR=/opt/agent-device-cloud/current/dist/node ADC_SKILL_RELEASE_DIR=/opt/agent-device-cloud/current/dist/skills ADC_PLUGIN_RELEASE_DIR=/opt/agent-device-cloud/current/dist/plugins /usr/local/bin/node --import tsx apps/control-plane/src/main.ts
+ExecStart=/usr/bin/env ADC_CONSOLE_DIR=/srv/adc-console/current ADC_SKILL_RELEASE_DIR=/opt/agent-device-cloud/current/dist/skills ADC_PLUGIN_RELEASE_DIR=/opt/agent-device-cloud/current/dist/plugins /usr/local/bin/node --import tsx apps/control-plane/src/main.ts
 """
 
 
@@ -37,11 +37,11 @@ hashes = {
     "plugins/index.json": "578175a6562aafaebbd6f8fb7ac9df13e827859195c9d163104d8610f135c3b7",
 }
 variables = {
-    "ADC_NODE_RELEASE_DIR": "node",
     "ADC_SKILL_RELEASE_DIR": "skills",
     "ADC_PLUGIN_RELEASE_DIR": "plugins",
 }
 legacy = "/opt/agent-device-cloud/releases/console-refinement-20261101/dist/"
+node_directory = legacy + "node"
 
 def environment():
     pid = int(subprocess.check_output(
@@ -58,13 +58,14 @@ def environment():
     result = {}
     for item in (process / "environ").read_bytes().split(b"\\0"):
         name, _, value = item.partition(b"=")
-        if name.decode("utf-8", "replace") in variables:
+        if name.decode("utf-8", "replace") in variables or name == b"ADC_NODE_RELEASE_DIR":
             result[name.decode()] = value.decode()
     return result
 
 def verify():
     ready(["http://127.0.0.1:8788/health"])
     expected = {key: str(root / "current/dist" / kind) for key, kind in variables.items()}
+    expected["ADC_NODE_RELEASE_DIR"] = node_directory
     if environment() != expected:
         raise RuntimeError("Effective download directories did not follow current")
     for path, checksum in hashes.items():
@@ -100,8 +101,6 @@ with (root / ".deploy.lock").open("a") as lock:
     for path, checksum in hashes.items():
         if digest(pointer / "dist" / path) != checksum:
             raise RuntimeError("Qualified release distribution checksum mismatch")
-    if not (pointer / "dist/node").is_dir():
-        raise RuntimeError("Qualified node distribution is absent")
     if drop.is_symlink() or not drop.is_file():
         raise RuntimeError("Unsupported production drop-in")
     previous = drop.read_bytes()
@@ -112,7 +111,9 @@ with (root / ".deploy.lock").open("a") as lock:
     else:
         if previous != BEFORE:
             raise RuntimeError("Canonical drop-in has custom changes; reconcile before repair")
-        if environment() != {key: legacy + kind for key, kind in variables.items()}:
+        expected_previous = {key: legacy + kind for key, kind in variables.items()}
+        expected_previous["ADC_NODE_RELEASE_DIR"] = node_directory
+        if environment() != expected_previous:
             raise RuntimeError("Effective distribution overrides changed since inventory")
         ready(["http://127.0.0.1:8788/health"])
         if CHECK_ONLY:
@@ -150,7 +151,7 @@ with (root / ".deploy.lock").open("a") as lock:
                 subprocess.check_call(["systemctl", "restart", unit])
                 try:
                     ready(["http://127.0.0.1:8788/health"])
-                    if environment() != {key: legacy + kind for key, kind in variables.items()}:
+                    if environment() != expected_previous:
                         raise RuntimeError("Rollback effective directories mismatch")
                     record("rolled_back")
                 except BaseException:
@@ -159,7 +160,8 @@ with (root / ".deploy.lock").open("a") as lock:
                 raise
             print(json.dumps(dict(operation, status="download_paths_repaired",
                                   restartedServices=[unit], httpReadinessPassed=True,
-                                  downloadsVerified=True, configurationBackupVerified=True)), flush=True)
+                                  downloadsVerified=True, configurationBackupVerified=True,
+                                  nodeDistributionPreserved=True)), flush=True)
 """
 
 
