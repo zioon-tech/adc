@@ -7,10 +7,12 @@ import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { JsonSchemaType } from "@modelcontextprotocol/sdk/validation/types.js";
 
 export const ADC_ORIGIN = "https://adc.zioon.tech";
-export const PLUGIN_VERSION = "0.1.4";
+export const PLUGIN_VERSION = "0.1.5";
 export const WORKFLOW_GUIDANCE =
   "Discover ADC devices and live tool schemas before use. Select the intended device and its platform. " +
   "Use adc_read for read-only tools and adc_invoke for side effects with a stable idempotencyKey. " +
+  "For Android screen mutations, begin screen.control, pass controlSessionId on each action, then end control. " +
+  "Optional intent declares the current purpose without changing operation identity. " +
   "Wait on existing invocation/job identities; never resubmit on timeout or unknown_outcome. " +
   "Human approval is independent: open the ADC review link and inspect the same invocation afterwards.";
 export const COLLABORATION_GUIDANCE =
@@ -44,6 +46,8 @@ export interface InvokeInput {
   args: Record<string, unknown>;
   nodeId?: string;
   idempotencyKey?: string;
+  intent?: string;
+  controlSessionId?: string;
   waitMs?: number;
 }
 
@@ -105,6 +109,8 @@ export function validateInvocation(
     args: input.args,
     ...(nodeId && targetProperty ? { target: { nodeId } } : {}),
     ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
+    ...(input.intent !== undefined ? { intent: input.intent } : {}),
+    ...(input.controlSessionId !== undefined ? { controlSessionId: input.controlSessionId } : {}),
     waitMs: input.waitMs ?? 4000
   });
   if (!validation.valid) throw new Error(validation.errorMessage);
@@ -165,6 +171,8 @@ export function createSdkTransport(
           args: input.args,
           ...(input.nodeId ? { target: { nodeId: input.nodeId } } : {}),
           ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
+          ...(input.intent !== undefined ? { intent: input.intent } : {}),
+          ...(input.controlSessionId !== undefined ? { controlSessionId: input.controlSessionId } : {}),
           waitMs: input.waitMs ?? 4000
         },
         undefined,
@@ -292,6 +300,8 @@ export function createCliTransport(runner?: CliRunner): HarnessTransport {
             "skill",
             ...(input.nodeId ? ["--node", input.nodeId] : []),
             ...(input.idempotencyKey ? ["--idempotency-key", input.idempotencyKey] : []),
+            ...(input.intent !== undefined ? ["--intent", input.intent] : []),
+            ...(input.controlSessionId !== undefined ? ["--control-session", input.controlSessionId] : []),
             "--wait",
             String(input.waitMs ?? 4000)
           ],
@@ -350,6 +360,17 @@ export const nativeTools = [
         args: { type: "object", additionalProperties: true },
         nodeId: string,
         idempotencyKey: { ...string, minLength: 8, maxLength: 256 },
+        intent: {
+          ...string,
+          maxLength: 160,
+          pattern: "^[^\\u0000-\\u001f\\u007f]*$",
+          description: "The current declared purpose, retained with the receipt."
+        },
+        controlSessionId: {
+          type: "string",
+          pattern: "^ctl_[a-f0-9]{32}$",
+          description: "The actor-bound token returned by screen.control begin."
+        },
         waitMs: wait
       },
       ["tool", "args", ...(mode === "invoke" ? ["idempotencyKey"] : [])]

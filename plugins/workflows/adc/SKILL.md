@@ -16,17 +16,26 @@ folders, platform and current tool schemas. Ask the user to choose when intent d
 identify one of several devices. An offline selected device stays selected until the user
 changes it. Refresh discovery after reconnect, access or capability changes.
 
-Native `adc_discover` returns MCP-shaped schemas; `args`, `target`, `waitMs` and
-`idempotencyKey` belong to that schema. Native `adc_read`/`adc_invoke` take `nodeId`
+Native `adc_discover` returns MCP-shaped schemas; `args`, `target`, `waitMs`,
+`idempotencyKey`, `intent` and `controlSessionId` belong to that schema. Native `adc_read`/`adc_invoke` take `nodeId`
 instead of the MCP `target` wrapper. Keep actual device tool arguments inside `args`.
 Use `adc_read` only when the advertised tool has `readOnlyHint: true`.
+
+`intent` is an optional single-line declaration of the current purpose, bounded to 160 characters.
+Keep it and `controlSessionId` alongside `args`; neither is a device tool argument or authority.
+For Android screen mutations, explicitly begin `screen.control`, retain its returned token, pass
+that token on each action, and end the session in a finally step. Observation does not begin control.
+After “I'll take over”, stop screen actions and new control attempts until the phone owner locally
+allows screen control again. Waiting is not completion; expiry and unknown outcome are interruption.
+Existing grants explicitly add `screen.control`; refresh discovery after updating the App.
 
 Read/search before writing. Prefer exact file edits, patches and configured command
 templates. For shell commands, use Bash on macOS/Linux and PowerShell on Windows.
 Never infer arguments or tool availability from this Skill; use live discovery.
 
 For each side effect, retain one stable idempotency key of at least eight characters with
-the exact tool, target, arguments and intent. A changed operation needs a new key. Retain
+the exact tool, target and arguments. Changing only declared `intent` does not create a new operation.
+A changed operation needs a new key. Retain
 invocationId, jobId, status and receipt with the task. Wait on those identities without
 resubmission. A wait timeout does not mean execution failed.
 

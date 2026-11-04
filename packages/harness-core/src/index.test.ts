@@ -4,9 +4,11 @@ import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { projectToolDefinitions } from "@adc/mcp-adapter";
 import type { InvocationContext } from "@adc/client";
+import type { Invocation } from "@adc/protocol";
 import {
   createCliRunner,
   createCliTransport,
+  createSdkTransport,
   executeNativeTool,
   projectResult,
   validateInvocation,
@@ -84,7 +86,12 @@ describe("harness execution boundaries", () => {
       };
     });
     const transport = createCliTransport(run);
-    const result = await executeNativeTool(transport, "adc_invoke", write);
+    const controlSessionId = "ctl_" + "b".repeat(32);
+    const result = await executeNativeTool(transport, "adc_invoke", {
+      ...write,
+      intent: "保存旅行计划",
+      controlSessionId
+    });
     expect(result).toMatchObject({
       status: "approval_required",
       reviewUrl: "https://adc.zioon.tech/approvals"
@@ -92,6 +99,10 @@ describe("harness execution boundaries", () => {
     const invokeArgs = run.mock.calls.find(([args]) => args[0] === "invoke")![0];
     expect(invokeArgs).toContain("write-once-example");
     expect(invokeArgs).toContain("node_example");
+    expect(invokeArgs).toContain("--intent");
+    expect(invokeArgs).toContain("保存旅行计划");
+    expect(invokeArgs).toContain("--control-session");
+    expect(invokeArgs).toContain(controlSessionId);
     await executeNativeTool(transport, "adc_task", { invocationId: "inv_example" });
     expect(run.mock.calls.filter(([args]) => args[0] === "invoke")).toHaveLength(1);
     expect(run.mock.calls.at(-1)![0]).toEqual(["invocation", "status", "inv_example"]);
@@ -99,6 +110,59 @@ describe("harness execution boundaries", () => {
       executeNativeTool(transport, "adc_read", { ...read, accountId: "fake" })
     ).rejects.toThrow();
     expect(run.mock.calls.filter(([args]) => args[0] === "invoke")).toHaveLength(1);
+    await expect(
+      executeNativeTool(transport, "adc_invoke", { ...write, intent: "two\nlines" })
+    ).rejects.toThrow();
+    await expect(
+      executeNativeTool(transport, "adc_invoke", { ...write, controlSessionId: "invalid" })
+    ).rejects.toThrow();
+    expect(run.mock.calls.filter(([args]) => args[0] === "invoke")).toHaveLength(1);
+  });
+
+  it("forwards native SDK screen control metadata through the authenticated invocation path", async () => {
+    const mobileContext: InvocationContext = {
+      ...context,
+      allowedTools: ["device.navigation"],
+      toolNodeIds: { "device.navigation": ["node_example"] }
+    };
+    const bodies: Invocation[] = [];
+    const fetcher = (async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (new URL(String(url)).pathname === "/api/v1/me") {
+        return Response.json({
+          kind: "agent",
+          context: mobileContext,
+          grant: { allowedTools: mobileContext.allowedTools, name: "Phone" }
+        });
+      }
+      const body = JSON.parse(String(init?.body));
+      bodies.push(body);
+      return Response.json({
+        schemaVersion: "0.1",
+        invocationId: body.invocationId,
+        attemptId: body.attemptId,
+        status: "succeeded"
+      });
+    }) as typeof fetch;
+    const transport = createSdkTransport("https://adc.example", "scoped-test-token", fetcher);
+    const controlSessionId = "ctl_" + "a".repeat(32);
+    await transport.invoke({
+      tool: "device.navigation",
+      args: { action: "home" },
+      nodeId: "node_example",
+      idempotencyKey: "screen-home-example",
+      intent: "返回首页",
+      controlSessionId
+    });
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).toMatchObject({
+      metadata: { source: "mcp", intent: "返回首页", controlSessionId },
+      args: { action: "home" },
+      accountId: "acct_example",
+      actor: { type: "agent", id: "actor_example" },
+      target: { nodeId: "node_example" },
+      idempotencyKey: "screen-home-example"
+    });
+    transport.dispose();
   });
 
   it("keeps terminal receipts and uncertainty when bounding large output", () => {
