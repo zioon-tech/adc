@@ -39,12 +39,16 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Initialize Android SDK tools
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+        with:
+          packages: platforms;android-36 build-tools;35.0.0
+          log-accepted-android-sdk-licenses: false
       - name: Verify Android release code without signing credentials
         working-directory: apps/android-node
         run: |
           export JAVA_HOME="$JAVA_HOME_17_X64"
           export PATH="$JAVA_HOME/bin:$PATH"
-          sdkmanager "platforms;android-36" "build-tools;35.0.0"
           ./gradlew --no-daemon :app:testReleaseUnitTest :app:lintRelease :app:assembleRelease
   service:
     needs: changes
