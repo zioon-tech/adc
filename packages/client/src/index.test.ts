@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AdcClient, buildInvocation, defaultTarget, type InvocationContext } from "./index.ts";
 
 const context: InvocationContext = {
@@ -11,6 +11,105 @@ const context: InvocationContext = {
   },
   rootIds: ["root_workspace"]
 };
+
+describe("public request deadlines", () => {
+  it.each(["headers", "body"])("bounds an unresponsive %s without replay", async (phase) => {
+    vi.useFakeTimers();
+    const calls: RequestInit[] = [];
+    const fetcher = (async (_input: RequestInfo | URL, init: RequestInit) => {
+      calls.push(init);
+      const blocked = () =>
+        new Promise((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => reject(init.signal?.reason as Error), {
+            once: true
+          });
+        });
+      if (phase === "headers") return blocked();
+      return { ok: true, json: blocked } as unknown as Response;
+    }) as typeof fetch;
+    const client = new AdcClient("https://adc.example", "test", fetcher);
+    const pending = client.me();
+    let failure: unknown;
+    const settled = pending.catch((error) => {
+      failure = error;
+    });
+    try {
+      await vi.advanceTimersByTimeAsync(45_001);
+      expect(failure).toMatchObject({ name: "AdcRequestTimeoutError", outcomeUnknown: false });
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.signal?.aborted).toBe(true);
+      await settled;
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("bounds a mutation with a caller signal and preserves its invocation identity", async () => {
+    vi.useFakeTimers();
+    let sent: RequestInit | undefined;
+    const fetcher = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      sent = init;
+      return new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason as Error), {
+          once: true
+        });
+      });
+    }) as typeof fetch;
+    const client = new AdcClient("https://adc.example", "test", fetcher);
+    const invocation = buildInvocation({
+      context,
+      tool: "device.navigation",
+      args: { action: "home" },
+      source: "sdk",
+      idempotencyKey: "deadline-home-1"
+    });
+    let failure: unknown;
+    const settled = client
+      .invoke(invocation, { signal: new AbortController().signal })
+      .catch((error) => {
+        failure = error;
+      });
+    try {
+      await vi.advanceTimersByTimeAsync(45_001);
+      expect(failure).toMatchObject({ name: "AdcRequestTimeoutError", outcomeUnknown: true });
+      expect(JSON.parse(String(sent?.body))).toEqual(invocation);
+      await settled;
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("honors earlier caller cancellation and clears the remaining timeout", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const reason = new Error("caller cancelled");
+    const fetcher = (async (_input: RequestInfo | URL, init?: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason as Error), {
+          once: true
+        });
+      })) as typeof fetch;
+    const invocation = buildInvocation({
+      context,
+      tool: "file.read",
+      args: { path: "/Users/example/workspace/a" },
+      source: "sdk"
+    });
+    const pending = new AdcClient("https://adc.example", "test", fetcher).invoke(invocation, {
+      signal: controller.signal
+    });
+    const checked = expect(pending).rejects.toBe(reason);
+    try {
+      controller.abort(reason);
+      await checked;
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
 
 describe("device invocation context", () => {
   it("forwards current purpose and screen session only in invocation metadata", () => {
@@ -82,9 +181,11 @@ describe("device invocation context", () => {
       "30000",
       "1000"
     ]);
-    expect(calls[1]!.init?.signal).toBe(signal);
+    expect(calls[1]!.init?.signal).toBeInstanceOf(AbortSignal);
     expect(JSON.parse(String(calls[1]!.init?.body))).toEqual(invocation);
-    expect(calls[2]!.init?.signal).toBe(signal);
+    expect(calls[2]!.init?.signal).toBeInstanceOf(AbortSignal);
+    expect(calls[1]!.init?.signal?.aborted).toBe(false);
+    expect(calls[2]!.init?.signal?.aborted).toBe(false);
     await expect(client.invoke(invocation, { waitMs: -1 })).rejects.toThrow();
     expect(calls).toHaveLength(4);
   });

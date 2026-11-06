@@ -1,0 +1,11 @@
+ADC 0.2.7 (testing channel)
+
+Reuses HTTP connections and bounds DNS, request and screen-operation time to reduce engineering overhead.
+When supported by the current catalog, screen actions return the resulting interface; use the fresh snapshot for the next action.
+Clickable ancestry and same-row context improve duplicate-label, search-result and editable-field targeting.
+Stale snapshots, missing targets and unknown outcomes remain distinct so uncertain actions are not blindly replayed.
+In-place updates restore the Node and Accessibility binding while preserving user takeover and screen-control expiry.
+Updates screen-control notifications and the draggable edge indicator.
+
+Retains the existing testing certificate for in-place upgrades with pairing and local permissions preserved.
+Installation remains under the device owner's control. Refresh the MCP catalog after updating.

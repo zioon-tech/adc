@@ -30,7 +30,7 @@
     <string name="screen_check_phone">请先确认屏幕当前状态</string>
     <string name="screen_lease_hint">本次控制还剩 %1$d 秒</string>
     <string name="screen_no_intent">当前没有屏幕任务</string>
-    <string name="screen_help">开始和交还时，顶部通知与短振动会提醒你。点「我来接管」后，需在此允许才能再次控制屏幕。读取位置、截图或界面不算接管。</string>
+    <string name="screen_help">屏幕控制期间持续显示状态，开始和结束时会轻振提示。点击侧边「停止」可直接接管；准备好后在此允许再次控制。完整用途可在通知中查看。读取位置、截图或界面不算接管。</string>
     <string name="screen_history">最近使用</string>
     <string name="screen_history_empty">工具、声明的意图和执行结果会显示在这里。</string>
     <string name="screen_result_ok">已完成</string>
@@ -38,7 +38,21 @@
     <string name="screen_result_unknown">结果待确认</string>
     <string name="screen_result_cancelled">已取消</string>
     <string name="screen_result_failed">执行失败</string>
-    <string name="screen_edge">屏幕边缘小提示</string>
-    <string name="screen_edge_help">可选 · 可拖动，点开可接管</string>
+    <string name="screen_edge">跨应用状态提示</string>
+    <string name="screen_edge_help">支持时使用系统实时活动；否则显示细状态线和侧边停止入口，可上下拖动</string>
     <string name="screen_hide">隐藏提示</string>
+    <string name="indicator_using">ADC · 正在操作</string>
+    <string name="indicator_waiting">ADC · 已接管</string>
+    <string name="indicator_stopping">正在停止操作…</string>
+    <string name="indicator_released">ADC · 已交还</string>
+    <string name="indicator_taken_over">已由你接管</string>
+    <string name="indicator_interrupted">控制已中断</string>
+    <string name="indicator_no_intent">等待 Agent 的下一步</string>
+    <string name="indicator_settling">已阻止新操作，正在等待当前操作停止。</string>
+    <string name="indicator_finished">现在可以由你使用屏幕。</string>
+    <string name="indicator_stop">停止</string>
+    <string name="indicator_handle_stopping">停止中</string>
+    <string name="indicator_chip_using">操作中</string>
+    <string name="indicator_chip_waiting">等待中</string>
+    <string name="indicator_chip_stopping">停止中</string>
 </resources>

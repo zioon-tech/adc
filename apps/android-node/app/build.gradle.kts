@@ -5,15 +5,15 @@ plugins {
 
 android {
     namespace = "cloud.agentdevice.node"
-    compileSdk = 35
+    compileSdk = 36
     testBuildType = "release"
 
     defaultConfig {
         applicationId = "cloud.agentdevice.node"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
-        versionName = "0.2.3"
+        versionCode = 13
+        versionName = "0.2.7"
 
         testInstrumentationRunner = "cloud.agentdevice.node.AndroidVerificationRunner"
     }
@@ -44,7 +44,7 @@ android {
 }
 
 dependencies {
-    implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.core:core-ktx:1.17.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.browser:browser:1.8.0")
     implementation("com.google.android.material:material:1.12.0")

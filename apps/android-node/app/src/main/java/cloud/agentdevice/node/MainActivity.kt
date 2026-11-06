@@ -196,7 +196,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         store = NodeStore(this)
         store.migrateOfficialOrigin()
-        if (store.isNodeDesired() && !NodeService.isActive()) store.setRuntimeState("interrupted")
+        NodeService.restoreDesired(this)
         accounts = AccountStore(this)
         savedInstanceState?.getIntArray("tabScroll")?.copyInto(tabScroll)
         accounts.session()?.let { session ->
@@ -717,8 +717,8 @@ class MainActivity : AppCompatActivity() {
         }
         caption(getString(R.string.screen_help))
         val controlPreferences = getSharedPreferences("adc_screen_control", MODE_PRIVATE)
-        toggle(getString(R.string.screen_edge), getString(R.string.screen_edge_help), controlPreferences.getBoolean("edge", false)) {
-            controlPreferences.edit().putBoolean("edge", it).apply()
+        toggle(getString(R.string.screen_edge), getString(R.string.screen_edge_help), controlPreferences.getBoolean("activity_indicator", true)) {
+            controlPreferences.edit().putBoolean("activity_indicator", it).apply()
             sendBroadcast(Intent(ScreenControl.ACTION_CHANGED).setPackage(packageName))
         }
         section(getString(R.string.screen_history))
