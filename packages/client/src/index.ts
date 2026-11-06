@@ -383,6 +383,18 @@ export class AdcClientError extends Error {
   }
 }
 
+/** A transport deadline does not establish whether a submitted write ran. */
+export class AdcRequestTimeoutError extends Error {
+  constructor(readonly outcomeUnknown: boolean) {
+    super(
+      outcomeUnknown
+        ? "ADC request deadline exceeded; reconcile the existing operation before retrying."
+        : "ADC request deadline exceeded."
+    );
+    this.name = "AdcRequestTimeoutError";
+  }
+}
+
 export class AdcClient {
   private readonly baseUrl: string;
 
@@ -409,29 +421,58 @@ export class AdcClient {
   }
 
   private async request(path: string, init: RequestInit = {}): Promise<unknown> {
-    const response = await this.fetcher(`${this.baseUrl}${path}`, {
-      ...init,
-      headers: {
-        ...this.headers(),
-        "content-type": "application/json",
-        ...init.headers
+    // The maximum server wait is 30s. Leave 15s for connection and body transfer.
+    // This also bounds startup/discovery requests which have no caller signal.
+    const controller = new AbortController();
+    const outcomeUnknown = !["GET", "HEAD"].includes((init.method ?? "GET").toUpperCase());
+    const timer = setTimeout(
+      () => controller.abort(new AdcRequestTimeoutError(outcomeUnknown)),
+      45_000
+    );
+    // Keep the published Node >=18 contract; older Node 18 has no AbortSignal.any.
+    const callerSignal = init.signal;
+    const propagateAbort = () => controller.abort(callerSignal?.reason);
+    if (callerSignal?.aborted) propagateAbort();
+    else callerSignal?.addEventListener("abort", propagateAbort, { once: true });
+    const signal = controller.signal;
+    try {
+      signal.throwIfAborted();
+      const response = await this.fetcher(`${this.baseUrl}${path}`, {
+        ...init,
+        signal,
+        headers: {
+          ...this.headers(),
+          "content-type": "application/json",
+          ...init.headers
+        }
+      });
+      const body = await response.json().catch(() => {
+        // Do not turn an aborted response body into an apparently successful {}.
+        if (signal.aborted) throw signal.reason;
+        return {};
+      });
+      signal.throwIfAborted();
+      if (!response.ok) {
+        const parsed = ErrorSchema.safeParse((body as any).error ?? body);
+        throw new AdcClientError(
+          response.status,
+          parsed.success
+            ? parsed.data
+            : {
+                code: "internal",
+                message: `control plane returned HTTP ${response.status}`,
+                retryable: response.status >= 500
+              }
+        );
       }
-    });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const parsed = ErrorSchema.safeParse((body as any).error ?? body);
-      throw new AdcClientError(
-        response.status,
-        parsed.success
-          ? parsed.data
-          : {
-              code: "internal",
-              message: `control plane returned HTTP ${response.status}`,
-              retryable: response.status >= 500
-            }
-      );
+      return body;
+    } catch (error) {
+      if (signal.aborted) throw signal.reason;
+      throw error;
+    } finally {
+      clearTimeout(timer);
+      callerSignal?.removeEventListener("abort", propagateAbort);
     }
-    return body;
   }
 
   /** Upload a bounded chunk directly; the ADC credential is only used to obtain its ticket. */

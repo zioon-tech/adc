@@ -21,6 +21,10 @@ pnpm test:integration
 pnpm test:e2e
 ```
 
+GUI 常驻执行器的可移植示例位于 `examples/gui-executor`，使用独立 Python 包与测试配置；
+它不依赖其他业务仓库。CI 同时运行 Python 回归及静态检查，以及 Android release
+单测、Lint 和无签名构建。Android 签名继续在受控的本地发布步骤完成。
+
 PR 和主分支通过固定 SHA 的通用工作流执行检查。官网、文档与控制台保持现有共用前端实现；其静态构建与服务检查分开，文档变更不会部署或重启后端。
 
 在本产品仓库发起 `Production release`，调用固定 SHA 的共享发布工作流；私有 `zioon-tech/infra` 管理生产配置、云权限和运行手册。选择 main 已成功的 CI 制品，校验来源、commit 和 SHA256，检查磁盘，原子切换对应组件的发布目录，执行 HTTP 健康检查并保存回滚记录。Connector 按平台产生独立、带版本与校验和的制品。

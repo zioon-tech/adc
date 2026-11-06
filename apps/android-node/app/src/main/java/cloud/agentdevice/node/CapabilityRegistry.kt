@@ -279,7 +279,8 @@ class CapabilityRegistry(
                                 "beforeSnapshotId",
                                 "afterSnapshotId",
                                 "changed",
-                                "foregroundPackage"
+                                "foregroundPackage",
+                                "observation"
                             )
                         )
                     )
@@ -327,7 +328,9 @@ class CapabilityRegistry(
         invocation: JSONObject? = null,
         operation: ScreenControl.Operation? = null
     ): MobileCapabilityResult {
-        val screenRelated = tool in ScreenControl.MUTATIONS || tool in setOf("screen.capture", "ui.inspect", "ui.wait")
+        // Keep local takeover available during gestures. Their dispatch rejects paths crossing
+        // the stop target; only screenshot production temporarily hides local windows.
+        val screenRelated = tool == "screen.capture"
         val freshAfter = if (screenRelated) AdcAccessibilityService.hideIndicator() else 0L
         return try { executeVisible(tool, args, cancelled, invocation, operation, freshAfter) }
         finally { if (screenRelated) AdcAccessibilityService.restoreIndicator() }
@@ -830,6 +833,10 @@ class CapabilityRegistry(
                             )
                     )
                     .put("text", JSONObject().put("type", "string").put("maxLength", 4000))
+                    .put(
+                        "includeObservation",
+                        JSONObject().put("type", "boolean").put("default", false)
+                    )
                     .put(
                         "postActionWaitMs",
                         JSONObject()

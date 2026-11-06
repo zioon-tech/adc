@@ -1,0 +1,18 @@
+{
+  "objective": "使用小米计算器com.miui.calculator完成一条连续计算链，并在中途切换设置com.android.settings核验护眼模式。先清除当前算式，计算125+75=200，再基于200乘3得到600；切去设置只读查看护眼详情；回计算器核对600保留；继续减80得到520，再除4得到130。不清除计算历史，不修改手机设置。",
+  "acceptance": ["6个有序里程碑通过验证，最后计算器当前结果为130"],
+  "allowed_packages": ["com.miui.calculator", "com.android.settings", "com.miui.home"],
+  "max_steps": 50,
+  "timeout_s": 600,
+  "required_text": ["= 130"],
+  "sequence_packages": ["com.miui.calculator"],
+  "sequence_labels": ["0","1","2","3","4","5","6","7","8","9","加","减","乘","除","等于","清除","退格"],
+  "milestones": [
+    {"id":"sum","objective":"打开计算器，清除当前算式，计算125+75并按等于，核验200","package":"com.miui.calculator","required_nodes":[{"selector":{"resourceId":"com.miui.calculator:id/expression"},"last":true,"equals":{"contentDescription":"125+75"}},{"selector":{"resourceId":"com.miui.calculator:id/result"},"last":true,"equals":{"text":"= 200"}}]},
+    {"id":"multiply","objective":"在当前结果上乘3并按等于，核验600","package":"com.miui.calculator","required_nodes":[{"selector":{"resourceId":"com.miui.calculator:id/result"},"last":true,"equals":{"text":"= 600"}}]},
+    {"id":"eye","objective":"切换到设置，找到护眼模式详情，只读核验定时配置入口","package":"com.android.settings","required_text":["定时开启护眼模式","根据您选择的时间段，自动开启/关闭护眼模式"]},
+    {"id":"retain","objective":"回到计算器，确认切换应用后当前结果600仍保留","package":"com.miui.calculator","required_nodes":[{"selector":{"resourceId":"com.miui.calculator:id/result"},"last":true,"equals":{"text":"= 600"}}]},
+    {"id":"subtract","objective":"在保留的600上减80并按等于，核验520","package":"com.miui.calculator","required_nodes":[{"selector":{"resourceId":"com.miui.calculator:id/result"},"last":true,"equals":{"text":"= 520"}}]},
+    {"id":"divide","objective":"在520上除4并按等于，核验130，保持结果页","package":"com.miui.calculator","required_nodes":[{"selector":{"resourceId":"com.miui.calculator:id/result"},"last":true,"equals":{"text":"= 130"}}]}
+  ]
+}

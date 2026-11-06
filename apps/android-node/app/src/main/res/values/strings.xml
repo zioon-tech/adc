@@ -30,7 +30,7 @@
     <string name="screen_check_phone">Check the screen before continuing</string>
     <string name="screen_lease_hint">%1$d s remaining in this session</string>
     <string name="screen_no_intent">No current screen task</string>
-    <string name="screen_help">Starts and releases are announced at the top of the screen with a short vibration. Taking over pauses new screen control until you resume here. Location and interface reads do not take over the screen.</string>
+    <string name="screen_help">Screen control stays visible, with a brief vibration at start and end. Tap the side Stop button to take over; resume here when ready. See notifications for the full purpose. Location and interface reads do not take over the screen.</string>
     <string name="screen_history">Recent activity</string>
     <string name="screen_history_empty">Tool, declared purpose and outcome will appear here.</string>
     <string name="screen_result_ok">Completed</string>
@@ -38,7 +38,21 @@
     <string name="screen_result_unknown">Outcome unknown</string>
     <string name="screen_result_cancelled">Cancelled</string>
     <string name="screen_result_failed">Failed</string>
-    <string name="screen_edge">Small screen indicator</string>
-    <string name="screen_edge_help">Optional · draggable, tap to take over</string>
+    <string name="screen_edge">Activity across apps</string>
+    <string name="screen_edge_help">Uses system Live Updates when available; otherwise a thin status line and side Stop button you can drag vertically</string>
     <string name="screen_hide">Hide indicator</string>
+    <string name="indicator_using">ADC · Operating</string>
+    <string name="indicator_waiting">ADC · In control</string>
+    <string name="indicator_stopping">Stopping actions…</string>
+    <string name="indicator_released">ADC · Screen released</string>
+    <string name="indicator_taken_over">You are in control</string>
+    <string name="indicator_interrupted">Control interrupted</string>
+    <string name="indicator_no_intent">Waiting for the Agent’s next step</string>
+    <string name="indicator_settling">New actions are blocked. Waiting for the current action to stop.</string>
+    <string name="indicator_finished">The screen is yours again.</string>
+    <string name="indicator_stop">Stop</string>
+    <string name="indicator_handle_stopping">Stopping</string>
+    <string name="indicator_chip_using">Using</string>
+    <string name="indicator_chip_waiting">Wait</string>
+    <string name="indicator_chip_stopping">Stop</string>
 </resources>

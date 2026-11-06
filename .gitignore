@@ -21,3 +21,9 @@ docs/fiction/
 *.tsbuildinfo
 .dbg/
 .worktrees/
+**/__pycache__/
+**/.pytest_cache/
+**/.ruff_cache/
+**/*.egg-info/
+examples/gui-executor/.venv/
+examples/gui-executor/build/

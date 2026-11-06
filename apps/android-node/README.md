@@ -40,7 +40,7 @@ privileged Android operation into an ordinary App capability.
 
 ## Build
 
-Use JDK 17 and Android SDK Platform 35:
+Use JDK 17 and Android SDK Platform 36 (the Gradle wrapper supplies Gradle 8.11.1):
 
 ```bash
 cd apps/android-node
@@ -142,6 +142,41 @@ The Android native provider exposes app launch, device/build/storage/display/aud
 volume and vibration controls, and flashlight status/control. These capabilities use Android public
 APIs. Mutating tools use their own local switches and repeat the permission check at execution;
 flashlight access also requires camera permission.
+
+## Screen control feedback
+
+An authorized Agent explicitly begins `screen.control`, attaches the returned session token to
+screen actions, and ends the session when finished. The phone owns this lease and its local stop
+switch. Reading battery, location or the interface does not begin a control session.
+
+CLI integrations must explicitly grant `screen.control` alongside the permitted phone actions.
+The `unattended` profile allows a limited set of reads and registered command templates; it does
+not allow phone UI tools. Use `workspace-write` with an explicit phone-tool list and your chosen approval policy.
+
+On Android 36+, the App requests a system Live Update for ongoing screen control using public
+notification APIs. It keeps the local fallback until Android reports `FLAG_PROMOTED_ONGOING`;
+permission to request promotion alone does not prove that a status-bar chip is visible. OEMs
+can impose extra criteria. Online standby and observational reads are not promoted.
+
+On older systems or when promotion is unavailable, a 48 × 64dp **Stop** target at the right
+edge stays visible over other apps while the Agent is operating or waiting. Tap
+**Stop** to take over directly, or drag it vertically away from content. A brief, non-touch
+banner shows the purpose when control begins. Full purpose and takeover remain in a standard
+notification. This fallback defaults on, with its preference in **This phone → Screen activity**.
+
+Taking over blocks new actions immediately. The indicator says it is stopping until in-flight
+actions settle, then shows that the screen is yours. Model release also leaves a brief
+confirmation lasting 3.5 seconds. Lease expiry, disconnection or an uncertain result shows
+interruption instead of claiming success. Pending actions keep a stopping indicator. Dismissed
+activity notifications are not reposted during the same session.
+
+Interface inspection, waiting and semantic accessibility actions leave the indicator visible.
+Only screenshot production temporarily removes local windows and restores them afterward.
+Coordinate gesture dispatch rejects paths crossing the Stop target, keeping local takeover
+available while a gesture is running. The brief banner does not receive touch.
+No full-screen touch-blocking layer is installed. MIUI 14 has no native focus-notification/island
+API; newer Android and Xiaomi systems differ. Native promotion needs Android 36+ device
+verification and is not claimed as tested on the Android 13 preview phone.
 
 ## Security boundary
 

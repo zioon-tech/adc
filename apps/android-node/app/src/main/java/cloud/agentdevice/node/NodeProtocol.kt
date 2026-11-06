@@ -3,8 +3,6 @@ package cloud.agentdevice.node
 import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
 import java.math.BigDecimal
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
@@ -22,6 +20,7 @@ class NodeProtocol(
     private val store: NodeStore
 ) {
     private var longPollSupported: Boolean? = null
+    private val http = NodeHttpTransport()
 
     fun pair(controlPlaneUrl: String, code: String, label: String): NodeConfig {
         val body = JSONObject()
@@ -162,39 +161,7 @@ class NodeProtocol(
     }
 
     private fun post(url: String, body: JSONObject, headers: Map<String, String>): JSONObject {
-        val connection = URL(url).openConnection() as HttpURLConnection
-        connection.requestMethod = "POST"
-        connection.instanceFollowRedirects = false
-        connection.connectTimeout = 15_000
-        connection.readTimeout = 30_000
-        connection.doOutput = true
-        connection.setRequestProperty("content-type", "application/json")
-        connection.setRequestProperty("accept", "application/json")
-        headers.forEach(connection::setRequestProperty)
-        connection.outputStream.use {
-            it.write(body.toString().toByteArray(StandardCharsets.UTF_8))
-        }
-        val status = connection.responseCode
-        val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-        val text = stream?.bufferedReader(StandardCharsets.UTF_8)?.use { it.readText() }.orEmpty()
-        connection.disconnect()
-        val response = if (text.isBlank()) JSONObject() else JSONObject(text)
-        if (status !in 200..299) {
-            val error = response.optJSONObject("error")
-            val details = error?.optJSONObject("details")
-            throw NodeApiException(
-                status,
-                error?.optString("code", "internal") ?: "internal",
-                buildString {
-                    append(
-                        error?.optString("message", "ADC returned HTTP $status")
-                            ?: "ADC returned HTTP $status"
-                    )
-                    if (details != null) append(": ").append(details)
-                }
-            )
-        }
-        return response
+        return http.post(url, body, headers)
     }
 
     companion object {

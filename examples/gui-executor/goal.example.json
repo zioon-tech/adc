@@ -1,0 +1,9 @@
+{
+  "objective": "打开系统设置并查看显示设置",
+  "acceptance": ["当前界面显示亮度设置"],
+  "allowed_packages": ["com.android.settings"],
+  "required_text": ["亮度"],
+  "auto_accept": true,
+  "max_steps": 20,
+  "timeout_s": 120
+}

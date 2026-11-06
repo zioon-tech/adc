@@ -39,6 +39,26 @@ function invocation(overrides: Record<string, unknown> = {}) {
 }
 
 describe("InvocationSchema", () => {
+  it("keeps legacy action arguments unchanged while allowing an explicit post-action snapshot", () => {
+    const base = invocation({
+      tool: "ui.action",
+      args: { action: "click", selector: { text: "Brightness" } },
+      idempotencyKey: "post-observation-1"
+    });
+    expect(InvocationSchema.parse(base).args).not.toHaveProperty("includeObservation");
+    for (const includeObservation of [true, false]) {
+      expect(
+        InvocationSchema.parse({ ...base, args: { ...(base.args as object), includeObservation } })
+          .args
+      ).toHaveProperty("includeObservation", includeObservation);
+    }
+    expect(
+      InvocationSchema.safeParse({
+        ...base,
+        args: { ...(base.args as object), includeObservation: "true" }
+      }).success
+    ).toBe(false);
+  });
   it("validates explicit control leases and bounded intent metadata independently of business args", () => {
     const begin = invocation({
       tool: "screen.control",

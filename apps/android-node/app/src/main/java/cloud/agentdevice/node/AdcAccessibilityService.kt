@@ -19,7 +19,6 @@ import org.json.JSONObject
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.util.ArrayDeque
-import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
@@ -30,8 +29,8 @@ class AdcAccessibilityService : AccessibilityService() {
     private val overlayReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: Intent?) { overlay?.refresh() }
     }
-    private val snapshotSession = UUID.randomUUID().toString().replace("-", "").take(12)
     private val snapshotRevision = AtomicLong()
+    private val snapshotFence = SnapshotFence(elapsed = { SystemClock.elapsedRealtime() })
 
     @Volatile
     private var lastEventAt = 0L
@@ -46,15 +45,21 @@ class AdcAccessibilityService : AccessibilityService() {
         snapshotRevision.incrementAndGet()
         lastEventAt = SystemClock.elapsedRealtime()
         notifyCapabilityChanged()
+        NodeService.restoreDesired(this)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event != null && overlay?.windowId?.let { it >= 0 && it == event.windowId } == true) return
+        if (event != null && overlay?.ownsWindow(event.windowId) == true) return
         snapshotRevision.incrementAndGet()
         lastEventAt = SystemClock.elapsedRealtime()
     }
 
     override fun onInterrupt() { ScreenControl.get(this).interrupt("accessibility") }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        overlay?.refresh()
+    }
 
     override fun onDestroy() {
         ScreenControl.get(this).interrupt("accessibility")
@@ -121,50 +126,53 @@ class AdcAccessibilityService : AccessibilityService() {
             .put("bounds", boundsJson(rootBounds(nodes)))
             .put("nodes", nodes)
             .put("truncated", truncated)
-        val snapshotId = "uisnap_${snapshotSession}_$revision"
+        val ticket = snapshotFence.record(content, maxDepth, maxNodes, revision, snapshotRevision.get())
         return UiSnapshot(
             JSONObject(content.toString())
-                .put("snapshotId", snapshotId)
+                .put("snapshotId", ticket.id)
                 .put("observedAt", DateTimeFormatter.ISO_INSTANT.format(Instant.now())),
-            snapshotId,
+            ticket.id,
             packageName,
-            revision
+            revision,
+            ticket
         )
     }
 
     private fun performAction(args: JSONObject, cancelled: () -> Boolean, operation: ScreenControl.Operation): JSONObject {
         val selector = args.getJSONObject("selector")
         val requested = args.getString("action")
-        val before = snapshot(DEFAULT_MAX_DEPTH, DEFAULT_MAX_NODES)
-        selector.optString("snapshotId")
-            .takeIf(String::isNotBlank)
-            ?.let {
-                if (it != before.id) {
-                    throw CapabilityException(
-                        "conflict",
-                        "The UI changed after the referenced snapshot; inspect it again.",
-                        false
-                    )
+        val includeObservation = args.optBoolean("includeObservation", false)
+        val reference = selector.optString("snapshotId").takeIf(String::isNotBlank)?.let(snapshotFence::lookup)
+        val before = snapshot(reference?.maxDepth ?: DEFAULT_MAX_DEPTH, reference?.maxNodes ?: DEFAULT_MAX_NODES)
+        reference?.let { snapshotFence.requireCurrent(it, before.ticket, includeObservation) }
+        var semanticRevalidated = reference != null && reference.revision != before.revision
+        var mutationBefore = before
+        val matchedSummary = onMainThread(cancelled, operation) {
+            // Validate and resolve inside the control guard, immediately before the effect.
+            val current = if (reference != null && snapshotRevision.get() != before.revision) {
+                snapshot(before.ticket.maxDepth, before.ticket.maxNodes)
+            } else before
+            reference?.let {
+                snapshotFence.requireCurrent(it, current.ticket, includeObservation)
+                semanticRevalidated = semanticRevalidated || it.revision != current.revision
+                if (snapshotRevision.get() != current.revision) {
+                    throw CapabilityException("conflict", "The UI changed while validating the action.", false)
                 }
             }
-        val matched = findNode(selector)
-            ?: throw CapabilityException("not_found", "No visible UI element matched.", false)
-        val matchedSummary = nodeSummary(matched)
-        try {
-            val target =
-                if (requested == "click" || requested == "long_click") {
-                    clickableNode(matched, requested == "long_click")
-                            ?: throw CapabilityException(
-                                "not_found",
-                                "The matched element has no clickable ancestor.",
-                                false
-                            )
-                } else {
-                    AccessibilityNodeInfo.obtain(matched)
-                }
+            val matched = findNode(
+                selector,
+                if (reference != null) current.ticket.maxDepth else Int.MAX_VALUE,
+                if (reference != null) current.ticket.maxNodes else Int.MAX_VALUE
+            ) ?: throw CapabilityException("not_found", "No visible UI element matched.", false)
             try {
-                val action =
-                    when (requested) {
+                val summary = nodeSummary(matched)
+                val target = if (requested == "click" || requested == "long_click") {
+                    clickableNode(matched, requested == "long_click") ?: throw CapabilityException(
+                        "not_found", "The matched element has no clickable ancestor.", false
+                    )
+                } else AccessibilityNodeInfo.obtain(matched)
+                try {
+                    val action = when (requested) {
                         "click" -> AccessibilityNodeInfo.ACTION_CLICK
                         "long_click" -> AccessibilityNodeInfo.ACTION_LONG_CLICK
                         "focus" -> AccessibilityNodeInfo.ACTION_FOCUS
@@ -178,8 +186,7 @@ class AdcAccessibilityService : AccessibilityService() {
                             false
                         )
                     }
-                val arguments =
-                    if (requested == "set_text" || requested == "clear_text") {
+                    val arguments = if (requested == "set_text" || requested == "clear_text") {
                         Bundle().apply {
                             putCharSequence(
                                 AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
@@ -189,52 +196,53 @@ class AdcAccessibilityService : AccessibilityService() {
                     } else {
                         null
                     }
-                val performed =
-                    onMainThread(cancelled, operation) {
-                        if (
-                            selector.optString("snapshotId").isNotBlank() &&
-                            snapshotRevision.get() != before.revision
-                        ) {
-                            throw CapabilityException(
-                                "conflict",
-                                "The UI changed after the referenced snapshot; inspect it again.",
-                                false
-                            )
-                        }
-                        if (arguments == null) {
-                            target.performAction(action)
-                        } else {
-                            target.performAction(action, arguments)
-                        }
+                    if (reference != null && snapshotRevision.get() != current.revision) {
+                        throw CapabilityException("conflict", "The UI changed while resolving the target.", false)
                     }
-                if (!performed) {
-                    throw CapabilityException(
-                        "execution_failed",
-                        "Android rejected the requested accessibility action.",
-                        false
-                    )
+                    mutationBefore = current
+                    val performed = if (arguments == null) {
+                        target.performAction(action)
+                    } else {
+                        target.performAction(action, arguments)
+                    }
+                    if (!performed) {
+                        throw CapabilityException(
+                            "execution_failed", "Android rejected the requested accessibility action.", false
+                        )
+                    }
+                    summary
+                } finally {
+                    target.recycle()
                 }
-                val after = waitForChangedSnapshot(
-                    before,
-                    args.optLong("postActionWaitMs", 500L).coerceIn(0L, 5_000L)
-                )
-                return JSONObject()
-                    .put("performed", true)
-                    .put("action", requested)
-                    .put("matched", matchedSummary)
-                    .put("beforeSnapshotId", before.id)
-                    .put("afterSnapshotId", after.id)
-                    .put("changed", before.id != after.id)
-                    .put(
-                        "foregroundPackage",
-                        after.packageName ?: JSONObject.NULL
-                    )
             } finally {
-                target.recycle()
+                matched.recycle()
             }
-        } finally {
-            matched.recycle()
         }
+        val waitMs = args.optLong("postActionWaitMs", 500L).coerceIn(0L, 5_000L)
+        val observation = if (includeObservation) ObservationSettler.await(
+            mutationBefore.revision, waitMs,
+            { SystemClock.elapsedRealtime() }, { Thread.sleep(it) }, { snapshotRevision.get() }
+        ) {
+            try {
+                snapshot(mutationBefore.ticket.maxDepth, mutationBefore.ticket.maxNodes).let {
+                    ObservationSettler.Sample(it, it.ticket.fingerprint, it.ticket.stable)
+                }
+            } catch (_: CapabilityException) { null }
+        } else ObservationSettler.Result(waitForChangedSnapshot(mutationBefore, waitMs), false)
+        val after = observation.value ?: mutationBefore
+        return PostActionObservation.attach(JSONObject()
+            .put("performed", true)
+            .put("action", requested)
+            .put("matched", matchedSummary)
+            .put("beforeSnapshotId", mutationBefore.id)
+            .put("afterSnapshotId", after.id)
+            .put("changed", mutationBefore.id != after.id)
+            .put("foregroundPackage", after.packageName ?: JSONObject.NULL)
+            .apply { if (includeObservation) {
+                put("semanticRevalidated", semanticRevalidated)
+                put("observationSettled", observation.settled)
+            } },
+            after.json, includeObservation, observation.settled && after !== mutationBefore)
     }
 
     private fun performGesture(args: JSONObject, cancelled: () -> Boolean, operation: ScreenControl.Operation): JSONObject {
@@ -274,6 +282,7 @@ class AdcAccessibilityService : AccessibilityService() {
         var succeeded = false
         val accepted =
             onMainThread(cancelled, operation) {
+                overlay?.requireClearGesture(path)
                 dispatchGesture(
                     gesture,
                     object : GestureResultCallback() {
@@ -327,7 +336,9 @@ class AdcAccessibilityService : AccessibilityService() {
         return JSONObject().put("performed", true).put("action", action)
     }
 
-    private fun findNode(selector: JSONObject): AccessibilityNodeInfo? {
+    private fun findNode(
+        selector: JSONObject, maxDepth: Int = Int.MAX_VALUE, maxNodes: Int = Int.MAX_VALUE
+    ): AccessibilityNodeInfo? {
         val root = rootInActiveWindow ?: return null
         val queue = ArrayDeque<QueuedNode>()
         queue.add(QueuedNode(root, 0, null, "w${root.windowId}"))
@@ -336,6 +347,7 @@ class AdcAccessibilityService : AccessibilityService() {
         var nodeId = 0
         try {
             while (queue.isNotEmpty()) {
+                if (nodeId >= maxNodes) break
                 val current = queue.removeFirst()
                 val node = current.node
                 if (matches(node, selector, nodeId, current.ref)) {
@@ -345,7 +357,7 @@ class AdcAccessibilityService : AccessibilityService() {
                     }
                     matchedIndex += 1
                 }
-                for (index in 0 until node.childCount) {
+                if (current.depth < maxDepth) for (index in 0 until node.childCount) {
                     node.getChild(index)?.let {
                         queue.add(
                             QueuedNode(
@@ -562,7 +574,7 @@ class AdcAccessibilityService : AccessibilityService() {
             if (remaining > 0L) Thread.sleep(minOf(50L, remaining))
         }
         return try {
-            snapshot(DEFAULT_MAX_DEPTH, DEFAULT_MAX_NODES)
+            snapshot(before.ticket.maxDepth, before.ticket.maxNodes)
         } catch (_: CapabilityException) {
             before
         }
@@ -594,7 +606,7 @@ class AdcAccessibilityService : AccessibilityService() {
         val currentWindows = windows
         return try {
             JSONArray().apply {
-                currentWindows.filter { it.id != overlay?.windowId }.forEach { window ->
+                currentWindows.filter { overlay?.ownsWindow(it.id) != true }.forEach { window ->
                     val bounds = Rect()
                     window.getBoundsInScreen(bounds)
                     put(
@@ -705,7 +717,8 @@ class AdcAccessibilityService : AccessibilityService() {
         val json: JSONObject,
         val id: String,
         val packageName: String?,
-        val revision: Long
+        val revision: Long,
+        val ticket: SnapshotFence.Ticket
     )
 
     companion object {

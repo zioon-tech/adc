@@ -159,6 +159,7 @@ class NodeWakeChannel internal constructor(
     companion object {
         private const val MAX_MESSAGE_BYTES = 1024
         private val DEFAULT_CLIENT = OkHttpClient.Builder()
+            .dns(DeadlineDns.SHARED)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
             .pingInterval(30, TimeUnit.SECONDS)

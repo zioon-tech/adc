@@ -24,6 +24,32 @@ jobs:
         run: node scripts/ci/affected.mjs
   secrets:
     uses: zioon-tech/workflows/.github/workflows/secret-scan.yml@c393e2bb7646ec3e3ac889c5548f6c719d3ca2bc
+  gui-executor:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Verify the standalone GUI executor
+        run: |
+          python3 -m venv /tmp/adc-gui-test
+          /tmp/adc-gui-test/bin/pip install './examples/gui-executor[test]'
+          /tmp/adc-gui-test/bin/python -m pytest examples/gui-executor -q
+          /tmp/adc-gui-test/bin/python -m ruff check examples/gui-executor
+          /tmp/adc-gui-test/bin/python -m compileall -q examples/gui-executor/adc_gui_executor
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Initialize Android SDK tools
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+        with:
+          packages: platforms;android-36 build-tools;35.0.0
+          log-accepted-android-sdk-licenses: false
+      - name: Verify Android release code without signing credentials
+        working-directory: apps/android-node
+        run: |
+          export JAVA_HOME="$JAVA_HOME_17_X64"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          ./gradlew --no-daemon :app:testReleaseUnitTest :app:lintRelease :app:assembleRelease
   service:
     needs: changes
     if: needs.changes.outputs.service == 'true'
@@ -61,7 +87,7 @@ jobs:
     name: CI
     runs-on: ubuntu-24.04
     if: always()
-    needs: [changes, secrets, service, website, client-tools]
+    needs: [changes, secrets, gui-executor, android, service, website, client-tools]
     steps:
       - env:
           FAILED: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}

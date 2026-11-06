@@ -305,7 +305,8 @@ const UiActionArgsSchema = z
       "clear_text"
     ]),
     text: z.string().max(4000).optional(),
-    postActionWaitMs: z.number().int().min(0).max(5000).default(500)
+    postActionWaitMs: z.number().int().min(0).max(5000).default(500),
+    includeObservation: z.boolean().optional()
   })
   .strict()
   .superRefine((value, context) => {

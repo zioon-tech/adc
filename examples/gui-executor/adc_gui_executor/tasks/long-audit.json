@@ -1,0 +1,17 @@
+{
+  "objective": "进行一次只读手机设置巡检。按里程碑顺序核验硬件与系统信息，再检查显示、刷新率、护眼模式和字体详情，最后返回设置首页。不点击版本更新、切换开关、修改数值或账户。",
+  "acceptance": ["全部7个里程碑通过独立验证，最后停在设置首页"],
+  "allowed_packages": ["com.android.settings", "com.xiaomi.misettings", "com.miui.home"],
+  "max_steps": 50,
+  "timeout_s": 600,
+  "required_text": ["搜索系统设置项", "我的设备"],
+  "milestones": [
+    {"id":"hardware","objective":"打开我的设备，核验手机型号、处理器和分辨率","package":"com.android.settings","required_text":["手机型号","Redmi Note 11T Pro","天玑8100","2460*1080像素"]},
+    {"id":"os","objective":"进入全部参数与信息，核验Android版本及MIUI版本","package":"com.android.settings","required_text":["全部参数与信息","Android 版本","MIUI 版本"],"required_nodes":[{"selector":{"resourceId":"com.android.settings:id/card_value"},"equals":{"text":"13"}}]},
+    {"id":"display","objective":"进入显示页，核验亮度、护眼和刷新率入口","package":"com.android.settings","required_text":["亮度","护眼模式","屏幕刷新率"]},
+    {"id":"refresh","objective":"进入屏幕刷新率详情，核验当前选中项，不点击选项","package":"com.xiaomi.misettings","required_text":["屏幕刷新率","自定义"],"required_nodes":[{"selector":{"text":"默认（推荐）"},"equals":{"checked":true}}]},
+    {"id":"eye","objective":"进入护眼模式详情，核验定时配置入口","package":"com.android.settings","required_text":["定时开启护眼模式","根据您选择的时间段，自动开启/关闭护眼模式"]},
+    {"id":"font","objective":"找到并进入字体设置详情，核验当前默认字号及字体选项，不改变字号","package":"com.android.settings","required_text":["字体设置","默认大小","MiSans"]},
+    {"id":"return","objective":"返回设置首页","package":"com.android.settings","required_text":["搜索系统设置项","我的设备"]}
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "objective": "只读完成三轮设置检索。先搜索不存在的量子传送器xyz987并确认无结果；恢复搜索字体并进入字号详情；再搜索护眼进入详情；再搜索刷新率进入详情；最后退出搜索返回设置首页。不修改任何设置，不清除历史。",
+  "acceptance": ["全部8个有序里程碑验证，最后回到设置首页"],
+  "allowed_packages": ["com.android.settings", "com.xiaomi.misettings", "com.miui.home"],
+  "max_steps": 50,
+  "timeout_s": 600,
+  "required_text": ["搜索系统设置项", "我的设备"],
+  "milestones": [
+    {"id":"empty","objective":"搜索量子传送器xyz987并确认没有找到设置项","package":"com.android.settings","required_text":["没有找到设置项"],"required_input_text":["量子传送器xyz987"]},
+    {"id":"font_search","objective":"把查询改为字体，确认搜索结果包含字体设置","package":"com.android.settings","required_text":["显示/字体设置"],"required_input_text":["字体"]},
+    {"id":"font_detail","objective":"进入字体设置详情，只读核验当前默认字号及字体选项","package":"com.android.settings","required_text":["字体设置","默认大小","MiSans"]},
+    {"id":"eye_search","objective":"返回搜索，把查询改成护眼，核验结果中的护眼模式","package":"com.android.settings","required_text":["护眼模式"],"required_input_text":["护眼"]},
+    {"id":"eye_detail","objective":"进入护眼模式详情，只读核验定时配置入口","package":"com.android.settings","required_text":["定时开启护眼模式","根据您选择的时间段，自动开启/关闭护眼模式"]},
+    {"id":"refresh_search","objective":"返回搜索，把查询改成刷新率，核验屏幕刷新率结果","package":"com.android.settings","required_text":["屏幕刷新率"],"required_input_text":["刷新率"]},
+    {"id":"refresh_detail","objective":"进入屏幕刷新率详情，核验默认项已选中，不修改","package":"com.xiaomi.misettings","required_text":["屏幕刷新率","自定义"],"required_nodes":[{"selector":{"text":"默认（推荐）"},"equals":{"checked":true}}]},
+    {"id":"return","objective":"退出详情与搜索，返回设置首页","package":"com.android.settings","required_text":["搜索系统设置项","我的设备"]}
+  ]
+}

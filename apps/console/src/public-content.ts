@@ -41,6 +41,76 @@ export function localize(value: LocalizedText, locale: Locale): string {
 }
 
 const latestRelease: PublicContentEntry = {
+  path: "/updates/connector-0-1-8",
+  kind: "Product update",
+  title: text(
+    "Android 0.2.7, CLI 0.1.8 and SDK 0.2.4: steadier screen operations",
+    "Android 0.2.7、CLI 0.1.8 与 SDK 0.2.4：更稳定的屏幕操作"
+  ),
+  summary: text(
+    "Reuse the connection, observe the result of each screen action, and recover from stale interface references without replaying uncertain actions.",
+    "复用连接、获取屏幕操作后的界面，并在界面引用失效时恢复，避免重复执行结果不确定的操作。"
+  ),
+  publishedAt: "2026-11-06",
+  updatedAt: "2026-11-06",
+  readingMinutes: 3,
+  keywords: ["ADC Android 0.2.7", "ADC CLI 0.1.8", "ADC SDK 0.2.4", "GUI automation"],
+  listed: true,
+  relatedPaths: ["/docs/android", "/docs/integrations", "/updates/connector-0-1-7"],
+  sections: [
+    {
+      id: "screen-results",
+      title: text("Observe the result of a screen action", "观察屏幕操作的结果"),
+      paragraphs: [
+        text(
+          "Android 0.2.7 can return the resulting interface with a screen action when includeObservation is supported by the current tool catalog. A caller can use the returned snapshot for its next decision and avoid a separate interface-read request.",
+          "Android 0.2.7 可在当前工具目录支持 includeObservation 时，随屏幕操作返回操作后的界面。调用方可使用返回的快照决定下一步，减少一次单独读取界面的请求。"
+        ),
+        text(
+          "Each action still uses the current screen-control session and a fresh interface reference. Stale or ambiguous targets require a new observation; an unknown result must not be replayed as a new action.",
+          "每个动作仍需使用当前屏幕控制会话与新界面引用。引用失效或目标存在歧义时需要重新观察；结果未知时不能作为新动作重复执行。"
+        )
+      ]
+    },
+    {
+      id: "connection-recovery",
+      title: text("Keep connections and recovery bounded", "复用连接并限制恢复耗时"),
+      paragraphs: [
+        text(
+          "The Android Node reuses HTTP connections and limits DNS and request time. Updates and reconnection restore the Node and Accessibility binding. User takeover and screen-control expiry continue to stop new screen actions.",
+          "Android Node 复用 HTTP 连接，并限制 DNS 与请求耗时。升级与重连会恢复 Node 和无障碍绑定。用户接管及屏幕控制到期仍会停止新的屏幕操作。"
+        ),
+        text(
+          "A standalone Python GUI executor example is included in the ADC repository. It reuses one public MCP process, verifies bounded goals and supports supervision when a decision stalls. It keeps model time and tool time separate in its execution records.",
+          "ADC 仓库提供独立 Python GUI 执行器示例，复用一个公开 MCP 进程，校验有界目标，并在决策停滞时支持监督。执行记录分别统计模型与工具耗时。"
+        )
+      ]
+    },
+    {
+      id: "install",
+      title: text("Update through the official channels", "通过官方渠道更新"),
+      paragraphs: [
+        text(
+          "Update the CLI and Desktop Connector to 0.1.8. SDK 0.2.4 is distributed as a versioned HTTPS archive. Android uses its separate 0.2.7 APK channel and preserves the existing testing certificate for in-place upgrades. Android installation remains under the device owner's control.",
+          "CLI 与 Desktop Connector 更新至 0.1.8。SDK 0.2.4 使用官方版本化 HTTPS 下载包。Android 通过独立的 0.2.7 APK 渠道更新，沿用现有测试签名以支持覆盖升级；安装仍由手机所有者确认。"
+        )
+      ],
+      code: `adc update --check
+adc update
+adc task wait JOB_ID --wait 4000 --json
+adc invoke task.wait --args '{"jobId":"JOB_ID","waitMs":4000}' --json`,
+      links: [
+        { href: "/downloads/sdk/manifest.json", label: text("SDK manifest", "SDK 下载清单") },
+        {
+          href: "/downloads/android/manifest.json",
+          label: text("Android manifest", "Android 下载清单")
+        }
+      ]
+    }
+  ]
+};
+
+const invocationContextRelease: PublicContentEntry = {
   path: "/updates/connector-0-1-7",
   kind: "Product update",
   title: text(
@@ -306,6 +376,7 @@ const olderContentOrder = [
 
 export const publicContent: PublicContentEntry[] = [
   latestRelease,
+  invocationContextRelease,
   previousRelease,
   cloudAgentArticle,
   adcPositioningArticle,
