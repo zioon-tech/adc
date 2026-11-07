@@ -56,7 +56,7 @@ export const ApprovalIdSchema = z.string().regex(/^apr_[a-z0-9][a-z0-9_-]{2,127}
 export const ReceiptIdSchema = z.string().regex(/^rcpt_[a-z0-9][a-z0-9_-]{2,127}$/);
 export const JobIdSchema = z.string().regex(/^job_[a-z0-9][a-z0-9_-]{2,127}$/);
 export const TransferIdSchema = z.string().regex(/^xfr_[a-z0-9][a-z0-9_-]{2,127}$/);
-export const ArtifactIdSchema = z.string().regex(/^artifact_[a-f0-9]{32}\.(?:log|png)$/);
+export const ArtifactIdSchema = z.string().regex(/^artifact_[a-f0-9]{32}\.(?:log|png|jpg|jpeg)$/);
 export const NodePlatformSchema = z.enum(["darwin", "linux", "win32", "android"]);
 export type NodePlatform = z.infer<typeof NodePlatformSchema>;
 
@@ -388,7 +388,8 @@ export const ToolArgsSchemas = {
     .strict(),
   "screen.capture": z
     .object({
-      format: z.literal("png").default("png"),
+      format: z.enum(["png", "jpeg"]).default("png"),
+      quality: z.number().int().min(1).max(100).optional(),
       maxWidth: z.number().int().min(320).max(2160).default(1080)
     })
     .strict(),

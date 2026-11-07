@@ -889,8 +889,11 @@ class MainActivity : AppCompatActivity() {
                 if (store.isCapabilityEnabled(group) && group in setOf(CapabilityGroup.UI_CONTROL, CapabilityGroup.UI_OBSERVE) && !AdcAccessibilityService.isConnected()) {
                     action(text("Open accessibility settings", "打开无障碍设置"), false, container) { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
                 }
-                if (store.isCapabilityEnabled(group) && group == CapabilityGroup.SCREEN_CAPTURE && !ScreenCaptureSession.isActive()) {
-                    action(text("Authorize this screen session", "授权本次屏幕共享"), false, container) { requestCapture() }
+                if (store.isCapabilityEnabled(group) && group == CapabilityGroup.SCREEN_CAPTURE &&
+                    (!ScreenCaptureSession.isActive() || ScreenCaptureSession.isStalled())) {
+                    val label = if (ScreenCaptureSession.isStalled()) text("Restart screen sharing", "重新授权屏幕共享")
+                        else text("Authorize this screen session", "授权本次屏幕共享")
+                    action(label, false, container) { requestCapture() }
                 }
             }
         }

@@ -3,7 +3,10 @@ import {
   CallToolRequestSchema,
   ErrorCode,
   ListToolsRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
   McpError,
+  type CallToolResult,
   type Tool
 } from "@modelcontextprotocol/sdk/types.js";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
@@ -11,12 +14,14 @@ import type { JsonSchemaType } from "@modelcontextprotocol/sdk/validation/types.
 import { AdcClient, buildInvocation, type InvocationContext } from "@adc/client";
 import {
   ControlPlaneTools,
+  ArtifactIdSchema,
   ToolArgsSchemas,
   ToolNameSchema,
   WaitMsSchema,
   ExecutionTimeoutMsSchema,
   isBuiltinTool,
   isSideEffectTool,
+  ResultSchema,
   toolArgsJsonSchema,
   type InvocationResult,
   type ToolCapability,
@@ -25,7 +30,7 @@ import {
 } from "@adc/protocol";
 
 export interface McpAdapterOptions {
-  client: Pick<AdcClient, "invoke">;
+  client: Pick<AdcClient, "invoke"> & Partial<Pick<AdcClient, "artifact">>;
   context: InvocationContext;
   loadContext?: () => Promise<InvocationContext>;
   defaultTarget?: { nodeId: string } | { projectId: string; affinity?: string };
@@ -335,11 +340,56 @@ function normalizeToolArgs(input: unknown): unknown {
   }
 }
 
+function imageArtifact(result: InvocationResult, tool: ToolId): string | undefined {
+  if (result.status !== "succeeded") return;
+  if (["task.status", "task.result", "task.wait"].includes(tool)) {
+    const output = result.output as { task?: unknown } | undefined;
+    const task = ResultSchema.safeParse(output?.task);
+    return task.success ? imageArtifact(task.data, "screen.capture") : undefined;
+  }
+  if (tool !== "screen.capture") return;
+  const output = result.output as { artifactId?: unknown } | undefined;
+  const id = ArtifactIdSchema.safeParse(output?.artifactId);
+  return id.success && /\.(?:png|jpg|jpeg)$/.test(id.data) ? id.data : undefined;
+}
+
 export function createMcpServer(options: McpAdapterOptions): Server {
   const server = new Server(
     { name: "agent-device-cloud", version: "0.1.0" },
-    { capabilities: { tools: { listChanged: true } } }
+    {
+      capabilities: {
+        tools: { listChanged: true },
+        ...(options.client.artifact ? { resources: {} } : {})
+      }
+    }
   );
+  if (options.client.artifact) {
+    server.setRequestHandler(ListResourcesRequestSchema, async () => ({ resources: [] }));
+    server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+      const prefix = "adc://artifacts/";
+      const id = request.params.uri.startsWith(prefix)
+        ? ArtifactIdSchema.safeParse(request.params.uri.slice(prefix.length))
+        : undefined;
+      if (!id?.success) {
+        throw new McpError(ErrorCode.InvalidParams, "Expected adc://artifacts/<artifactId>.");
+      }
+      // The public artifact endpoint checks current grant and task visibility on every read.
+      const data = await options.client.artifact!(id.data);
+      return {
+        contents: [
+          {
+            uri: request.params.uri,
+            mimeType: id.data.endsWith(".png")
+              ? "image/png"
+              : /\.(?:jpg|jpeg)$/.test(id.data)
+                ? "image/jpeg"
+                : "text/plain",
+            blob: Buffer.from(data).toString("base64")
+          }
+        ]
+      };
+    });
+  }
   const adapter = new McpInvocationAdapter(options);
   let current = toolSnapshot(options, options.context);
   const refresh = async (notify: boolean) => {
@@ -401,11 +451,30 @@ export function createMcpServer(options: McpAdapterOptions): Server {
         snapshot.context,
         extra.signal
       );
-      return {
+      const response: CallToolResult = {
         content: [{ type: "text", text: JSON.stringify(result) }],
         structuredContent: result as unknown as Record<string, unknown>,
         isError: !["queued", "running", "succeeded"].includes(result.status)
       };
+      const artifactId = imageArtifact(result, tool);
+      if (artifactId && options.client.artifact) {
+        try {
+          const data = await options.client.artifact(artifactId);
+          if (data.byteLength === 0) throw new Error("Image artifact is empty.");
+          response.content.push({
+            type: "image",
+            data: Buffer.from(data).toString("base64"),
+            mimeType: artifactId.endsWith(".png") ? "image/png" : "image/jpeg"
+          });
+        } catch (error) {
+          response.isError = true;
+          response.content.push({
+            type: "text",
+            text: `Image delivery failed: ${error instanceof Error ? error.message : String(error)}`
+          });
+        }
+      }
+      return response;
     } catch (error) {
       throw new McpError(
         ErrorCode.InvalidParams,
@@ -442,8 +511,10 @@ function descriptionFor(tool: ToolName, context?: InvocationContext): string {
     "device.network.get": "Read the active network type and metering state from a mobile device.",
     "device.storage.get": "Read internal storage capacity and free space from a mobile device.",
     "device.vibrate": "Vibrate an Android device for a bounded duration and amplitude.",
-    "device.navigation": "Perform an Android system navigation action through Accessibility. Requires an active screen.control token in controlSessionId.",
-    "app.open": "Open an installed Android app by package name and wait for it to become visible. Requires an active screen.control token in controlSessionId.",
+    "device.navigation":
+      "Perform an Android system navigation action through Accessibility. Requires an active screen.control token in controlSessionId.",
+    "app.open":
+      "Open an installed Android app by package name and wait for it to become visible. Requires an active screen.control token in controlSessionId.",
     "display.status": "Read Android display dimensions, density, refresh rate and power state.",
     "audio.status": "Read Android audio mode, ringer state and stream volumes.",
     "audio.volume.set": "Set one Android audio stream to a percentage of its supported range.",

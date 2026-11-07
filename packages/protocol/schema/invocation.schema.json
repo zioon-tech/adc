@@ -1280,7 +1280,15 @@
                 "format": {
                   "default": "png",
                   "type": "string",
-                  "const": "png"
+                  "enum": [
+                    "png",
+                    "jpeg"
+                  ]
+                },
+                "quality": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100
                 },
                 "maxWidth": {
                   "default": 1080,

@@ -91,6 +91,12 @@ export interface NodePollResponse {
   dispatch: NodeDispatch | null;
   maxConcurrency?: number;
   longPoll?: boolean;
+  inlineAckSupported?: boolean;
+  acknowledgement?: {
+    acknowledged: true;
+    cancelRequested: boolean;
+    leaseExpiresAt: string;
+  };
   update?: NodeReleaseUpdate;
 }
 

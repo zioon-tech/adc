@@ -170,8 +170,15 @@ class CapabilityRegistry(
                                             "format",
                                             JSONObject()
                                                 .put("type", "string")
-                                                .put("const", "png")
+                                                .put("enum", JSONArray().put("png").put("jpeg"))
                                                 .put("default", "png")
+                                        )
+                                        .put(
+                                            "quality",
+                                            JSONObject()
+                                                .put("type", "integer")
+                                                .put("minimum", 1)
+                                                .put("maximum", 100)
                                         )
                                         .put(
                                             "maxWidth",
@@ -521,6 +528,13 @@ class CapabilityRegistry(
                 now
             )
         }
+        if (ScreenCaptureSession.isStalled()) {
+            return unavailable(
+                "temporarily_unavailable",
+                "Android screen sharing is stalled. Restart screen sharing in ADC.",
+                now
+            )
+        }
         return available(now)
     }
 
@@ -755,24 +769,33 @@ class CapabilityRegistry(
         cancelled: () -> Boolean,
         freshAfter: Long
     ): MobileCapabilityResult {
+        val format = args.optString("format", "png")
+        val contentType = if (format == "jpeg") "image/jpeg" else "image/png"
         val captured = ScreenCaptureSession.capture(
             args.optInt("maxWidth", 1080),
             cancelled,
-            freshAfter
+            freshAfter,
+            format,
+            args.optInt("quality", 85)
         )
-        val artifactId = "${NodeProtocol.invocationId("artifact")}.png"
+        val extension = if (format == "jpeg") "jpg" else "png"
+        val artifactId = "${NodeProtocol.invocationId("artifact")}.$extension"
         return MobileCapabilityResult(
             JSONObject()
                 .put("artifactId", artifactId)
-                .put("contentType", "image/png")
+                .put("contentType", contentType)
                 .put("sha256", captured.sha256)
                 .put("bytes", captured.data.size)
                 .put("width", captured.width)
-                .put("height", captured.height),
+                .put("height", captured.height)
+                .put("timings", JSONObject()
+                    .put("frameWaitMs", captured.frameWaitMs)
+                    .put("encodeMs", captured.encodeMs)
+                    .put("recoveryCount", captured.recoveryCount)),
             listOf(
                 MobileArtifact(
                     artifactId = artifactId,
-                    contentType = "image/png",
+                    contentType = contentType,
                     sha256 = captured.sha256,
                     data = captured.data
                 )

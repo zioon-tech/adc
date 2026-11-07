@@ -41,6 +41,76 @@ export function localize(value: LocalizedText, locale: Locale): string {
 }
 
 const latestRelease: PublicContentEntry = {
+  path: "/updates/connector-0-1-9",
+  kind: "Product update",
+  title: text(
+    "Android 0.2.8, CLI 0.1.9 and SDK 0.2.5: screenshot recovery and MCP images",
+    "Android 0.2.8、CLI 0.1.9 与 SDK 0.2.5：截图恢复与 MCP 图片交付"
+  ),
+  summary: text(
+    "Recover a stalled screenshot stream within the existing sharing session and deliver screenshot pixels directly to MCP clients.",
+    "在已有共享会话中有限恢复截图停流，并将截图像素直接交付给 MCP 客户端。"
+  ),
+  publishedAt: "2026-11-07",
+  updatedAt: "2026-11-07",
+  readingMinutes: 3,
+  keywords: ["ADC Android 0.2.8", "ADC CLI 0.1.9", "ADC SDK 0.2.5", "MCP images"],
+  listed: true,
+  relatedPaths: ["/docs/android", "/docs/integrations", "/updates/connector-0-1-8"],
+  sections: [
+    {
+      id: "capture-recovery",
+      title: text("Recover screenshot frames", "恢复截图画面帧"),
+      paragraphs: [
+        text(
+          "Android 0.2.8 repairs frame ownership, static-screen timing and capture interruption. If an eligible frame does not arrive, it reconnects the consumer Surface once on the existing authorized display. A timeout remains an error; it never returns a cached old image as a fresh screenshot.",
+          "Android 0.2.8 修复画面帧所有权、静止页面时间门槛及截图中断处理。没有合格帧时，在已有授权显示上重接接收 Surface 一次。超时仍会报错，不会把缓存旧图当成新截图返回。"
+        ),
+        text(
+          "Full-screen coordinates now include bottom-edge controls. Optional JPEG capture reduces image bytes; PNG remains the default. The phone negotiates inline task acknowledgement with updated services and keeps the separate ACK path for older services.",
+          "完整屏幕坐标覆盖底部控件。可选 JPEG 截图减少图片字节，默认仍为 PNG。手机与新版服务协商在取任务时合并确认，旧服务继续单独确认。"
+        )
+      ]
+    },
+    {
+      id: "mcp-images",
+      title: text("Receive images with the result", "随结果取得图片"),
+      paragraphs: [
+        text(
+          "Hosted and local MCP now return image content with successful screenshots, including completed task.status, task.result and task.wait results. JSON metadata and receipts remain available. Artifact resource reads use the same caller authorization; image delivery errors remain explicit.",
+          "托管与本地 MCP 随成功截图返回图片内容，包括 task.status、task.result 和 task.wait 中的已完成结果。JSON 元数据与回执保留；artifact 资源读取使用同一调用者授权，图片交付错误会明确返回。"
+        ),
+        text(
+          "Frame and encoding timings exclude public-network transfer and the main model. This update does not enable experimental autonomous H20 exploration.",
+          "取帧与编码耗时不包含公网传输及主模型耗时。本次更新未启用实验中的 H20 自主探索。"
+        )
+      ]
+    },
+    {
+      id: "install",
+      title: text("Update and reconnect MCP", "更新并重连 MCP"),
+      paragraphs: [
+        text(
+          "CLI/Connector 0.1.9 and SDK 0.2.5 are available from official downloads. Android 0.2.8 remains an optional testing-channel APK with the existing certificate. Pairing survives in-place updates, while screen-sharing consent remains under the device owner's control. Reconnect existing MCP clients to refresh capabilities.",
+          "CLI/Connector 0.1.9 与 SDK 0.2.5 通过官方下载入口分发。Android 0.2.8 保持非强制测试渠道 APK，沿用原有证书。覆盖更新保留配对，屏幕共享授权仍由设备所有者确认；重连已有 MCP 客户端以刷新能力。"
+        )
+      ],
+      code: `adc update --check
+adc update
+adc task wait JOB_ID --wait 4000 --json
+adc invoke task.wait --args '{"jobId":"JOB_ID","waitMs":4000}' --json`,
+      links: [
+        { href: "/downloads/sdk/manifest.json", label: text("SDK manifest", "SDK 下载清单") },
+        {
+          href: "/downloads/android/manifest.json",
+          label: text("Android manifest", "Android 下载清单")
+        }
+      ]
+    }
+  ]
+};
+
+const steadierScreenRelease: PublicContentEntry = {
   path: "/updates/connector-0-1-8",
   kind: "Product update",
   title: text(
@@ -376,6 +446,7 @@ const olderContentOrder = [
 
 export const publicContent: PublicContentEntry[] = [
   latestRelease,
+  steadierScreenRelease,
   invocationContextRelease,
   previousRelease,
   cloudAgentArticle,

@@ -1,19 +1,19 @@
 {
   "schemaVersion": 1,
   "packageName": "cloud.agentdevice.node",
-  "versionName": "0.2.7",
-  "versionCode": 13,
+  "versionName": "0.2.8",
+  "versionCode": 14,
   "minSdk": 26,
-  "publishedAt": "2026-11-06T06:20:02.735Z",
+  "publishedAt": "2026-11-07T07:50:31.622Z",
   "required": false,
   "releaseNotes": {
-    "zh-CN": "ADC 0.2.7（测试渠道）\n\n复用 HTTP 连接，并为 DNS、请求和屏幕操作设置明确的时间预算，降低非模型调用开销。\n当前工具支持时，可随屏幕动作返回操作后的界面；使用新的快照引用进行后续操作。\n补充可点击父节点与同一行上下文，改善重复标签、搜索结果和输入框的定位。\n过期快照、未找到目标和结果未知会被明确区分，避免盲目重放操作。\n应用覆盖升级后恢复 Node 与无障碍绑定，保留用户接管和控制会话到期行为。\n更新屏幕控制提示、通知与可拖动边缘提示。\n\n沿用现有测试版签名，支持覆盖升级并保留配对信息与本地权限。\n安装仍需设备所有者确认。更新后刷新 MCP 工具目录。",
-    "en": "ADC 0.2.7 (testing channel)\n\nReuses HTTP connections and bounds DNS, request and screen-operation time to reduce engineering overhead.\nWhen supported by the current catalog, screen actions return the resulting interface; use the fresh snapshot for the next action.\nClickable ancestry and same-row context improve duplicate-label, search-result and editable-field targeting.\nStale snapshots, missing targets and unknown outcomes remain distinct so uncertain actions are not blindly replayed.\nIn-place updates restore the Node and Accessibility binding while preserving user takeover and screen-control expiry.\nUpdates screen-control notifications and the draggable edge indicator.\n\nRetains the existing testing certificate for in-place upgrades with pairing and local permissions preserved.\nInstallation remains under the device owner's control. Refresh the MCP catalog after updating."
+    "zh-CN": "ADC 0.2.8（测试渠道）\n\n修复静止页面截图超时、取帧与停止释放行为；停流时在已有屏幕共享会话上有限恢复一次。\n统一完整屏幕坐标，修复底部控件手势校验。\n支持可选 JPEG 截图，默认仍为无损 PNG。\n与新版服务协商在取任务时合并确认，减少一次签名请求；旧服务保持兼容。\n新版托管和本地 MCP 直接返回截图图片，并支持已完成异步任务图片交付与授权资源读取。\n\n沿用测试版签名，覆盖更新保留配对。安装和屏幕共享授权仍由设备所有者确认；用户接管与控制会话到期继续生效。更新后刷新或重连 MCP。",
+    "en": "ADC 0.2.8 (testing channel)\n\nRepairs static-screen capture timeouts, frame ownership and stop/release handling, with one bounded recovery on the existing authorized display.\nUses full-screen coordinates for bottom-edge gestures.\nAdds optional JPEG capture while retaining PNG as the default.\nNegotiates inline acknowledgement with updated services, preserving compatibility with older services.\nUpdated hosted and local MCP deliver screenshot images, including completed asynchronous results and authorized artifact resource reads.\n\nRetains the testing certificate and pairing on in-place updates. Installation and screen-sharing consent remain under the device owner's control; user takeover and control-session expiry remain enforced. Refresh or reconnect MCP after updating."
   },
   "apk": {
-    "url": "https://adc.zioon.tech/downloads/android/adc-mobile-node-0.2.7-9599786998a0a838.apk",
-    "sha256": "9599786998a0a83852e0da4121d3dccbf61973d92a739bd6968cf01fd442714a",
-    "bytes": 5531837,
+    "url": "https://adc.zioon.tech/downloads/android/adc-mobile-node-0.2.8-6cead95020456a58.apk",
+    "sha256": "6cead95020456a58fba44972e86eae42aecdacb977e4aef40cb2df2cc25c4344",
+    "bytes": 5540029,
     "signingCertificateSha256": "12addbdd332aed29ac79f85fddbfd5399ddeb8a8226d3d09fe21e2e094d2f10f"
   }
 }
