@@ -20,6 +20,7 @@ class NodeProtocol(
     private val store: NodeStore
 ) {
     private var longPollSupported: Boolean? = null
+    private var inlineAckSupported = false
     private val http = NodeHttpTransport()
 
     fun pair(controlPlaneUrl: String, code: String, label: String): NodeConfig {
@@ -47,16 +48,31 @@ class NodeProtocol(
             .put("capability", capability)
             .put("activeTaskCount", 0)
             .put("claim", true)
+        fun pollRequest(request: JSONObject): JSONObject {
+            val tryInlineAck = inlineAckSupported
+            if (tryInlineAck) request.put("acknowledge", true)
+            val response = try {
+                signedPost(config, path, request)
+            } catch (error: NodeApiException) {
+                if (!tryInlineAck || error.statusCode != 400 || error.code != "invalid_request") throw error
+                // A server rollback may remove inline ACK without removing long polling.
+                inlineAckSupported = false
+                request.remove("acknowledge")
+                signedPost(config, path, request)
+            }
+            inlineAckSupported = response.optBoolean("inlineAckSupported", false)
+            return response
+        }
         if (waitForWake && longPollSupported != false) {
             try {
-                return signedPost(config, path, body().put("waitMs", LONG_POLL_WAIT_MS))
+                return pollRequest(body().put("waitMs", LONG_POLL_WAIT_MS))
                     .also { longPollSupported = true }
             } catch (error: NodeApiException) {
                 if (error.statusCode != 400 || error.code != "invalid_request") throw error
                 longPollSupported = false
             }
         }
-        return signedPost(config, path, body())
+        return pollRequest(body())
     }
 
     fun acknowledge(config: NodeConfig, dispatchId: String, leaseToken: String): JSONObject =

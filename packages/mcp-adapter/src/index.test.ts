@@ -5,6 +5,195 @@ import { ResultSchema, type Invocation } from "@adc/protocol";
 import { McpInvocationAdapter, createMcpServer } from "./index.ts";
 
 describe("McpInvocationAdapter", () => {
+  it.each(
+    ["png", "jpeg"].flatMap((extension) =>
+      ["screen.capture", "task.status", "task.result", "task.wait"].map((tool) => ({
+        extension,
+        tool
+      }))
+    )
+  )("delivers $extension pixels with metadata for $tool", async ({ extension, tool }) => {
+    const artifactId = `artifact_${"b".repeat(32)}.${extension}`;
+    const data = new Uint8Array([0, 255, 128, 10, 13]);
+    const artifact = vi.fn(async () => data);
+    const capture = ResultSchema.parse({
+      schemaVersion: "0.1",
+      invocationId: `inv_${"b".repeat(32)}`,
+      attemptId: `att_${"b".repeat(32)}`,
+      status: "succeeded",
+      output: { artifactId, contentType: extension === "png" ? "image/png" : "image/jpeg" }
+    });
+    const result = tool === "screen.capture" ? capture : { ...capture, output: { task: capture } };
+    const server = createMcpServer({
+      client: { invoke: vi.fn(async () => result), artifact },
+      context: {
+        accountId: "acct_example",
+        actorId: "actor_example",
+        grantId: "grant_example",
+        rootIds: [],
+        nodeIds: ["node_android"],
+        allowedTools: ["screen.capture", "task.status", "task.result", "task.wait"],
+        toolNodeIds: { "screen.capture": ["node_android"] }
+      }
+    });
+    const client = new Client({ name: "image-test", version: "0.1.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    try {
+      const input =
+        tool === "screen.capture"
+          ? { args: {}, target: { nodeId: "node_android" } }
+          : { args: { jobId: "job_image" } };
+      const response = await client.callTool({ name: tool, arguments: input });
+      expect(response.structuredContent).toEqual(result);
+      expect(response.content).toEqual([
+        { type: "text", text: JSON.stringify(result) },
+        {
+          type: "image",
+          data: Buffer.from(data).toString("base64"),
+          mimeType: extension === "png" ? "image/png" : "image/jpeg"
+        }
+      ]);
+      expect(response.isError).toBe(false);
+      expect(artifact).toHaveBeenCalledExactlyOnceWith(artifactId);
+
+      artifact.mockRejectedValueOnce(new Error("artifact download returned HTTP 404"));
+      const failed = await client.callTool({ name: tool, arguments: input });
+      expect(failed.structuredContent).toEqual(result);
+      expect(failed.isError).toBe(true);
+      expect(failed.content).toEqual([
+        { type: "text", text: JSON.stringify(result) },
+        { type: "text", text: expect.stringMatching(/Image delivery failed.*404/) }
+      ]);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it.each(["queued", "running"] as const)(
+    "does not download pixels for a %s task",
+    async (status) => {
+      const artifact = vi.fn();
+      const result = ResultSchema.parse({
+        schemaVersion: "0.1",
+        invocationId: `inv_${"b".repeat(32)}`,
+        attemptId: `att_${"b".repeat(32)}`,
+        status,
+        output: { artifactId: `artifact_${"b".repeat(32)}.png` },
+        jobId: "job_image"
+      });
+      const server = createMcpServer({
+        client: { invoke: vi.fn(async () => result), artifact },
+        context: {
+          accountId: "acct_example",
+          actorId: "actor_example",
+          grantId: "grant_example",
+          rootIds: [],
+          nodeIds: ["node_android"],
+          allowedTools: ["screen.capture"],
+          toolNodeIds: { "screen.capture": ["node_android"] }
+        }
+      });
+      const client = new Client({ name: "pending-image-test", version: "0.1.0" });
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      await server.connect(serverTransport);
+      await client.connect(clientTransport);
+      try {
+        const response = await client.callTool({
+          name: "screen.capture",
+          arguments: { args: {}, target: { nodeId: "node_android" } }
+        });
+        expect(response.content).toEqual([{ type: "text", text: JSON.stringify(result) }]);
+        expect(response.isError).toBe(false);
+        expect(artifact).not.toHaveBeenCalled();
+      } finally {
+        await client.close();
+        await server.close();
+      }
+    }
+  );
+
+  it("reads artifact resources losslessly and rechecks access on each read", async () => {
+    const data = new Uint8Array([0, 255, 128, 10, 13]);
+    const artifact = vi.fn(async () => data);
+    const server = createMcpServer({
+      client: { invoke: vi.fn(), artifact },
+      context: {
+        accountId: "acct_example",
+        actorId: "actor_example",
+        grantId: "grant_example",
+        rootIds: [],
+        nodeIds: [],
+        allowedTools: []
+      }
+    });
+    const client = new Client({ name: "artifact-test", version: "0.1.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    try {
+      expect(client.getServerCapabilities()?.resources).toEqual({});
+      for (const [extension, mimeType] of [
+        ["png", "image/png"],
+        ["jpg", "image/jpeg"],
+        ["jpeg", "image/jpeg"],
+        ["log", "text/plain"]
+      ]) {
+        const id = `artifact_${"a".repeat(32)}.${extension}`;
+        const uri = `adc://artifacts/${id}`;
+        expect((await client.readResource({ uri })).contents).toEqual([
+          {
+            uri,
+            mimeType,
+            blob: Buffer.from(data).toString("base64")
+          }
+        ]);
+        expect(artifact).toHaveBeenLastCalledWith(id);
+      }
+      for (const uri of [
+        "file:///etc/passwd",
+        "adc://artifacts/../secret",
+        `adc://artifacts/artifact_${"a".repeat(32)}.png?token=x`
+      ]) {
+        await expect(client.readResource({ uri })).rejects.toThrow(/Expected adc:/);
+      }
+      expect(artifact).toHaveBeenCalledTimes(4);
+      const uri = `adc://artifacts/artifact_${"a".repeat(32)}.png`;
+      artifact.mockRejectedValueOnce(new Error("artifact download returned HTTP 404"));
+      await expect(client.readResource({ uri })).rejects.toThrow(/404/);
+      expect(artifact).toHaveBeenCalledTimes(5);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("does not advertise artifact resources without a download client", async () => {
+    const server = createMcpServer({
+      client: { invoke: vi.fn() },
+      context: {
+        accountId: "acct_example",
+        actorId: "actor_example",
+        grantId: "grant_example",
+        rootIds: [],
+        nodeIds: [],
+        allowedTools: []
+      }
+    });
+    const client = new Client({ name: "no-artifacts-test", version: "0.1.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    try {
+      expect(client.getServerCapabilities()?.resources).toBeUndefined();
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   it("preserves intent metadata and fails closed when screen control is not granted", async () => {
     let captured: Invocation | undefined;
     const adapter = new McpInvocationAdapter({

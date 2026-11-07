@@ -187,7 +187,7 @@ class NodeService : Service() {
                 updateNotification(localizedString(R.string.node_connected, config.label))
                 backoffMs = 2_000L
                 val dispatch = response.optJSONObject("dispatch")
-                dispatch?.let { execute(config, it) }
+                dispatch?.let { execute(config, it, response.optJSONObject("acknowledgement")) }
                 pollImmediately = dispatch != null
                 if (
                     dispatch == null &&
@@ -244,10 +244,11 @@ class NodeService : Service() {
             false
         }
 
-    private fun execute(config: NodeConfig, dispatch: JSONObject) {
+    private fun execute(config: NodeConfig, dispatch: JSONObject, inlineAck: JSONObject? = null) {
         val dispatchId = dispatch.getString("dispatchId")
         val leaseToken = dispatch.getString("leaseToken")
-        val acknowledged = protocol.acknowledge(config, dispatchId, leaseToken)
+        val acknowledged = inlineAck?.takeIf { it.optBoolean("acknowledged") }
+            ?: protocol.acknowledge(config, dispatchId, leaseToken)
         val cancelled = AtomicBoolean(acknowledged.optBoolean("cancelRequested"))
         val leaseValid = AtomicBoolean(true)
         val leaseExpiresAt = AtomicLong(

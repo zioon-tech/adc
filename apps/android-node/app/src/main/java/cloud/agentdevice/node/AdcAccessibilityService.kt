@@ -246,7 +246,7 @@ class AdcAccessibilityService : AccessibilityService() {
     }
 
     private fun performGesture(args: JSONObject, cancelled: () -> Boolean, operation: ScreenControl.Operation): JSONObject {
-        val metrics = resources.displayMetrics
+        val metrics = screenDisplayMetrics(this)
         val type = args.getString("type")
         val path = Path()
         val durationMs =
@@ -590,7 +590,7 @@ class AdcAccessibilityService : AccessibilityService() {
     }
 
     private fun displayJson(): JSONObject {
-        val metrics = resources.displayMetrics
+        val metrics = screenDisplayMetrics(this)
         val display = getSystemService(DisplayManager::class.java)
             .getDisplay(Display.DEFAULT_DISPLAY)
         return JSONObject()

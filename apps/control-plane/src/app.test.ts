@@ -33,7 +33,7 @@ function fetchFor(app: Awaited<ReturnType<typeof createControlPlane>>): typeof f
       ...(typeof init?.body === "string" ? { payload: init.body } : {})
     };
     const response: LightMyRequestResponse = await app.inject(injection);
-    return new Response(response.body, {
+    return new Response(new Uint8Array(response.rawPayload), {
       status: response.statusCode,
       headers: response.headers as Record<string, string>
     });
@@ -121,9 +121,10 @@ afterEach(async () => {
 
 describe("control plane", () => {
   async function waitFixture(
-    allowedTools: Array<"file.read" | "task.wait"> = ["file.read", "task.wait"]
+    allowedTools: Array<"file.read" | "task.wait"> = ["file.read", "task.wait"],
+    now?: () => Date
   ) {
-    const setup = await fixture();
+    const setup = await fixture(now);
     await setup.node.poll(setup.capability);
     await setup.owner.createAccess({
       grantId: "grant_example",
@@ -151,6 +152,137 @@ describe("control plane", () => {
     const agent = new AdcClient("http://adc.test", "approval-agent-token", setup.fetcher);
     return { ...setup, invocation, agent };
   }
+
+  async function inlinePoll(setup: Awaited<ReturnType<typeof waitFixture>>, waitMs = 0) {
+    const path = `/api/v1/nodes/${setup.paired.nodeId}/poll`;
+    const body = { capability: setup.capability, acknowledge: true, waitMs };
+    const timestamp = new Date().toISOString();
+    const nonce = randomBytes(18).toString("base64url");
+    const response = await setup.app.inject({
+      method: "POST",
+      url: path,
+      payload: body,
+      headers: {
+        "x-adc-node-id": setup.paired.nodeId,
+        "x-adc-timestamp": timestamp,
+        "x-adc-nonce": nonce,
+        "x-adc-signature": signNodeRequest(setup.keys.privateKey, {
+          method: "POST",
+          path,
+          timestamp,
+          nonce,
+          body
+        })
+      }
+    });
+    expect(response.statusCode).toBe(200);
+    return response.json();
+  }
+
+  it("advertises inline ACK while preserving legacy leased dispatches", async () => {
+    const setup = await waitFixture();
+    await setup.agent.invoke(setup.invocation);
+    const response = await setup.node.poll(setup.capability);
+    expect(response).toMatchObject({ inlineAckSupported: true, dispatch: { status: "leased" } });
+    expect(response).not.toHaveProperty("acknowledgement");
+    await setup.node.acknowledge(response.dispatch!.dispatchId, response.dispatch!.leaseToken);
+  });
+
+  it("acknowledges long-polled work and accepts its receipt without a separate ACK", async () => {
+    const setup = await waitFixture();
+    const polling = inlinePoll(setup, 2000);
+    await setup.agent.invoke(setup.invocation);
+    const response = await polling;
+    expect(response).toMatchObject({
+      longPoll: true,
+      dispatch: { status: "running" },
+      acknowledgement: { acknowledged: true, cancelRequested: false }
+    });
+    expect(response.acknowledgement.leaseExpiresAt).toBe(response.dispatch.leaseExpiresAt);
+    await setup.node.complete({
+      dispatchId: response.dispatch.dispatchId,
+      leaseToken: response.dispatch.leaseToken,
+      result: {
+        schemaVersion: "0.1",
+        invocationId: setup.invocation.invocationId,
+        attemptId: setup.invocation.attemptId,
+        status: "succeeded",
+        output: { text: "inline" }
+      }
+    });
+    expect(await setup.agent.invoke(setup.invocation)).toMatchObject({
+      status: "succeeded",
+      output: { text: "inline" }
+    });
+    expect(await inlinePoll(setup)).toMatchObject({ dispatch: null });
+  });
+
+  it("withholds inline dispatch when cancellation wins the claim to ACK race", async () => {
+    const setup = await waitFixture();
+    await setup.agent.invoke(setup.invocation);
+    const acknowledge = setup.store.acknowledge.bind(setup.store);
+    setup.store.acknowledge = async (id, token, now) => {
+      await setup.store.requestCancel(id, now);
+      return acknowledge(id, token, now);
+    };
+    const response = await inlinePoll(setup);
+    expect(response.dispatch).toBeNull();
+    expect(response).not.toHaveProperty("acknowledgement");
+    expect(await setup.store.getDispatchByInvocation(setup.invocation.invocationId)).toMatchObject({
+      status: "cancelled"
+    });
+  });
+
+  it("recovers a lost inline response with the same invocation and a new lease", async () => {
+    let clock = Date.now();
+    const setup = await waitFixture(undefined, () => new Date(clock));
+    await setup.agent.invoke(setup.invocation);
+    const lost = await inlinePoll(setup);
+    expect((await inlinePoll(setup)).dispatch).toBeNull();
+    clock += 30_001;
+    const retried = await inlinePoll(setup);
+    expect(retried.dispatch.dispatchId).toBe(lost.dispatch.dispatchId);
+    expect(retried.dispatch.invocation).toEqual(lost.dispatch.invocation);
+    expect(retried.dispatch.leaseToken).not.toBe(lost.dispatch.leaseToken);
+    expect(retried.acknowledgement.cancelRequested).toBe(false);
+    await expect(
+      setup.node.renewLease(lost.dispatch.dispatchId, lost.dispatch.leaseToken)
+    ).rejects.toThrow();
+  });
+
+  it("returns cancellation for recovered inline work after access is revoked", async () => {
+    let clock = Date.now();
+    const setup = await waitFixture(undefined, () => new Date(clock));
+    await setup.agent.invoke(setup.invocation);
+    const first = await inlinePoll(setup);
+    await setup.owner.revokeAccess("grant_example");
+    clock += 30_001;
+    const response = await inlinePoll(setup);
+    expect(response).toMatchObject({
+      dispatch: { dispatchId: first.dispatch.dispatchId, status: "cancel_requested" },
+      acknowledgement: { acknowledged: true, cancelRequested: true }
+    });
+  });
+
+  it("does not inline-acknowledge queued work after access is revoked", async () => {
+    const setup = await waitFixture();
+    await setup.agent.invoke(setup.invocation);
+    await setup.owner.revokeAccess("grant_example");
+    const response = await inlinePoll(setup);
+    expect(response.dispatch).toBeNull();
+    expect(response).not.toHaveProperty("acknowledgement");
+  });
+
+  it("does not return execution permission when the inline lease expires before ACK", async () => {
+    const setup = await waitFixture();
+    await setup.agent.invoke(setup.invocation);
+    const acknowledge = setup.store.acknowledge.bind(setup.store);
+    setup.store.acknowledge = (id, token, now) =>
+      acknowledge(id, token, new Date(now.getTime() + 30_001));
+    const response = await inlinePoll(setup);
+    expect(response.dispatch).toBeNull();
+    expect(response).not.toHaveProperty("acknowledgement");
+  });
 
   it("waits on the submitted invocation and reuses it after completion", async () => {
     const { agent, node, capability, invocation, store } = await waitFixture();
@@ -434,91 +566,158 @@ describe("control plane", () => {
     ).resolves.toMatchObject({ dispatch: null });
   });
 
-  it("stores screenshot bytes in the asset plane and only metadata in the database", async () => {
-    const { store, assets, owner, node, paired, capability } = await fixture();
-    const mobileCapability = CapabilitySchema.parse({
-      ...capability,
-      roots: [],
-      accessMode: "none",
-      tools: [
-        {
-          name: "screen.capture",
-          version: "0.1.0",
-          risk: "read",
-          sandboxProfiles: ["native-app"],
-          availability: {
-            state: "available",
-            observedAt: new Date().toISOString()
+  it.each([
+    ["png", "image/png"],
+    ["jpg", "image/jpeg"],
+    ["jpeg", "image/jpeg"]
+  ])(
+    "stores %s screenshot bytes in the asset plane and only metadata in the database",
+    async (extension, contentType) => {
+      const { app, store, assets, owner, node, paired, capability } = await fixture();
+      const mobileCapability = CapabilitySchema.parse({
+        ...capability,
+        roots: [],
+        accessMode: "none",
+        tools: [
+          {
+            name: "screen.capture",
+            version: "0.1.0",
+            risk: "read",
+            sandboxProfiles: ["native-app"],
+            availability: {
+              state: "available",
+              observedAt: new Date().toISOString()
+            }
           }
-        }
-      ]
-    });
-    await node.poll(mobileCapability);
-    expect(
-      (
-        await owner.createAccess({
-          grantId: "grant_screen",
-          actorId: "actor_screen",
-          name: "Screen agent",
-          profile: "read-only",
-          nodeIds: [paired.nodeId],
-          rootAccess: "selected",
-          rootIds: [],
-          approvalPolicy: "never",
-          allowedTools: ["screen.capture", "task.status"]
-        })
-      ).grantId
-    ).toBe("grant_screen");
-    const now = new Date();
-    const invocation = InvocationSchema.parse({
-      schemaVersion: "0.1",
-      invocationId: createId("inv"),
-      attemptId: createId("att"),
-      accountId: "acct_primary",
-      actor: { type: "agent", id: "actor_screen" },
-      target: { nodeId: paired.nodeId },
-      authorization: { rootIds: [], grantId: "grant_screen" },
-      tool: "screen.capture",
-      args: {},
-      issuedAt: now.toISOString(),
-      expiresAt: new Date(now.getTime() + 60_000).toISOString(),
-      metadata: { source: "sdk" }
-    });
-    const queued = await owner.invoke(invocation);
-    const polled = await node.poll(mobileCapability);
-    await node.acknowledge(polled.dispatch!.dispatchId, polled.dispatch!.leaseToken);
-
-    const data = Buffer.from("not-a-real-png");
-    const contentHash = `sha256:${createHash("sha256").update(data).digest("hex")}`;
-    const artifactId = "artifact_0123456789abcdef0123456789abcdef.png";
-    await node.uploadArtifact({
-      dispatchId: polled.dispatch!.dispatchId,
-      artifactId,
-      contentType: "image/png",
-      sha256: contentHash,
-      data
-    });
-    await node.complete({
-      dispatchId: polled.dispatch!.dispatchId,
-      leaseToken: polled.dispatch!.leaseToken,
-      result: ResultSchema.parse({
+        ]
+      });
+      await node.poll(mobileCapability);
+      expect(
+        (
+          await owner.createAccess({
+            grantId: "grant_example",
+            actorId: "actor_testagent",
+            name: "Screen agent",
+            profile: "read-only",
+            nodeIds: [paired.nodeId],
+            rootAccess: "selected",
+            rootIds: [],
+            approvalPolicy: "never",
+            allowedTools: ["screen.capture", "task.status", "task.result", "task.wait"]
+          })
+        ).grantId
+      ).toBe("grant_example");
+      const now = new Date();
+      const invocation = InvocationSchema.parse({
         schemaVersion: "0.1",
-        invocationId: invocation.invocationId,
-        attemptId: invocation.attemptId,
+        invocationId: createId("inv"),
+        attemptId: createId("att"),
+        accountId: "acct_primary",
+        actor: { type: "agent", id: "actor_testagent" },
+        target: { nodeId: paired.nodeId },
+        authorization: { rootIds: [], grantId: "grant_example" },
+        tool: "screen.capture",
+        args: {},
+        issuedAt: now.toISOString(),
+        expiresAt: new Date(now.getTime() + 60_000).toISOString(),
+        metadata: { source: "sdk" }
+      });
+      const queued = await owner.invoke(invocation);
+      const polled = await node.poll(mobileCapability);
+      await node.acknowledge(polled.dispatch!.dispatchId, polled.dispatch!.leaseToken);
+
+      const data = Buffer.from([0, 255, 128, 13, 10, 1]);
+      const contentHash = `sha256:${createHash("sha256").update(data).digest("hex")}`;
+      const artifactId = `artifact_0123456789abcdef0123456789abcdef.${extension}`;
+      await expect(
+        node.uploadArtifact({
+          dispatchId: polled.dispatch!.dispatchId,
+          artifactId,
+          contentType: "text/plain",
+          sha256: contentHash,
+          data
+        })
+      ).rejects.toThrow(/content type/);
+      await expect(
+        node.uploadArtifact({
+          dispatchId: polled.dispatch!.dispatchId,
+          artifactId,
+          contentType,
+          sha256: `sha256:${"0".repeat(64)}`,
+          data
+        })
+      ).rejects.toThrow(/hash mismatch/);
+      await node.uploadArtifact({
+        dispatchId: polled.dispatch!.dispatchId,
+        artifactId,
+        contentType,
+        sha256: contentHash,
+        data
+      });
+      await node.complete({
+        dispatchId: polled.dispatch!.dispatchId,
+        leaseToken: polled.dispatch!.leaseToken,
+        result: ResultSchema.parse({
+          schemaVersion: "0.1",
+          invocationId: invocation.invocationId,
+          attemptId: invocation.attemptId,
+          status: "succeeded",
+          output: { artifactId }
+        })
+      });
+
+      expect(assets.get(contentHash)).toEqual(data);
+      expect((await store.getArtifact(artifactId))?.byteSize).toBe(data.byteLength);
+      expect((await store.getArtifact(artifactId))?.data).toHaveLength(0);
+      await expect(owner.artifact(artifactId)).resolves.toEqual(new Uint8Array(data));
+      await expect(owner.taskStatus(queued.jobId!)).resolves.toMatchObject({
         status: "succeeded",
         output: { artifactId }
-      })
-    });
-
-    expect(assets.get(contentHash)).toEqual(data);
-    expect((await store.getArtifact(artifactId))?.byteSize).toBe(data.byteLength);
-    expect((await store.getArtifact(artifactId))?.data).toHaveLength(0);
-    await expect(owner.artifact(artifactId)).resolves.toEqual(new Uint8Array(data));
-    await expect(owner.taskStatus(queued.jobId!)).resolves.toMatchObject({
-      status: "succeeded",
-      output: { artifactId }
-    });
-  });
+      });
+      const rpc = (method: string, params: unknown, token = "approval-agent-token") =>
+        app.inject({
+          method: "POST",
+          url: "/mcp",
+          headers: {
+            authorization: `Bearer ${token}`,
+            accept: "application/json, text/event-stream"
+          },
+          payload: { jsonrpc: "2.0", id: 1, method, params }
+        });
+      const uri = `adc://artifacts/${artifactId}`;
+      const resource = await rpc("resources/read", { uri });
+      expect(resource.json().result).toEqual({
+        contents: [{ uri, mimeType: contentType, blob: data.toString("base64") }]
+      });
+      for (const name of ["task.status", "task.result", "task.wait"]) {
+        const task = await rpc("tools/call", {
+          name,
+          arguments: { args: { jobId: queued.jobId! } }
+        });
+        expect(task.json().result.content).toContainEqual({
+          type: "image",
+          data: data.toString("base64"),
+          mimeType: contentType
+        });
+      }
+      await owner.createAccess({
+        grantId: "grant_other",
+        actorId: "actor_other",
+        name: "Other agent",
+        profile: "read-only",
+        nodeIds: [paired.nodeId],
+        rootAccess: "selected",
+        rootIds: [],
+        allowedTools: ["screen.capture", "task.result"],
+        approvalPolicy: "never"
+      });
+      expect((await rpc("resources/read", { uri }, "other-agent-token")).json()).toHaveProperty(
+        "error"
+      );
+      await owner.revokeAccess("grant_example");
+      expect((await rpc("resources/read", { uri })).statusCode).toBe(403);
+    }
+  );
 
   it("pairs once, dispatches with a lease, accepts a terminal result and audits it", async () => {
     const { app, owner, node, paired, capability } = await fixture();

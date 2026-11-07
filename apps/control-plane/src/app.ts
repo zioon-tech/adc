@@ -1474,6 +1474,7 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
         capability: CapabilitySchema,
         activeTaskCount: z.number().int().min(0).max(MAX_NODE_MAX_CONCURRENCY).default(0),
         claim: z.boolean().default(true),
+        acknowledge: z.boolean().default(false),
         waitMs: z.number().int().min(0).max(25_000).default(0)
       })
       .strict()
@@ -1508,6 +1509,11 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
       await wakeHub.wait(nodeId, wakeSequence, body.waitMs);
       dispatch = await claimAuthorized();
     }
+    // The signed poll opts into ACK. Use the same lease transition as /ack;
+    // cancellation or expiry between claim and ACK must not authorize execution.
+    if (dispatch && body.acknowledge) {
+      dispatch = await options.store.acknowledge(dispatch.dispatchId, dispatch.leaseToken!, now());
+    }
     pollCounter.inc({ outcome: dispatch ? "dispatched" : "idle" });
     const release =
       body.capability.platform === "android"
@@ -1516,6 +1522,16 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
     return {
       dispatch: dispatch ?? null,
       maxConcurrency,
+      inlineAckSupported: true,
+      ...(dispatch && body.acknowledge
+        ? {
+            acknowledgement: {
+              acknowledged: true,
+              cancelRequested: dispatch.status === "cancel_requested",
+              leaseExpiresAt: dispatch.leaseExpiresAt
+            }
+          }
+        : {}),
       ...(body.waitMs > 0 ? { longPoll: true } : {}),
       ...(body.capability.platform !== "android"
         ? {
@@ -1979,9 +1995,14 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
       if (!dispatch || dispatch.nodeId !== nodeId) {
         return apiError(reply, 404, ErrorCodes.NOT_FOUND, "dispatch was not found");
       }
-      const image = body.artifactId.endsWith(".png");
+      const imageContentType = body.artifactId.endsWith(".png")
+        ? "image/png"
+        : /\.(?:jpg|jpeg)$/.test(body.artifactId)
+          ? "image/jpeg"
+          : undefined;
+      const image = imageContentType !== undefined;
       if (
-        (image && body.contentType !== "image/png") ||
+        (image && body.contentType !== imageContentType) ||
         (!image && !body.contentType.toLowerCase().startsWith("text/plain"))
       ) {
         return apiError(
@@ -3293,48 +3314,61 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
     };
   });
 
+  async function readVisibleArtifact(request: FastifyRequest, artifactId: string) {
+    const accountId = accountOf(request);
+    const artifact = await options.store.getArtifact(artifactId);
+    if (!artifact || artifact.accountId !== accountId) {
+      throw new ProtocolError(ErrorCodes.NOT_FOUND, "artifact was not found", false);
+    }
+    const dispatch = await options.store.getDispatchByInvocation(artifact.invocationId);
+    if (!visibleTask(request, dispatch)) {
+      throw new ProtocolError(ErrorCodes.NOT_FOUND, "artifact was not found", false);
+    }
+    const principal = principals.get(request)!;
+    if (principal.kind === "agent") {
+      const currentGrant = await options.store.getGrant(principal.grantId);
+      if (!currentGrant || currentGrant.revokedAt || currentGrant.accountId !== accountId) {
+        throw new ProtocolError(ErrorCodes.NOT_FOUND, "artifact was not found", false);
+      }
+    }
+    if (
+      collaboration &&
+      dispatch &&
+      !(await collaboration.resultVisible(dispatch.invocation, dispatch.nodeId))
+    )
+      throw new ProtocolError(ErrorCodes.NOT_FOUND, "artifact was not found", false);
+    let data = artifact.data;
+    if (["image/png", "image/jpeg"].includes(artifact.contentType) && data.byteLength === 0) {
+      if (!options.assetStore) {
+        throw new ProtocolError(ErrorCodes.OFFLINE, "image asset storage is unavailable", true);
+      }
+      try {
+        data = await options.assetStore.get(artifact.sha256);
+      } catch (error) {
+        requestLogError(app, error);
+        throw new ProtocolError(ErrorCodes.OFFLINE, "image asset is unavailable", true);
+      }
+    }
+    return { artifact, data };
+  }
+
   app.get(
     "/api/v1/artifacts/:artifactId",
     { preHandler: requireAuthenticated },
     async (request, reply) => {
-      const accountId = accountOf(request);
       const { artifactId } = z.object({ artifactId: z.string() }).parse(request.params);
-      const artifact = await options.store.getArtifact(artifactId);
-      if (!artifact || artifact.accountId !== accountId) {
-        return apiError(reply, 404, ErrorCodes.NOT_FOUND, "artifact was not found");
-      }
-      const dispatch = await options.store.getDispatchByInvocation(artifact.invocationId);
-      if (!visibleTask(request, dispatch)) {
-        return apiError(reply, 404, ErrorCodes.NOT_FOUND, "artifact was not found");
-      }
-      if (
-        collaboration &&
-        dispatch &&
-        !(await collaboration.resultVisible(dispatch.invocation, dispatch.nodeId))
-      )
-        return apiError(reply, 404, ErrorCodes.NOT_FOUND, "artifact was not found");
-      let data = artifact.data;
-      if (artifact.contentType === "image/png" && data.byteLength === 0) {
-        if (!options.assetStore) {
-          return apiError(
-            reply,
-            503,
-            ErrorCodes.OFFLINE,
-            "image asset storage is unavailable",
-            true
-          );
+      try {
+        const { artifact, data } = await readVisibleArtifact(request, artifactId);
+        return reply
+          .type(artifact.contentType)
+          .header("content-disposition", `attachment; filename="${artifact.artifactId}"`)
+          .send(data);
+      } catch (error) {
+        if (error instanceof ProtocolError && error.code === ErrorCodes.OFFLINE) {
+          return apiError(reply, 503, error.code, error.message, error.retryable);
         }
-        try {
-          data = await options.assetStore.get(artifact.sha256);
-        } catch (error) {
-          requestLogError(app, error);
-          return apiError(reply, 503, ErrorCodes.OFFLINE, "image asset is unavailable", true);
-        }
+        throw error;
       }
-      return reply
-        .type(artifact.contentType)
-        .header("content-disposition", `attachment; filename="${artifact.artifactId}"`)
-        .send(data);
     }
   );
 
@@ -3350,7 +3384,8 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
     const server = createMcpServer({
       client: {
         invoke: (invocation, options) =>
-          invokeAndWait(invocation, principal, options?.waitMs, options?.signal)
+          invokeAndWait(invocation, principal, options?.waitMs, options?.signal),
+        artifact: async (artifactId) => (await readVisibleArtifact(request, artifactId)).data
       },
       context: grantContext(grant, await grantNodes(grant)),
       allowedTools: grant.allowedTools

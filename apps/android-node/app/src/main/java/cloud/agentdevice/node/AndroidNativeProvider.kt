@@ -263,7 +263,7 @@ class AndroidNativeProvider(
     }
 
     private fun displayStatus(): JSONObject {
-        val metrics = context.resources.displayMetrics
+        val metrics = screenDisplayMetrics(context)
         val display = context.getSystemService(DisplayManager::class.java)
             .getDisplay(Display.DEFAULT_DISPLAY)
         val power = context.getSystemService(PowerManager::class.java)

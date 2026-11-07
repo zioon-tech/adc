@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   AbsolutePathSchema,
+  ArtifactIdSchema,
+  ToolArgsSchemas,
   CapabilitySchema,
   ErrorCodes,
   InvocationSchema,
@@ -39,6 +41,26 @@ function invocation(overrides: Record<string, unknown> = {}) {
 }
 
 describe("InvocationSchema", () => {
+  it("preserves PNG defaults and validates explicit JPEG capture options", () => {
+    const schema = ToolArgsSchemas["screen.capture"];
+    expect(schema.parse({})).toEqual({ format: "png", maxWidth: 1080 });
+    expect(schema.parse({ format: "jpeg", maxWidth: 720, quality: 85 })).toEqual({
+      format: "jpeg",
+      maxWidth: 720,
+      quality: 85
+    });
+    for (const quality of [0, 101, 1.5]) {
+      expect(schema.safeParse({ format: "jpeg", quality }).success).toBe(false);
+    }
+    expect(schema.safeParse({ format: "webp" }).success).toBe(false);
+    for (const extension of ["png", "jpg", "jpeg", "log"]) {
+      expect(ArtifactIdSchema.safeParse(`artifact_${"a".repeat(32)}.${extension}`).success).toBe(
+        true
+      );
+    }
+    expect(ArtifactIdSchema.safeParse(`../artifact_${"a".repeat(32)}.jpg`).success).toBe(false);
+  });
+
   it("keeps legacy action arguments unchanged while allowing an explicit post-action snapshot", () => {
     const base = invocation({
       tool: "ui.action",
@@ -96,6 +118,14 @@ describe("InvocationSchema", () => {
       await readFile(resolve(vectors, "invocation.invalid-version.json"), "utf8")
     );
     expect(InvocationSchema.safeParse(valid).success).toBe(true);
+    const jpeg = JSON.parse(
+      await readFile(resolve(vectors, "invocation.screen-jpeg.json"), "utf8")
+    );
+    expect(InvocationSchema.parse(jpeg).args).toEqual({
+      format: "jpeg",
+      quality: 85,
+      maxWidth: 720
+    });
     expect(InvocationSchema.safeParse(invalidPath).success).toBe(false);
     expect(InvocationSchema.safeParse(invalidVersion).success).toBe(false);
   });

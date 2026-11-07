@@ -267,7 +267,7 @@ class ScreenControlOverlay(
             if (!abandoned.get()) {
                 suppressed++
                 if (view != null || notice != null) {
-                    remove(); hiddenAt = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(32)
+                    remove(); hiddenAt = System.nanoTime()
                 }
             }
             done.countDown()

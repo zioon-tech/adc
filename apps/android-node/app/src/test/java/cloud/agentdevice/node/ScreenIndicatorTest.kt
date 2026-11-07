@@ -104,6 +104,22 @@ class ScreenIndicatorTest {
         assertEquals(10000L, control.view().getLong("remainingMs"))
     }
 
+    @Test fun hidingAnIndicatorAcceptsTheFirstRedrawWithoutAFutureTimestampFence() {
+        begin()
+        val before = System.nanoTime()
+        val hiddenAt = overlay.hide()
+        val after = System.nanoTime()
+        assertTrue("The hidden frame fence precedes the hide call", hiddenAt >= before)
+        assertTrue("The first redraw must not be discarded by a future fence", hiddenAt <= after)
+        assertNull(field("view"))
+        assertNull(field("notice"))
+        assertEquals(0L, overlay.hide())
+        overlay.restore()
+        overlay.restore()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertNotNull(field("view"))
+    }
+
     @Test fun olderAndroidUsesOrdinaryNotificationsEvenDuringControl() {
         begin()
         val app = RuntimeEnvironment.getApplication()
