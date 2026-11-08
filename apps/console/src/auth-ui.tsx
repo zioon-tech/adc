@@ -4,6 +4,7 @@ import { Link, useLocation } from "react-router-dom";
 import { analyticsEventForRequest, trackAnalytics } from "./analytics.tsx";
 import { LanguageSelector, translateError, useI18n, type Message } from "./i18n.tsx";
 import { authNavigation } from "./auth-navigation.ts";
+import { WebsiteFiling } from "./website-filing.tsx";
 
 export type Request = (path: string, init?: RequestInit) => Promise<any>;
 export interface User {
@@ -115,7 +116,10 @@ export function AuthLayout({ children, wide = false }: { children: ReactNode; wi
         <LanguageSelector />
       </header>
       <main className={`login ${wide ? "consent" : ""}`}>{children}</main>
-      <footer className="auth-footer">{t("Zioon · Unified account service")}</footer>
+      <footer className="auth-footer">
+        <span>{t("Zioon · Unified account service")}</span>
+        <WebsiteFiling />
+      </footer>
     </div>
   );
 }

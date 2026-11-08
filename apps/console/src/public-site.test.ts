@@ -67,7 +67,7 @@ describe("public site metadata", () => {
 
   it("publishes the approved ICP filing in the public footer", () => {
     expect(icpFiling).toEqual({
-      number: "赣ICP备2026025481号",
+      number: "赣ICP备2026025481号-1",
       url: "https://beian.miit.gov.cn/"
     });
   });
@@ -76,7 +76,7 @@ describe("public site metadata", () => {
     for (const path of ["/", "/updates", ...publicContent.map((entry) => entry.path)]) {
       const html = renderPublicPage(path, locale);
       expect(html).not.toMatch(/public preview|hosted preview|公网预览|托管预览|nip\.io/i);
-      expect(html).toContain("赣ICP备2026025481号");
+      expect(html).toContain("赣ICP备2026025481号-1");
     }
     const landing = renderPublicPage("/", locale);
     expect(landing).toContain(locale === "en" ? "official hosted service" : "官方托管服务");

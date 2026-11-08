@@ -1,0 +1,35 @@
+.public-footer nav.website-filing,
+.auth-footer nav.website-filing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 18px;
+  margin: 0;
+  font-size: 11px;
+  line-height: 20px;
+  color: var(--text-muted, #7d8490);
+}
+
+.website-filing a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.website-filing a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.website-filing img {
+  display: block;
+  width: 18px;
+  height: 20px;
+  object-fit: contain;
+}
+
+.auth-footer nav.website-filing {
+  margin-top: 12px;
+}
