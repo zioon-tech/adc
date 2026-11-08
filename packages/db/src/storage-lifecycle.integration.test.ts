@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { Pool } from "pg";
 import {
   FileTransferArgsSchema,
   InvocationSchema,
@@ -423,6 +424,42 @@ for (const kind of ["memory", "postgres"] as const) {
     });
   });
 }
+
+it.each(["unprivileged", "monitor-noinherit", "monitor"] as const)(
+  "keeps storage statistics available for a %s database role",
+  async (authority) => {
+    const { store } = await fixture("postgres");
+    const admin = store as PostgresStore;
+    const role = `adc_storage_metrics_${randomBytes(8).toString("hex")}`;
+    const reader = new PostgresStore(new Pool({ connectionString: databaseUrl, max: 1 }));
+    await admin.pool.query(
+      `CREATE ROLE "${role}" NOLOGIN ${authority === "monitor" ? "INHERIT" : "NOINHERIT"}`
+    );
+    try {
+      await admin.pool.query(`GRANT SELECT ON ALL TABLES IN SCHEMA public TO "${role}"`);
+      if (authority !== "unprivileged") await admin.pool.query(`GRANT pg_monitor TO "${role}"`);
+      const client = await reader.pool.connect();
+      try {
+        await client.query(`SET ROLE "${role}"`);
+        const capability = await client.query(
+          "SELECT has_function_privilege(current_user, 'pg_ls_waldir()', 'EXECUTE') AS permitted"
+        );
+        expect(capability.rows[0].permitted).toBe(authority === "monitor");
+      } finally {
+        client.release();
+      }
+      const usage = await reader.storageUsage(epoch);
+      expect(usage.temporaryBytes).toBeGreaterThanOrEqual(0);
+      expect(usage.databaseBytes).toBeGreaterThan(0);
+      if (authority === "monitor") expect(usage.walBytes).toBeGreaterThanOrEqual(0);
+      else expect(usage.walBytes).toBeUndefined();
+    } finally {
+      await reader.close();
+      await admin.pool.query(`DROP OWNED BY "${role}"`);
+      await admin.pool.query(`DROP ROLE "${role}"`);
+    }
+  }
+);
 
 it("backfills legacy terminal payloads in bounded PostgreSQL batches", async () => {
   const { store, queue, finish } = await fixture("postgres", { batchSize: 1 });

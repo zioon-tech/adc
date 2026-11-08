@@ -244,17 +244,27 @@ export async function postgresStorageUsage(
   const row = data.rows[0];
   const physical = await pool.query(
     `SELECT pg_database_size(current_database())::text AS database_bytes,
-      CASE WHEN (SELECT rolsuper FROM pg_roles WHERE rolname = current_user)
-        OR pg_has_role(current_user, 'pg_monitor', 'MEMBER')
-        THEN (SELECT sum(size)::text FROM pg_ls_waldir()) END AS wal_bytes`
+      has_function_privilege(current_user, 'pg_ls_waldir()', 'EXECUTE') AS can_read_wal`
   );
+  // PostgreSQL checks a CASE subquery's function privileges before selecting its
+  // branch. Keep restricted WAL observation out of the payload/database query.
+  let walBytes: number | undefined;
+  if (physical.rows[0].can_read_wal) {
+    try {
+      const wal = await pool.query("SELECT sum(size)::text AS bytes FROM pg_ls_waldir()");
+      if (wal.rows[0].bytes !== null) walBytes = Number(wal.rows[0].bytes);
+    } catch (error) {
+      // A role can lose permission between the capability check and observation.
+      if ((error as { code?: string }).code !== "42501") throw error;
+    }
+  }
   return {
     temporaryBytes: Number(row.bytes),
     expiredBytes: Number(row.expired),
     retiredResults: Number(row.results),
     retiredArtifacts: Number(row.artifacts),
     databaseBytes: Number(physical.rows[0].database_bytes),
-    ...(physical.rows[0].wal_bytes ? { walBytes: Number(physical.rows[0].wal_bytes) } : {}),
+    ...(walBytes !== undefined ? { walBytes } : {}),
     ...(row.oldest ? { oldestExpiredAt: new Date(row.oldest).toISOString() } : {})
   };
 }
