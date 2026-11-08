@@ -2,12 +2,10 @@ import { ArrowRight, Github } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { Brand } from "./auth-ui.tsx";
 import { LanguageSelector, useI18n } from "./i18n.tsx";
+import { WebsiteFiling } from "./website-filing.tsx";
+export { icpFiling } from "./website-filing.tsx";
 
 export const repositoryUrl = "https://github.com/zioon-tech/adc";
-export const icpFiling = {
-  number: "赣ICP备2026025481号",
-  url: "https://beian.miit.gov.cn/"
-} as const;
 
 const navigation = [
   { label: "Product", path: "/" },
@@ -85,9 +83,7 @@ export function PublicFooter() {
         </a>
       </nav>
       <div className="public-footer-meta">
-        <a href={icpFiling.url} target="_blank" rel="noreferrer">
-          {icpFiling.number}
-        </a>
+        <WebsiteFiling />
         <LanguageSelector />
       </div>
     </footer>

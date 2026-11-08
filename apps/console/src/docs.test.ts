@@ -92,7 +92,7 @@ describe("documentation navigation", () => {
     for (const page of docsPages) {
       const html = renderDocs(page.id === "overview" ? "/docs" : `/docs/${page.id}`, locale);
       expect(html).not.toMatch(/public preview|hosted preview|公网预览|托管预览|预发布版本记录/i);
-      expect(html).toContain("赣ICP备2026025481号");
+      expect(html).toContain("赣ICP备2026025481号-1");
     }
     const quickstart = renderDocs("/docs/quickstart", locale);
     expect(quickstart).toContain("Windows");

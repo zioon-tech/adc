@@ -66,6 +66,7 @@ import { AccountSelector, Teams, Sharing, InvitationPage, ShareDialog } from "./
 import { publicContentEntry } from "./public-content.ts";
 import { PublicContentRoute } from "./public-site.tsx";
 import "./styles.css";
+import "./website-filing.css";
 
 export interface NodeRecord {
   nodeId: string;
