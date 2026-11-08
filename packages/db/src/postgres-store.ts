@@ -191,6 +191,22 @@ async function transaction<T>(
   }
 }
 
+async function closePool(pool: Pool): Promise<void> {
+  const connections: Promise<void>[] = [];
+  const removed = (client: PoolClient) => {
+    // pg-pool resolves end() after removing clients, before their sockets finish
+    // closing. Observe the actual end event without sending another termination.
+    connections.push(new Promise<void>((resolve) => client.once("end", resolve)));
+  };
+  pool.on("remove", removed);
+  try {
+    await pool.end();
+    await Promise.all(connections);
+  } finally {
+    pool.removeListener("remove", removed);
+  }
+}
+
 export class PostgresStore implements Store {
   readonly pool: Pool;
   private readonly artifactLockPool: Pool;
@@ -309,8 +325,8 @@ export class PostgresStore implements Store {
   }
 
   async close(): Promise<void> {
-    await this.artifactLockPool.end();
-    await this.pool.end();
+    await closePool(this.artifactLockPool);
+    await closePool(this.pool);
   }
 
   async putAccount(account: AccountRecord): Promise<void> {

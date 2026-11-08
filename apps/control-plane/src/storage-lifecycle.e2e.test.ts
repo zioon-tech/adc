@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { request as httpRequest } from "node:http";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { PostgresMemoryServer } from "postgres-memory-server";
 import { afterEach, expect, it, vi } from "vitest";
 import { AdcClient } from "@adc/client";
 import { InvocationSchema, ReceiptSchema, createId } from "@adc/protocol";
@@ -20,6 +19,7 @@ import { createMcpServer } from "@adc/mcp-adapter";
 import { createControlPlane } from "./app.ts";
 import { LocalContentAddressedAssetStore } from "./asset-store.ts";
 import { accessFixture } from "../../../tests/helpers/access-fixture.ts";
+import { createPostgresFixture } from "../../../tests/helpers/postgres-fixture.ts";
 
 const cleanups: Array<() => Promise<unknown>> = [];
 afterEach(async () => {
@@ -298,13 +298,9 @@ it("rejects old image content before legacy expiry metadata is backfilled", asyn
 });
 
 it("keeps an expired legacy PostgreSQL image unavailable after a late valid consumption acknowledgment", async () => {
-  const embedded = await PostgresMemoryServer.create({
-    database: "adc_delivery",
-    username: "adc_test",
-    password: "adc_test"
-  });
+  const embedded = await createPostgresFixture("adc_delivery");
   cleanups.push(() => embedded.stop());
-  const pg = new PostgresStore(embedded.getUri());
+  const pg = new PostgresStore(embedded.databaseUrl);
   const { app, client, artifactId, data, advance } = await fixture(minute, "succeeded", pg);
   await pg.pool.query("UPDATE adc_artifacts SET expires_at = NULL WHERE artifact_id = $1", [
     artifactId

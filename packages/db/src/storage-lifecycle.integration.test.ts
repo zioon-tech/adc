@@ -1,6 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { PostgresMemoryServer } from "postgres-memory-server";
 import {
   FileTransferArgsSchema,
   InvocationSchema,
@@ -12,23 +11,20 @@ import { MemoryStore } from "./memory-store.ts";
 import { PostgresStore } from "./postgres-store.ts";
 import { jsonBytes, storagePolicy } from "./storage-policy.ts";
 import type { ArtifactRecord, DispatchRecord, Store, TransferRecord } from "./types.ts";
+import { createPostgresFixture } from "../../../tests/helpers/postgres-fixture.ts";
 
 const epoch = new Date("2026-11-08T00:00:00Z");
 const later = (ms: number) => new Date(epoch.getTime() + ms);
 const hour = 60 * 60_000;
 const day = 24 * hour;
 const policy = storagePolicy();
-let embedded: PostgresMemoryServer;
+let embedded: Awaited<ReturnType<typeof createPostgresFixture>>;
 let databaseUrl: string;
 const stores: Store[] = [];
 
 beforeAll(async () => {
-  embedded = await PostgresMemoryServer.create({
-    database: "adc_storage",
-    username: "adc_test",
-    password: "adc_test"
-  });
-  databaseUrl = embedded.getUri();
+  embedded = await createPostgresFixture("adc_storage");
+  databaseUrl = embedded.databaseUrl;
 }, 60_000);
 afterAll(async () => {
   for (const store of stores) await store.close();
