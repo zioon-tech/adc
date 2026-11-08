@@ -109,7 +109,8 @@ Authenticated `/metrics` adds:
 - `adc_asset_disk_available_bytes`, `adc_database_physical_bytes`
 - `adc_postgres_wal_bytes`, `adc_postgres_wal_metrics_available`
 
-WAL metrics require a database role with `pg_monitor` or superuser authority; absence is explicit.
+WAL metrics require effective permission to execute `pg_ls_waldir`, normally inherited through
+`pg_monitor` or superuser authority; absence is explicit and does not interrupt other storage metrics.
 The database metric includes reusable pages; WAL is a cluster-wide value. Monitor the database
 host's free disk independently when it is on a different filesystem from assets. Recommended alerts:
 maintenance has not succeeded for 5 minutes, expiry backlog is older than 10 minutes, payload usage
