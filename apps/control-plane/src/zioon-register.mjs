@@ -16,15 +16,17 @@ export async function registerZioonAccounts(app, access, { consoleDirectory } = 
   };
   const readSession = (request) => nativeAuth.auth.api.getSession({ headers: browserHeaders(request) });
   const base = "/api/v1/zioon";
-  const shell = consoleDirectory
-    ? await readFile(`${consoleDirectory}/.adc-app-shell.html`, "utf8") : "";
-  const assets = (shell.match(/<script\b[^>]*src="\/assets\/[^"]+"[^>]*><\/script>|<link\b[^>]*(?:rel="stylesheet"|rel="modulepreload")[^>]*>/g) || []).join("\n");
-  const accountShell = `<!doctype html><html lang="en"><head><meta charset="utf-8">
+  const accountShell = async () => {
+    const shell = consoleDirectory
+      ? await readFile(`${consoleDirectory}/.adc-app-shell.html`, "utf8") : "";
+    const assets = (shell.match(/<script\b[^>]*src="\/assets\/[^"]+"[^>]*><\/script>|<link\b[^>]*(?:rel="stylesheet"|rel="modulepreload")[^>]*>/g) || []).join("\n");
+    return `<!doctype html><html lang="en"><head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="zioon-account-app" content="true"><title>Zioon Account</title>
     <meta name="description" content="One account for all Zioon services.">
     <meta name="robots" content="noindex,nofollow"><link rel="icon" href="/account-favicon.svg">
     ${assets}</head><body><div id="root"></div></body></html>`;
+  };
   app.addHook("onRequest", async (request, reply) => {
     const url = new URL(request.url, access.origin);
     if (request.headers.host === new URL(access.origin).host && !request.headers.authorization) {
@@ -73,7 +75,7 @@ export async function registerZioonAccounts(app, access, { consoleDirectory } = 
     if (request.headers.host === new URL(authority).host &&
       ["/account", "/app/settings", "/login", "/register", "/forgot-password", "/reset-password", "/cli-login"].includes(pathname)) {
       reply.header("cache-control", "no-store").header("referrer-policy", "same-origin");
-      return accountShell;
+      return accountShell();
     }
     if (request.headers.host === new URL(access.origin).host && (pathname === "/" || pathname.startsWith("/app"))) {
       const policy = String(reply.getHeader("content-security-policy") || "");
