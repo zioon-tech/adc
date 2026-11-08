@@ -10,6 +10,7 @@ import type {
   Delegation
 } from "@adc/protocol";
 import type { CollaborationScope } from "@adc/protocol";
+import type { StoragePolicy, StorageUsage, StorageMaintenanceResult } from "./storage-policy.ts";
 
 export type TeamRole = "owner" | "admin" | "member";
 export interface TeamMembership {
@@ -171,6 +172,9 @@ export interface DispatchRecord {
   receipt?: Receipt;
   createdAt: string;
   updatedAt: string;
+  detailsRetiredAt?: string;
+  summaryRetiredAt?: string;
+  resultExpiresAt?: string;
 }
 
 export interface AuditEvent {
@@ -209,6 +213,9 @@ export interface ArtifactRecord {
   byteSize: number;
   data: Buffer;
   createdAt: string;
+  expiresAt?: string;
+  consumedAt?: string;
+  retiredAt?: string;
 }
 
 export type TransferStatus =
@@ -288,6 +295,13 @@ export interface PairNodeResult {
 }
 
 export interface Store {
+  configureStorage(policy: StoragePolicy): void;
+  maintainStorage(now: Date): Promise<StorageMaintenanceResult>;
+  storageUsage(now: Date): Promise<StorageUsage>;
+  acknowledgeResult(invocationId: string, now: Date): Promise<void>;
+  acknowledgeArtifact(artifactId: string, now: Date): Promise<void>;
+  withArtifactLock<T>(sha256: string, operation: () => Promise<T>): Promise<T>;
+  hasLiveArtifact(sha256: string): Promise<boolean>;
   migrate(): Promise<void>;
   close(): Promise<void>;
   putAccount(account: AccountRecord): Promise<void>;
@@ -314,13 +328,41 @@ export interface Store {
   ): Promise<NodeRecord>;
   deleteNode(accountId: string, nodeId: string, revision: number, audit: AuditEvent): Promise<void>;
   putProject(project: ProjectRecord, createOnly?: boolean, audit?: AuditEvent): Promise<void>;
-  updateProject(accountId: string, projectId: string, label: string, revision: number, audit: AuditEvent): Promise<ProjectRecord>;
-  deleteProject(accountId: string, projectId: string, revision: number, audit: AuditEvent): Promise<void>;
+  updateProject(
+    accountId: string,
+    projectId: string,
+    label: string,
+    revision: number,
+    audit: AuditEvent
+  ): Promise<ProjectRecord>;
+  deleteProject(
+    accountId: string,
+    projectId: string,
+    revision: number,
+    audit: AuditEvent
+  ): Promise<void>;
   getProject(projectId: string): Promise<ProjectRecord | undefined>;
   listProjects(accountId: string): Promise<ProjectRecord[]>;
-  putRoot(root: RootBindingRecord, createOnly?: boolean, audit?: AuditEvent): Promise<RootBindingRecord>;
-  updateRoot(accountId: string, projectId: string, rootId: string, changes: { label: string; writable: boolean }, revision: number, audit: AuditEvent): Promise<RootBindingRecord>;
-  deleteRoot(accountId: string, projectId: string, rootId: string, revision: number, audit: AuditEvent): Promise<void>;
+  putRoot(
+    root: RootBindingRecord,
+    createOnly?: boolean,
+    audit?: AuditEvent
+  ): Promise<RootBindingRecord>;
+  updateRoot(
+    accountId: string,
+    projectId: string,
+    rootId: string,
+    changes: { label: string; writable: boolean },
+    revision: number,
+    audit: AuditEvent
+  ): Promise<RootBindingRecord>;
+  deleteRoot(
+    accountId: string,
+    projectId: string,
+    rootId: string,
+    revision: number,
+    audit: AuditEvent
+  ): Promise<void>;
   listRoots(projectId: string): Promise<RootBindingRecord[]>;
   listRootsForAccount(accountId: string): Promise<RootBindingRecord[]>;
   putGrant(grant: AgentGrantRecord, createOnly?: boolean): Promise<void>;
@@ -430,7 +472,7 @@ export interface Store {
     now: string
   ): Promise<AccountResourceSummary>;
   putAudit(event: AuditEvent): Promise<void>;
-  putArtifact(artifact: ArtifactRecord): Promise<void>;
+  putArtifact(artifact: ArtifactRecord, persistData?: () => Promise<void>): Promise<void>;
   getArtifact(artifactId: string): Promise<ArtifactRecord | undefined>;
   consumeNodeNonce(nodeId: string, nonce: string, expiresAt: Date): Promise<boolean>;
 }

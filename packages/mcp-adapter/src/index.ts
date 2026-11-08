@@ -31,6 +31,8 @@ import {
 
 export interface McpAdapterOptions {
   client: Pick<AdcClient, "invoke"> & Partial<Pick<AdcClient, "artifact">>;
+  /** Local notification only. The transport must confirm delivery before acknowledging ADC. */
+  onDeliveryPrepared?: (delivery: { result?: InvocationResult; artifactIds: string[] }) => void;
   context: InvocationContext;
   loadContext?: () => Promise<InvocationContext>;
   defaultTarget?: { nodeId: string } | { projectId: string; affinity?: string };
@@ -375,7 +377,7 @@ export function createMcpServer(options: McpAdapterOptions): Server {
       }
       // The public artifact endpoint checks current grant and task visibility on every read.
       const data = await options.client.artifact!(id.data);
-      return {
+      const response = {
         contents: [
           {
             uri: request.params.uri,
@@ -388,6 +390,8 @@ export function createMcpServer(options: McpAdapterOptions): Server {
           }
         ]
       };
+      options.onDeliveryPrepared?.({ artifactIds: [id.data] });
+      return response;
     });
   }
   const adapter = new McpInvocationAdapter(options);
@@ -457,6 +461,20 @@ export function createMcpServer(options: McpAdapterOptions): Server {
         isError: !["queued", "running", "succeeded"].includes(result.status)
       };
       const artifactId = imageArtifact(result, tool);
+      const deliveredArtifacts: string[] = [];
+      const retired =
+        (result.output as { contentRetired?: boolean } | undefined)?.contentRetired ||
+        (
+          (result.output as { task?: InvocationResult } | undefined)?.task?.output as
+            { contentRetired?: boolean } | undefined
+        )?.contentRetired;
+      if (retired) {
+        response.isError = true;
+        response.content.push({
+          type: "text",
+          text: "Result content has expired or could not be retained. The recorded execution status is unchanged; do not re-execute side effects."
+        });
+      }
       if (artifactId && options.client.artifact) {
         try {
           const data = await options.client.artifact(artifactId);
@@ -466,6 +484,7 @@ export function createMcpServer(options: McpAdapterOptions): Server {
             data: Buffer.from(data).toString("base64"),
             mimeType: artifactId.endsWith(".png") ? "image/png" : "image/jpeg"
           });
+          deliveredArtifacts.push(artifactId);
         } catch (error) {
           response.isError = true;
           response.content.push({
@@ -473,6 +492,20 @@ export function createMcpServer(options: McpAdapterOptions): Server {
             text: `Image delivery failed: ${error instanceof Error ? error.message : String(error)}`
           });
         }
+      }
+      const delivered = ["task.status", "task.result", "task.wait"].includes(tool)
+        ? (result.output as { task?: InvocationResult } | undefined)?.task
+        : result;
+      if (!response.isError) {
+        options.onDeliveryPrepared?.({
+          ...(delivered &&
+          ["succeeded", "failed", "denied", "cancelled", "unknown_outcome"].includes(
+            delivered.status
+          )
+            ? { result: delivered }
+            : {}),
+          artifactIds: deliveredArtifacts
+        });
       }
       return response;
     } catch (error) {

@@ -11,6 +11,21 @@ import { LocalContentAddressedAssetStore } from "./asset-store.ts";
 import { LocalTransferBlobStore } from "./transfer-store.ts";
 import OSS from "ali-oss";
 import { OssDirectTransferStore } from "./object-transfer-store.ts";
+import { defaultStoragePolicy, storagePolicy } from "@adc/db";
+
+const retention = storagePolicy(
+  Object.fromEntries(
+    Object.keys(defaultStoragePolicy).map((key) => {
+      const setting = `ADC_STORAGE_${key.replace(/[A-Z]/g, (letter) => `_${letter}`).toUpperCase()}`;
+      return [
+        key,
+        process.env[setting] === undefined
+          ? defaultStoragePolicy[key as keyof typeof defaultStoragePolicy]
+          : Number(process.env[setting])
+      ];
+    })
+  )
+);
 
 const databaseURL = process.env.DATABASE_URL;
 const secret = process.env.ADC_AUTH_SECRET;
@@ -183,6 +198,8 @@ const app = await createControlPlane({
   ...(transferStore ? { transferStore } : {}),
   ...(directTransferStore ? { directTransferStore } : {}),
   maxTransferBytes,
+  storagePolicy: retention,
+  storageMinFreeBytes: Number(process.env.ADC_STORAGE_MIN_FREE_BYTES ?? 256 * 1024 * 1024),
   ...(corsOrigins ? { corsOrigins } : {}),
   ...(analyticsScriptUrl && analyticsDomain
     ? {

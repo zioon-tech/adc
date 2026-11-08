@@ -212,8 +212,10 @@ bootstrap endpoint that grants control of old data.
 ## Current limits
 
 Text artifacts currently use PostgreSQL blobs. PNG screen captures use `ADC_ASSET_DIR`, with only
-their metadata retained in PostgreSQL. Each artifact is capped at 25 MiB; account storage quotas,
-retention jobs and an S3 adapter are not implemented. File transfer supports direct private OSS
+their metadata retained in PostgreSQL. Each artifact is capped at 25 MiB. Temporary payload quotas,
+consumption acknowledgment and continuous retention jobs are described in
+[storage lifecycle](storage-lifecycle.md); image storage currently uses a local/shared filesystem.
+File transfer supports direct private OSS
 with a pluggable storage interface. Configure a one-day lifecycle on the `transfers/` prefix;
 ADC retries cleanup after outstanding tickets expire. Each account admits at most eight active
 transfers. An explicit local backend still requires shared storage for multiple replicas. See
