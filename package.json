@@ -31,8 +31,8 @@
     "schema:check": "tsx packages/protocol/src/generate-schemas.ts --check",
     "test": "vitest run",
     "test:unit": "vitest run --exclude '**/*.integration.test.ts' --exclude '**/*.e2e.test.ts'",
-    "test:integration": "vitest run packages/db/src/postgres-store.integration.test.ts",
-    "test:e2e": "vitest run tests/*.e2e.test.ts",
+    "test:integration": "vitest run packages/db/src/postgres-store.integration.test.ts packages/db/src/storage-lifecycle.integration.test.ts",
+    "test:e2e": "vitest run tests/*.e2e.test.ts apps/control-plane/src/storage-lifecycle.e2e.test.ts",
     "typecheck": "tsc --noEmit",
     "adc": "tsx apps/cli/src/main.ts",
     "adc-node": "tsx apps/node/src/main.ts"
