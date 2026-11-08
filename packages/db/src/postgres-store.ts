@@ -35,7 +35,28 @@ import type {
   TransferRecord
 } from "./types.ts";
 import { assertSameInvocation, invocationInputHash } from "./dispatch-identity.ts";
-import { ProjectManagement, lockProjectGrant, projectFromRow, rootFromRow } from "./project-management.ts";
+import {
+  ProjectManagement,
+  lockProjectGrant,
+  projectFromRow,
+  rootFromRow
+} from "./project-management.ts";
+import {
+  assertMetadataBudget,
+  bodyHash,
+  jsonBytes,
+  retireResult,
+  storagePolicy,
+  type StoragePolicy
+} from "./storage-policy.ts";
+import {
+  availableStorage,
+  maintainPostgresStorage,
+  postgresStorageUsage,
+  quotaError,
+  storageLock
+} from "./postgres-storage.ts";
+import { lockStorageAccount } from "./postgres-storage.ts";
 
 function iso(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
@@ -72,7 +93,10 @@ function dispatchFromRow(row: QueryResultRow): DispatchRecord {
     ...(row.result ? { result: row.result } : {}),
     ...(row.receipt ? { receipt: row.receipt } : {}),
     createdAt: iso(row.created_at),
-    updatedAt: iso(row.updated_at)
+    updatedAt: iso(row.updated_at),
+    ...(row.details_retired_at ? { detailsRetiredAt: iso(row.details_retired_at) } : {}),
+    ...(row.summary_retired_at ? { summaryRetiredAt: iso(row.summary_retired_at) } : {}),
+    ...(row.result_expires_at ? { resultExpiresAt: iso(row.result_expires_at) } : {})
   };
 }
 
@@ -169,12 +193,89 @@ async function transaction<T>(
 
 export class PostgresStore implements Store {
   readonly pool: Pool;
+  private readonly artifactLockPool: Pool;
+  private retention = storagePolicy();
+
+  configureStorage(policy: StoragePolicy): void {
+    this.retention = storagePolicy(policy);
+  }
+  maintainStorage(now: Date) {
+    return transaction(this.pool, (client) => maintainPostgresStorage(client, now, this.retention));
+  }
+  storageUsage(now: Date) {
+    return postgresStorageUsage(this.pool, now, this.retention);
+  }
+  async acknowledgeResult(invocationId: string, now: Date): Promise<void> {
+    await this.pool.query(
+      `UPDATE adc_dispatches SET result_consumed_at = COALESCE(result_consumed_at, $2),
+       result_bytes = CASE WHEN result_initialized THEN result_bytes
+         ELSE COALESCE(octet_length((result->'output')::text), 0) END,
+       result_sha256 = COALESCE(result_sha256,
+         'sha256:' || encode(sha256(convert_to(COALESCE((result->'output')::text, ''), 'UTF8')), 'hex')),
+       result_initialized = true,
+       result_expires_at = LEAST(result_expires_at,
+         updated_at + CASE WHEN COALESCE(octet_length((result->'output')::text), 0) > $4
+           OR invocation->>'tool' IN ('file.read', 'screen.capture', 'camera.capture')
+           THEN $5::double precision ELSE $6::double precision END * interval '1 millisecond',
+         $2::timestamptz + $3 * interval '1 millisecond')
+       WHERE invocation_id = $1 AND result_retired_at IS NULL
+       AND status IN ('succeeded', 'failed', 'denied', 'cancelled', 'unknown_outcome')`,
+      [
+        invocationId,
+        now.toISOString(),
+        this.retention.deliveryGraceMs,
+        this.retention.maxMetadataBytes,
+        this.retention.temporaryTtlMs,
+        this.retention.detailTtlMs
+      ]
+    );
+  }
+  async acknowledgeArtifact(artifactId: string, now: Date): Promise<void> {
+    await this.pool.query(
+      `WITH owner AS (
+         SELECT a.artifact_id, CASE WHEN d.dispatch_id IS NULL THEN a.created_at
+           WHEN d.status IN ('succeeded', 'failed', 'denied', 'cancelled', 'unknown_outcome')
+             THEN d.updated_at END AS terminal_at
+         FROM adc_artifacts a LEFT JOIN adc_dispatches d USING(invocation_id)
+         WHERE a.artifact_id = $1
+       )
+       UPDATE adc_artifacts a SET consumed_at = COALESCE(a.consumed_at, $2),
+       expires_at = LEAST(a.expires_at,
+         owner.terminal_at + $4 * interval '1 millisecond',
+         $2::timestamptz + $3 * interval '1 millisecond')
+       FROM owner WHERE a.artifact_id = owner.artifact_id AND a.retired_at IS NULL`,
+      [artifactId, now.toISOString(), this.retention.deliveryGraceMs, this.retention.temporaryTtlMs]
+    );
+  }
+  async hasLiveArtifact(sha256: string): Promise<boolean> {
+    const result = await this.pool.query(
+      "SELECT 1 FROM adc_artifacts WHERE content_sha256 = $1 AND retired_at IS NULL LIMIT 1",
+      [sha256]
+    );
+    return !!result.rowCount;
+  }
+  async withArtifactLock<T>(sha256: string, operation: () => Promise<T>): Promise<T> {
+    const client = await this.artifactLockPool.connect();
+    try {
+      await client.query("SELECT pg_advisory_lock(hashtextextended($1, 728194034))", [sha256]);
+      return await operation();
+    } finally {
+      try {
+        await client.query("SELECT pg_advisory_unlock(hashtextextended($1, 728194034))", [sha256]);
+      } finally {
+        client.release();
+      }
+    }
+  }
 
   constructor(connectionStringOrPool: string | Pool) {
     this.pool =
       typeof connectionStringOrPool === "string"
         ? new Pool({ connectionString: connectionStringOrPool, max: 10 })
         : connectionStringOrPool;
+    // Hash locks must not consume the data pool while their callback needs another
+    // connection. A separate bounded pool prevents saturation deadlocks.
+    this.artifactLockPool = new Pool({ ...this.pool.options, max: 4 });
   }
 
   async migrate(): Promise<void> {
@@ -208,6 +309,7 @@ export class PostgresStore implements Store {
   }
 
   async close(): Promise<void> {
+    await this.artifactLockPool.end();
     await this.pool.end();
   }
 
@@ -380,17 +482,60 @@ export class PostgresStore implements Store {
   async putProject(project: ProjectRecord, createOnly = false, audit?: AuditEvent): Promise<void> {
     await new ProjectManagement(this.pool).putProject(project, createOnly, audit);
   }
-  async updateProject(accountId: string, projectId: string, label: string, revision: number, audit: AuditEvent): Promise<ProjectRecord> {
-    return new ProjectManagement(this.pool).updateProject(accountId, projectId, label, revision, audit);
+  async updateProject(
+    accountId: string,
+    projectId: string,
+    label: string,
+    revision: number,
+    audit: AuditEvent
+  ): Promise<ProjectRecord> {
+    return new ProjectManagement(this.pool).updateProject(
+      accountId,
+      projectId,
+      label,
+      revision,
+      audit
+    );
   }
-  async deleteProject(accountId: string, projectId: string, revision: number, audit: AuditEvent): Promise<void> {
+  async deleteProject(
+    accountId: string,
+    projectId: string,
+    revision: number,
+    audit: AuditEvent
+  ): Promise<void> {
     await new ProjectManagement(this.pool).deleteProject(accountId, projectId, revision, audit);
   }
-  async updateRoot(accountId: string, projectId: string, rootId: string, changes: { label: string; writable: boolean }, revision: number, audit: AuditEvent): Promise<RootBindingRecord> {
-    return new ProjectManagement(this.pool).updateRoot(accountId, projectId, rootId, changes, revision, audit);
+  async updateRoot(
+    accountId: string,
+    projectId: string,
+    rootId: string,
+    changes: { label: string; writable: boolean },
+    revision: number,
+    audit: AuditEvent
+  ): Promise<RootBindingRecord> {
+    return new ProjectManagement(this.pool).updateRoot(
+      accountId,
+      projectId,
+      rootId,
+      changes,
+      revision,
+      audit
+    );
   }
-  async deleteRoot(accountId: string, projectId: string, rootId: string, revision: number, audit: AuditEvent): Promise<void> {
-    await new ProjectManagement(this.pool).deleteRoot(accountId, projectId, rootId, revision, audit);
+  async deleteRoot(
+    accountId: string,
+    projectId: string,
+    rootId: string,
+    revision: number,
+    audit: AuditEvent
+  ): Promise<void> {
+    await new ProjectManagement(this.pool).deleteRoot(
+      accountId,
+      projectId,
+      rootId,
+      revision,
+      audit
+    );
   }
 
   async updateNode(
@@ -451,9 +596,10 @@ export class PostgresStore implements Store {
   }
 
   async getProject(projectId: string): Promise<ProjectRecord | undefined> {
-    const result = await this.pool.query("SELECT * FROM adc_projects WHERE project_id = $1 AND deleted_at IS NULL", [
-      projectId
-    ]);
+    const result = await this.pool.query(
+      "SELECT * FROM adc_projects WHERE project_id = $1 AND deleted_at IS NULL",
+      [projectId]
+    );
     const row = result.rows[0];
     return row ? projectFromRow(row) : undefined;
   }
@@ -466,7 +612,11 @@ export class PostgresStore implements Store {
     return result.rows.map(projectFromRow);
   }
 
-  async putRoot(root: RootBindingRecord, createOnly = false, audit?: AuditEvent): Promise<RootBindingRecord> {
+  async putRoot(
+    root: RootBindingRecord,
+    createOnly = false,
+    audit?: AuditEvent
+  ): Promise<RootBindingRecord> {
     return new ProjectManagement(this.pool).putRoot(root, createOnly, audit);
   }
 
@@ -491,10 +641,10 @@ export class PostgresStore implements Store {
   }
 
   async putGrant(grant: AgentGrantRecord, createOnly = false): Promise<void> {
-    await transaction(this.pool, async client => {
-    await lockProjectGrant(client, grant);
-    const result = await client.query(
-      `INSERT INTO adc_agent_grants
+    await transaction(this.pool, async (client) => {
+      await lockProjectGrant(client, grant);
+      const result = await client.query(
+        `INSERT INTO adc_agent_grants
        (grant_id, account_id, actor_id, profile, node_ids, root_ids, allowed_tools, revoked_at, created_at, name, project_id, root_access, approval_policy, responsible_user_id, resource_bindings)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $15, $16)
        ON CONFLICT (grant_id) DO UPDATE SET
@@ -514,27 +664,27 @@ export class PostgresStore implements Store {
          AND adc_agent_grants.revoked_at IS NULL
          AND NOT $14
        RETURNING grant_id`,
-      [
-        grant.grantId,
-        grant.accountId,
-        grant.actorId,
-        grant.profile,
-        JSON.stringify(grant.nodeIds),
-        JSON.stringify(grant.rootIds),
-        JSON.stringify(grant.allowedTools),
-        grant.revokedAt ?? null,
-        grant.createdAt,
-        grant.name ?? "Agent",
-        grant.projectId ?? null,
-        grant.rootAccess ?? "selected",
-        grant.approvalPolicy ?? null,
-        createOnly,
-        grant.responsibleUserId ?? null,
-        JSON.stringify(grant.resourceBindings ?? [])
-      ]
-    );
-    if (!result.rowCount)
-      throw new ProtocolError("conflict", "Grant is unavailable or revoked.", false);
+        [
+          grant.grantId,
+          grant.accountId,
+          grant.actorId,
+          grant.profile,
+          JSON.stringify(grant.nodeIds),
+          JSON.stringify(grant.rootIds),
+          JSON.stringify(grant.allowedTools),
+          grant.revokedAt ?? null,
+          grant.createdAt,
+          grant.name ?? "Agent",
+          grant.projectId ?? null,
+          grant.rootAccess ?? "selected",
+          grant.approvalPolicy ?? null,
+          createOnly,
+          grant.responsibleUserId ?? null,
+          JSON.stringify(grant.resourceBindings ?? [])
+        ]
+      );
+      if (!result.rowCount)
+        throw new ProtocolError("conflict", "Grant is unavailable or revoked.", false);
     });
   }
 
@@ -620,34 +770,64 @@ export class PostgresStore implements Store {
 
   async putApproval(approval: ApprovalRecord): Promise<ApprovalRecord> {
     return transaction(this.pool, async (client) => {
-    await assertDelegationCurrent(client, approval.invocation, approval.nodeId);
-    const result = await client.query(
-      `INSERT INTO adc_approvals
+      await storageLock(client);
+      await lockStorageAccount(
+        client,
+        approval.accountId,
+        approval.invocation.delegation?.resourceAccountId
+      );
+      const existing = await client.query("SELECT * FROM adc_approvals WHERE invocation_id = $1", [
+        approval.invocation.invocationId
+      ]);
+      if (existing.rows[0]) {
+        if (existing.rows[0].storage_details_retired_at)
+          throw new ProtocolError(ErrorCodes.EXPIRED, "Approval details have expired", false);
+        assertSameInvocation(existing.rows[0].invocation, approval.invocation);
+        return approvalFromRow(existing.rows[0]);
+      }
+      assertMetadataBudget(
+        { ...approval, invocation: { ...approval.invocation, args: undefined } },
+        this.retention
+      );
+      if (
+        jsonBytes(approval.invocation.args) > this.retention.maxInvocationBytes ||
+        !(await availableStorage(
+          client,
+          approval.accountId,
+          jsonBytes(approval.invocation.args),
+          this.retention
+        ))
+      )
+        throw quotaError();
+      await assertDelegationCurrent(client, approval.invocation, approval.nodeId);
+      const result = await client.query(
+        `INSERT INTO adc_approvals
        (approval_id, invocation_id, account_id, node_id, placement_reason, invocation,
-        policy_decision, status, created_at, expires_at, resolved_at, required_consents, consents)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        policy_decision, status, created_at, expires_at, resolved_at, required_consents, consents, input_bytes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        ON CONFLICT (invocation_id) DO UPDATE
        SET invocation_id = EXCLUDED.invocation_id
        RETURNING *`,
-      [
-        approval.approvalId,
-        approval.invocation.invocationId,
-        approval.accountId,
-        approval.nodeId,
-        approval.placementReason,
-        approval.invocation,
-        approval.policyDecision,
-        approval.status,
-        approval.createdAt,
-        approval.expiresAt,
-        approval.resolvedAt ?? null,
-        JSON.stringify(approval.requiredConsents ?? []),
-        JSON.stringify(approval.consents ?? [])
-      ]
-    );
-    const persisted = approvalFromRow(result.rows[0]!);
-    assertSameInvocation(persisted.invocation, approval.invocation);
-    return persisted;
+        [
+          approval.approvalId,
+          approval.invocation.invocationId,
+          approval.accountId,
+          approval.nodeId,
+          approval.placementReason,
+          approval.invocation,
+          approval.policyDecision,
+          approval.status,
+          approval.createdAt,
+          approval.expiresAt,
+          approval.resolvedAt ?? null,
+          JSON.stringify(approval.requiredConsents ?? []),
+          JSON.stringify(approval.consents ?? []),
+          jsonBytes(approval.invocation.args)
+        ]
+      );
+      const persisted = approvalFromRow(result.rows[0]!);
+      assertSameInvocation(persisted.invocation, approval.invocation);
+      return persisted;
     });
   }
 
@@ -675,7 +855,8 @@ export class PostgresStore implements Store {
 
   async listApprovalsPage(accountId: string, options: ApprovalPageOptions): Promise<ApprovalPage> {
     const values: unknown[] = [accountId];
-    const visible = "(account_id = $1 OR required_consents @> jsonb_build_array(jsonb_build_object('accountId', $1::text, 'role', 'resource')))";
+    const visible =
+      "(account_id = $1 OR required_consents @> jsonb_build_array(jsonb_build_object('accountId', $1::text, 'role', 'resource')))";
     const conditions = [visible];
     let userCondition = "";
     if (options.responsibleUserId) {
@@ -709,8 +890,12 @@ export class PostgresStore implements Store {
       this.pool.query<{ count: string }>(
         `SELECT COUNT(*)::text AS count FROM adc_approvals
          WHERE ${visible} AND status = 'pending' AND expires_at > $2::timestamptz
-           ${options.responsibleUserId ? `AND (invocation->'delegation'->>'requesterUserId' = $3
-             ${options.includeResourceConsent ? "OR required_consents @> jsonb_build_array(jsonb_build_object('accountId',$1::text,'role','resource'))" : ""})` : ""}`,
+           ${
+             options.responsibleUserId
+               ? `AND (invocation->'delegation'->>'requesterUserId' = $3
+             ${options.includeResourceConsent ? "OR required_consents @> jsonb_build_array(jsonb_build_object('accountId',$1::text,'role','resource'))" : ""})`
+               : ""
+           }`,
         [accountId, options.now, ...(options.responsibleUserId ? [options.responsibleUserId] : [])]
       )
     ]);
@@ -751,7 +936,9 @@ export class PostgresStore implements Store {
   }
 
   async enqueue(dispatch: DispatchRecord, audit: AuditEvent): Promise<DispatchRecord> {
-    return transaction(this.pool, (client) => insertDispatch(client, dispatch, audit));
+    return transaction(this.pool, (client) =>
+      insertDispatch(client, dispatch, audit, this.retention)
+    );
   }
 
   async approveAndEnqueue(
@@ -761,6 +948,12 @@ export class PostgresStore implements Store {
     now: Date
   ): Promise<DispatchRecord | undefined> {
     return transaction(this.pool, async (client) => {
+      await storageLock(client);
+      await lockStorageAccount(
+        client,
+        dispatch.invocation.accountId,
+        dispatch.invocation.delegation?.resourceAccountId
+      );
       await assertDelegationCurrent(client, dispatch.invocation, dispatch.nodeId);
       const result = await client.query(
         `SELECT * FROM adc_approvals WHERE approval_id = $1 AND account_id = $2 FOR UPDATE`,
@@ -769,19 +962,31 @@ export class PostgresStore implements Store {
       const approval = result.rows[0];
       if (!approval || approval.status !== "pending" || new Date(approval.expires_at) <= now)
         return;
-      if ((approval.required_consents ?? []).some((required: { accountId: string; userId?: string }) =>
-        !(approval.consents ?? []).some((consent: { accountId: string; userId: string }) =>
-          consent.accountId === required.accountId && (!required.userId || required.userId === consent.userId))))
+      if (
+        (approval.required_consents ?? []).some(
+          (required: { accountId: string; userId?: string }) =>
+            !(approval.consents ?? []).some(
+              (consent: { accountId: string; userId: string }) =>
+                consent.accountId === required.accountId &&
+                (!required.userId || required.userId === consent.userId)
+            )
+        )
+      )
         return;
       for (const required of approval.required_consents ?? []) {
-        const matching = (approval.consents ?? []).filter((consent: { accountId: string; userId: string }) =>
-          consent.accountId === required.accountId && (!required.userId || required.userId === consent.userId));
+        const matching = (approval.consents ?? []).filter(
+          (consent: { accountId: string; userId: string }) =>
+            consent.accountId === required.accountId &&
+            (!required.userId || required.userId === consent.userId)
+        );
         let valid = false;
-        for (const consent of matching) if (await consentIsAuthorized(client, required.accountId, consent.userId, required.role)) valid = true;
+        for (const consent of matching)
+          if (await consentIsAuthorized(client, required.accountId, consent.userId, required.role))
+            valid = true;
         if (!valid) return;
       }
       assertSameInvocation(approval.invocation, dispatch.invocation);
-      const queued = await insertDispatch(client, dispatch, audit);
+      const queued = await insertDispatch(client, dispatch, audit, this.retention);
       await client.query(
         `UPDATE adc_approvals SET status = 'approved', resolved_at = $2 WHERE approval_id = $1`,
         [approvalId, now.toISOString()]
@@ -807,7 +1012,13 @@ export class PostgresStore implements Store {
     audits: AuditEvent[]
   ): Promise<TransferRecord> {
     return transaction(this.pool, async (client) => {
+      await storageLock(client);
       const invocation = transfer.invocation;
+      await lockStorageAccount(
+        client,
+        invocation.accountId,
+        invocation.delegation?.resourceAccountId
+      );
       // Serialize admission per account across replicas; retries do not consume a new slot.
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
         invocation.accountId
@@ -875,7 +1086,7 @@ export class PostgresStore implements Store {
         return persisted;
       }
       for (const [index, dispatch] of dispatches.entries()) {
-        await insertDispatch(client, dispatch, audits[index]!);
+        await insertDispatch(client, dispatch, audits[index]!, this.retention);
       }
       const updated =
         dispatches.length > 0
@@ -902,6 +1113,17 @@ export class PostgresStore implements Store {
     now: Date
   ): Promise<TransferRecord | undefined> {
     return transaction(this.pool, async (client) => {
+      await storageLock(client);
+      const account = await client.query(
+        "SELECT account_id, invocation FROM adc_transfers WHERE transfer_id = $1",
+        [transferId]
+      );
+      if (!account.rows[0]) return undefined;
+      await lockStorageAccount(
+        client,
+        account.rows[0].account_id,
+        account.rows[0].invocation.delegation?.resourceAccountId
+      );
       const approvalResult = await client.query(
         "SELECT * FROM adc_approvals WHERE approval_id = $1 FOR UPDATE",
         [approvalId]
@@ -922,7 +1144,7 @@ export class PostgresStore implements Store {
       )
         return;
       for (const [index, dispatch] of dispatches.entries()) {
-        await insertDispatch(client, dispatch, audits[index]!);
+        await insertDispatch(client, dispatch, audits[index]!, this.retention);
       }
       await client.query(
         `UPDATE adc_approvals SET status = 'approved', resolved_at = $2
@@ -1242,6 +1464,18 @@ export class PostgresStore implements Store {
     now: Date
   ): Promise<DispatchRecord | undefined> {
     return transaction(this.pool, async (client) => {
+      await storageLock(client);
+      const account = await client.query(
+        "SELECT account_id, invocation FROM adc_dispatches WHERE dispatch_id = $1",
+        [dispatchId]
+      );
+      if (!account.rows[0]) return undefined;
+      await lockStorageAccount(
+        client,
+        account.rows[0].account_id,
+        account.rows[0].invocation.delegation?.resourceAccountId,
+        false
+      );
       const current = await client.query(
         "SELECT * FROM adc_dispatches WHERE dispatch_id = $1 FOR UPDATE",
         [dispatchId]
@@ -1273,12 +1507,48 @@ export class PostgresStore implements Store {
               : result.status === "denied"
                 ? "denied"
                 : "failed";
+      const metadata = { ...result };
+      delete metadata.output;
+      assertMetadataBudget({ metadata, receipt }, this.retention);
+      const bytes = jsonBytes(result.output);
+      const hash = bodyHash(result.output);
+      const reason =
+        bytes > this.retention.maxResultBytes
+          ? "size_exceeded"
+          : !(await availableStorage(client, row.account_id, bytes, this.retention))
+            ? "quota_exceeded"
+            : undefined;
+      const stored = reason ? retireResult(result, now, reason, bytes, hash) : result;
+      const temporary =
+        bytes > this.retention.maxMetadataBytes ||
+        ["file.read", "screen.capture", "camera.capture"].includes(row.invocation.tool);
+      const expiresAt = new Date(
+        now.getTime() + (temporary ? this.retention.temporaryTtlMs : this.retention.detailTtlMs)
+      ).toISOString();
       const updated = await client.query(
         `UPDATE adc_dispatches
-         SET status = $3, result = $4, receipt = $5, updated_at = $6
+         SET status = $3, result = $4, receipt = $5, updated_at = $6,
+           result_bytes = $7, result_sha256 = $8, result_expires_at = $9,
+           result_retired_at = $10, result_initialized = true
          WHERE dispatch_id = $1 AND lease_token = $2
          RETURNING *`,
-        [dispatchId, leaseToken, status, result, receipt ?? null, now.toISOString()]
+        [
+          dispatchId,
+          leaseToken,
+          status,
+          stored,
+          receipt ?? null,
+          now.toISOString(),
+          reason ? 0 : bytes,
+          hash,
+          expiresAt,
+          reason ? now.toISOString() : null
+        ]
+      );
+      await client.query(
+        `UPDATE adc_artifacts SET expires_at = LEAST(expires_at, $2::timestamptz +
+          $3 * interval '1 millisecond') WHERE invocation_id = $1 AND retired_at IS NULL`,
+        [row.invocation_id, now.toISOString(), this.retention.temporaryTtlMs]
       );
       await client.query(
         `INSERT INTO adc_audit_events
@@ -1446,40 +1716,82 @@ export class PostgresStore implements Store {
     );
   }
 
-  async putArtifact(artifact: ArtifactRecord): Promise<void> {
-    const result = await this.pool.query(
-      `INSERT INTO adc_artifacts
+  async putArtifact(artifact: ArtifactRecord, persistData?: () => Promise<void>): Promise<void> {
+    await transaction(this.pool, async (client) => {
+      await storageLock(client);
+      const resource = await client.query("SELECT account_id FROM adc_nodes WHERE node_id = $1", [
+        artifact.nodeId
+      ]);
+      await lockStorageAccount(
+        client,
+        artifact.accountId,
+        resource.rows[0]?.account_id === artifact.accountId
+          ? undefined
+          : resource.rows[0]?.account_id,
+        false
+      );
+      await client.query("SELECT 1 FROM adc_nodes WHERE node_id = $1 FOR KEY SHARE", [
+        artifact.nodeId
+      ]);
+      const previous = await client.query(
+        "SELECT * FROM adc_artifacts WHERE artifact_id = $1 FOR UPDATE",
+        [artifact.artifactId]
+      );
+      if (previous.rows[0]) {
+        const existing = previous.rows[0];
+        if (
+          existing.content_sha256 !== artifact.sha256 ||
+          existing.account_id !== artifact.accountId ||
+          existing.invocation_id !== artifact.invocationId ||
+          existing.node_id !== artifact.nodeId ||
+          Number(existing.byte_size) !== artifact.byteSize ||
+          existing.content_type !== artifact.contentType
+        ) {
+          throw new ProtocolError(
+            ErrorCodes.CONFLICT,
+            "artifact id was already used with different content",
+            false
+          );
+        }
+        if (existing.retired_at)
+          throw new ProtocolError(ErrorCodes.EXPIRED, "artifact content has expired", false);
+        return;
+      }
+      const owner = await client.query(
+        "SELECT * FROM adc_dispatches WHERE invocation_id = $1 FOR UPDATE",
+        [artifact.invocationId]
+      );
+      if (
+        owner.rows[0] &&
+        !["queued", "leased", "running", "cancel_requested"].includes(owner.rows[0].status)
+      ) {
+        throw new ProtocolError(ErrorCodes.EXPIRED, "dispatch no longer accepts artifacts", false);
+      }
+      if (
+        artifact.byteSize > this.retention.maxResultBytes ||
+        !(await availableStorage(client, artifact.accountId, artifact.byteSize, this.retention))
+      )
+        throw quotaError();
+      await persistData?.();
+      await client.query(
+        `INSERT INTO adc_artifacts
        (artifact_id, account_id, invocation_id, node_id, content_type, content_sha256,
         byte_size, data, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        ON CONFLICT (artifact_id) DO NOTHING`,
-      [
-        artifact.artifactId,
-        artifact.accountId,
-        artifact.invocationId,
-        artifact.nodeId,
-        artifact.contentType,
-        artifact.sha256,
-        artifact.byteSize,
-        artifact.data,
-        artifact.createdAt
-      ]
-    );
-    if (!result.rowCount) {
-      const existing = await this.getArtifact(artifact.artifactId);
-      if (
-        !existing ||
-        existing.sha256 !== artifact.sha256 ||
-        existing.accountId !== artifact.accountId ||
-        existing.invocationId !== artifact.invocationId
-      ) {
-        throw new ProtocolError(
-          ErrorCodes.CONFLICT,
-          "artifact id was already used with different content",
-          false
-        );
-      }
-    }
+        [
+          artifact.artifactId,
+          artifact.accountId,
+          artifact.invocationId,
+          artifact.nodeId,
+          artifact.contentType,
+          artifact.sha256,
+          artifact.byteSize,
+          artifact.data,
+          artifact.createdAt
+        ]
+      );
+    });
   }
 
   async getArtifact(artifactId: string): Promise<ArtifactRecord | undefined> {
@@ -1497,7 +1809,10 @@ export class PostgresStore implements Store {
           sha256: row.content_sha256,
           byteSize: Number(row.byte_size),
           data: Buffer.from(row.data),
-          createdAt: iso(row.created_at)
+          createdAt: iso(row.created_at),
+          ...(row.expires_at ? { expiresAt: iso(row.expires_at) } : {}),
+          ...(row.consumed_at ? { consumedAt: iso(row.consumed_at) } : {}),
+          ...(row.retired_at ? { retiredAt: iso(row.retired_at) } : {})
         }
       : undefined;
   }
@@ -1552,14 +1867,59 @@ async function cancelResourceWork(
   );
 }
 
-async function insertDispatch(client: PoolClient, dispatch: DispatchRecord, audit: AuditEvent) {
+async function insertDispatch(
+  client: PoolClient,
+  dispatch: DispatchRecord,
+  audit: AuditEvent,
+  policy = storagePolicy()
+) {
   const invocation = dispatch.invocation;
+  await storageLock(client);
+  await lockStorageAccount(client, invocation.accountId, invocation.delegation?.resourceAccountId);
+  assertMetadataBudget(
+    { ...invocation, args: undefined, policy: dispatch.policyDecision, audit },
+    policy
+  );
+  if (jsonBytes(invocation.args) > policy.maxInvocationBytes) {
+    throw new ProtocolError(
+      ErrorCodes.INVALID_REQUEST,
+      "Invocation payload exceeds storage limit; use file.transfer for large files",
+      false
+    );
+  }
+  // Do not reject a replay for lack of capacity: its durable record already exists.
+  const previous = await client.query(
+    `SELECT * FROM adc_dispatches WHERE invocation_id = $1 OR
+      (account_id = $2 AND actor_id = $3 AND idempotency_key = $4)`,
+    [
+      invocation.invocationId,
+      invocation.accountId,
+      invocation.actor.id,
+      invocation.idempotencyKey ?? null
+    ]
+  );
+  if (previous.rows.length) {
+    if (previous.rows.length !== 1)
+      throw new ProtocolError(ErrorCodes.CONFLICT, "Invocation key is unavailable", false);
+    assertSameInvocation(previous.rows[0]!.invocation, invocation, previous.rows[0]!.input_hash);
+    return dispatchFromRow(previous.rows[0]!);
+  }
+  if (
+    !(await availableStorage(
+      client,
+      invocation.accountId,
+      jsonBytes(invocation.args),
+      policy,
+      invocation.invocationId
+    ))
+  )
+    throw quotaError();
   await assertDelegationCurrent(client, invocation, dispatch.nodeId);
   const inserted = await client.query(
     `INSERT INTO adc_dispatches
      (dispatch_id, invocation_id, account_id, actor_id, node_id, idempotency_key,
-      input_hash, invocation, policy_decision, status, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      input_hash, invocation, policy_decision, status, created_at, updated_at, input_bytes)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
      ON CONFLICT DO NOTHING RETURNING *`,
     [
       dispatch.dispatchId,
@@ -1573,7 +1933,8 @@ async function insertDispatch(client: PoolClient, dispatch: DispatchRecord, audi
       dispatch.policyDecision,
       dispatch.status,
       dispatch.createdAt,
-      dispatch.updatedAt
+      dispatch.updatedAt,
+      jsonBytes(invocation.args)
     ]
   );
   if (!inserted.rowCount) {
@@ -1590,7 +1951,7 @@ async function insertDispatch(client: PoolClient, dispatch: DispatchRecord, audi
     if (existing.rows.length !== 1)
       throw new ProtocolError("conflict", "Invocation key is unavailable.", false);
     const persisted = dispatchFromRow(existing.rows[0]!);
-    assertSameInvocation(persisted.invocation, invocation);
+    assertSameInvocation(persisted.invocation, invocation, existing.rows[0]!.input_hash);
     return persisted;
   }
   await client.query(
@@ -1609,34 +1970,65 @@ async function insertDispatch(client: PoolClient, dispatch: DispatchRecord, audi
 }
 
 /** Serializes admission with relationship revocation across control-plane replicas. */
-async function assertDelegationCurrent(client: PoolClient, invocation: import("@adc/protocol").Invocation, nodeId: string) {
+async function assertDelegationCurrent(
+  client: PoolClient,
+  invocation: import("@adc/protocol").Invocation,
+  nodeId: string
+) {
   const delegation = invocation.delegation;
   if (!delegation) return;
-  for (const accountId of [...new Set([invocation.accountId, delegation.resourceAccountId])].sort())
-    await client.query("SELECT account_id FROM adc_accounts WHERE account_id = $1 FOR UPDATE", [accountId]);
+  await lockStorageAccount(client, invocation.accountId, delegation.resourceAccountId);
   const deny = () => new ProtocolError("denied", "Resource authorization changed.", false);
   if (Date.parse(delegation.expiresAt) <= Date.now()) throw deny();
   const node = await client.query("SELECT * FROM adc_nodes WHERE node_id = $1 FOR SHARE", [nodeId]);
-  if (!node.rows[0] || node.rows[0].status !== "active" || node.rows[0].deleted_at ||
-      node.rows[0].account_id !== delegation.resourceAccountId || node.rows[0].resource_class !== "physical") throw deny();
-  const grant = await client.query("SELECT * FROM adc_agent_grants WHERE grant_id = $1 FOR SHARE", [invocation.authorization.grantId]);
-  if (!grant.rows[0] || grant.rows[0].revoked_at || grant.rows[0].revision !== delegation.grantRevision ||
-      grant.rows[0].account_id !== invocation.accountId || grant.rows[0].responsible_user_id !== delegation.requesterUserId) throw deny();
+  if (
+    !node.rows[0] ||
+    node.rows[0].status !== "active" ||
+    node.rows[0].deleted_at ||
+    node.rows[0].account_id !== delegation.resourceAccountId ||
+    node.rows[0].resource_class !== "physical"
+  )
+    throw deny();
+  const grant = await client.query("SELECT * FROM adc_agent_grants WHERE grant_id = $1 FOR SHARE", [
+    invocation.authorization.grantId
+  ]);
+  if (
+    !grant.rows[0] ||
+    grant.rows[0].revoked_at ||
+    grant.rows[0].revision !== delegation.grantRevision ||
+    grant.rows[0].account_id !== invocation.accountId ||
+    grant.rows[0].responsible_user_id !== delegation.requesterUserId
+  )
+    throw deny();
   if (delegation.bindingId) {
-    const binding = await client.query("SELECT * FROM adc_resource_bindings WHERE binding_id = $1 FOR SHARE", [delegation.bindingId]);
+    const binding = await client.query(
+      "SELECT * FROM adc_resource_bindings WHERE binding_id = $1 FOR SHARE",
+      [delegation.bindingId]
+    );
     const row = binding.rows[0];
-    if (!row || row.state !== "active" || row.revision !== delegation.bindingRevision ||
-        (delegation.bindingKind === "team" && row.kind !== "team") ||
-        row.node_id !== nodeId || row.recipient_account_id !== invocation.accountId ||
-        row.resource_account_id !== delegation.resourceAccountId ||
-        (row.kind === "share" && row.recipient_user_id !== delegation.requesterUserId) ||
-        (row.record.expiresAt && Date.parse(row.record.expiresAt) <= Date.now())) throw deny();
+    if (
+      !row ||
+      row.state !== "active" ||
+      row.revision !== delegation.bindingRevision ||
+      (delegation.bindingKind === "team" && row.kind !== "team") ||
+      row.node_id !== nodeId ||
+      row.recipient_account_id !== invocation.accountId ||
+      row.resource_account_id !== delegation.resourceAccountId ||
+      (row.kind === "share" && row.recipient_user_id !== delegation.requesterUserId) ||
+      (row.record.expiresAt && Date.parse(row.record.expiresAt) <= Date.now())
+    )
+      throw deny();
   }
   if (delegation.membershipRevision) {
     const member = await client.query(
       "SELECT * FROM adc_team_members WHERE account_id = $1 AND user_id = $2 FOR SHARE",
       [invocation.accountId, delegation.requesterUserId]
     );
-    if (!member.rows[0] || member.rows[0].state !== "active" || member.rows[0].revision !== delegation.membershipRevision) throw deny();
+    if (
+      !member.rows[0] ||
+      member.rows[0].state !== "active" ||
+      member.rows[0].revision !== delegation.membershipRevision
+    )
+      throw deny();
   }
 }

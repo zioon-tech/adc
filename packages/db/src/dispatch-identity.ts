@@ -18,10 +18,12 @@ export function invocationInputHash(invocation: Invocation): string {
         accountId: invocation.accountId,
         actor: invocation.actor,
         authorization: invocation.authorization,
-        delegation: invocation.delegation ? (() => {
-          const { expiresAt: _expiry, ...stable } = invocation.delegation;
-          return stable;
-        })() : undefined,
+        delegation: invocation.delegation
+          ? (() => {
+              const { expiresAt: _expiry, ...stable } = invocation.delegation;
+              return stable;
+            })()
+          : undefined,
         tool: invocation.tool,
         args: invocation.args,
         target: invocation.target,
@@ -32,8 +34,12 @@ export function invocationInputHash(invocation: Invocation): string {
     .digest("hex");
 }
 
-export function assertSameInvocation(existing: Invocation, incoming: Invocation): void {
-  if (invocationInputHash(existing) !== invocationInputHash(incoming)) {
+export function assertSameInvocation(
+  existing: Invocation,
+  incoming: Invocation,
+  inputHash?: string
+): void {
+  if ((inputHash ?? invocationInputHash(existing)) !== invocationInputHash(incoming)) {
     throw new ProtocolError(
       "conflict",
       "Invocation or idempotency key has already been used.",

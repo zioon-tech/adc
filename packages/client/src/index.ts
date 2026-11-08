@@ -1029,4 +1029,23 @@ export class AdcClient {
     }
     return new Uint8Array(await response.arrayBuffer());
   }
+
+  /** Call after retaining the complete result locally. Acknowledgment starts a retry grace period. */
+  async acknowledgeResult(invocationId: string): Promise<void> {
+    await this.request(`/api/v1/invocations/${encodeURIComponent(invocationId)}/consumed`, {
+      method: "POST",
+      body: "{}"
+    });
+  }
+
+  /** Pass the bytes actually received, after saving them. The server verifies size and SHA-256. */
+  async acknowledgeArtifact(artifactId: string, data: Uint8Array): Promise<void> {
+    await this.request(`/api/v1/artifacts/${encodeURIComponent(artifactId)}/consumed`, {
+      method: "POST",
+      body: JSON.stringify({
+        byteSize: data.byteLength,
+        sha256: `sha256:${createHash("sha256").update(data).digest("hex")}`
+      })
+    });
+  }
 }

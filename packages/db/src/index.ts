@@ -3,3 +3,4 @@ export * from "./memory-store.ts";
 export * from "./postgres-store.ts";
 export * from "./identity-store.ts";
 export * from "./collaboration-store.ts";
+export * from "./storage-policy.ts";

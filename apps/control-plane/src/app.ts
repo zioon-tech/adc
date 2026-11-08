@@ -23,6 +23,7 @@ import {
   type Store,
   type TransferRecord
 } from "@adc/db";
+import { jsonBytes, retireResult, storagePolicy, type StoragePolicy } from "@adc/db";
 import { evaluatePolicy, requiresApproval, sha256 } from "@adc/policy";
 import { createMcpServer } from "@adc/mcp-adapter";
 import {
@@ -110,6 +111,8 @@ export interface ControlPlaneOptions {
   transferStore?: TransferBlobStore;
   directTransferStore?: DirectTransferStore;
   maxTransferBytes?: number;
+  storagePolicy?: Partial<StoragePolicy>;
+  storageMinFreeBytes?: number;
 }
 
 function invocationPath(invocation: Invocation, node: NodeRecord | undefined): string | undefined {
@@ -423,6 +426,11 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
   const presenceTtlMs = options.presenceTtlMs ?? 45_000;
   const leaseMs = options.leaseMs ?? 30_000;
   const maxTransferBytes = options.maxTransferBytes ?? 1024 * 1024 * 1024;
+  const retention = storagePolicy(options.storagePolicy);
+  options.store.configureStorage(retention);
+  const storageMinFreeBytes = options.storageMinFreeBytes ?? 256 * 1024 * 1024;
+  if (!Number.isSafeInteger(storageMinFreeBytes) || storageMinFreeBytes < 0)
+    throw new Error("Invalid storage disk reserve");
   const app = Fastify({
     logger: options.logger ?? false,
     bodyLimit: 36 * 1024 * 1024,
@@ -505,6 +513,100 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
     invocationCounter.inc({ outcome, tool: isBuiltinTool(tool) ? tool : "mcp.custom" });
 
   await options.store.migrate();
+  const storageBytes = new Gauge({
+    name: "adc_temporary_storage_bytes",
+    help: "Retained temporary result and artifact bytes.",
+    registers: [metrics]
+  });
+  const expiredBytes = new Gauge({
+    name: "adc_storage_expired_bytes",
+    help: "Bytes waiting for expiry cleanup.",
+    registers: [metrics]
+  });
+  const oldestExpired = new Gauge({
+    name: "adc_storage_oldest_expired_seconds",
+    help: "Age of the oldest expiry backlog.",
+    registers: [metrics]
+  });
+  const storageLastSuccess = new Gauge({
+    name: "adc_storage_maintenance_last_success_timestamp_seconds",
+    help: "Last successful storage sweep.",
+    registers: [metrics]
+  });
+  const storageFailures = new Counter({
+    name: "adc_storage_maintenance_failures_total",
+    help: "Failed storage sweeps.",
+    registers: [metrics]
+  });
+  const storageRetired = new Counter({
+    name: "adc_storage_retired_total",
+    help: "Retired storage entries.",
+    labelNames: ["kind"],
+    registers: [metrics]
+  });
+  const diskFree = new Gauge({
+    name: "adc_asset_disk_available_bytes",
+    help: "Available space on asset filesystem.",
+    registers: [metrics]
+  });
+  const databaseBytes = new Gauge({
+    name: "adc_database_physical_bytes",
+    help: "Physical PostgreSQL database file size, including reusable space.",
+    registers: [metrics]
+  });
+  const walBytes = new Gauge({
+    name: "adc_postgres_wal_bytes",
+    help: "PostgreSQL cluster WAL bytes; available when server role has pg_monitor.",
+    registers: [metrics]
+  });
+  const walAvailable = new Gauge({
+    name: "adc_postgres_wal_metrics_available",
+    help: "Whether the database role can inspect cluster WAL.",
+    registers: [metrics]
+  });
+  let storageRunning: Promise<void> | undefined;
+  const runStorageMaintenance = () => {
+    if (storageRunning) return storageRunning;
+    storageRunning = (async () => {
+      const stamp = now();
+      const retired = await options.store.maintainStorage(stamp);
+      for (const [kind, count] of Object.entries(retired)) storageRetired.inc({ kind }, count);
+      const swept = await options.assetStore?.sweep?.(
+        new Date(stamp.getTime() - retention.deliveryGraceMs),
+        retention.batchSize * 10,
+        (sha256, operation) => options.store.withArtifactLock(sha256, operation),
+        (sha256) => options.store.hasLiveArtifact(sha256)
+      );
+      if (swept) storageRetired.inc({ kind: "files" }, swept.files);
+      const usage = await options.store.storageUsage(stamp);
+      storageBytes.set(usage.temporaryBytes);
+      expiredBytes.set(usage.expiredBytes);
+      if (usage.databaseBytes !== undefined) databaseBytes.set(usage.databaseBytes);
+      walAvailable.set(usage.walBytes !== undefined ? 1 : 0);
+      if (usage.walBytes !== undefined) walBytes.set(usage.walBytes);
+      oldestExpired.set(
+        usage.oldestExpiredAt
+          ? Math.max(0, (stamp.getTime() - Date.parse(usage.oldestExpiredAt)) / 1000)
+          : 0
+      );
+      if (options.assetStore?.availableBytes)
+        diskFree.set(await options.assetStore.availableBytes());
+      storageLastSuccess.set(stamp.getTime() / 1000);
+    })()
+      .catch((error: unknown) => {
+        storageFailures.inc();
+        requestLogError(app, error);
+      })
+      .finally(() => {
+        storageRunning = undefined;
+      });
+    return storageRunning;
+  };
+  const storageTimer = setInterval(() => {
+    void runStorageMaintenance();
+  }, retention.intervalMs);
+  storageTimer.unref();
+  await runStorageMaintenance();
   if (options.access.authentication) {
     await options.access.authentication.migrate();
     registerAuthenticationRoutes(app, options.access);
@@ -1003,7 +1105,11 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
             ? 409
             : error.code === ErrorCodes.DENIED
               ? 403
-              : 400;
+              : error.code === ErrorCodes.EXPIRED
+                ? 410
+                : error.code === ErrorCodes.OFFLINE
+                  ? 503
+                  : 400;
       return apiError(reply, statusCode, error.code, error.message, error.retryable, error.details);
     }
     if (error instanceof z.ZodError) {
@@ -2030,18 +2136,37 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
           true
         );
       }
-      if (external) await options.assetStore!.put(body.sha256, data);
-      await options.store.putArtifact({
-        artifactId: body.artifactId,
-        accountId: dispatch.invocation.accountId,
-        invocationId: dispatch.invocation.invocationId,
-        nodeId,
-        contentType: body.contentType,
-        sha256: body.sha256,
-        byteSize: data.byteLength,
-        data: external ? Buffer.alloc(0) : data,
-        createdAt: now().toISOString()
-      });
+      await options.store.withArtifactLock(body.sha256, () =>
+        options.store.putArtifact(
+          {
+            artifactId: body.artifactId,
+            accountId: dispatch.invocation.accountId,
+            invocationId: dispatch.invocation.invocationId,
+            nodeId,
+            contentType: body.contentType,
+            sha256: body.sha256,
+            byteSize: data.byteLength,
+            data: external ? Buffer.alloc(0) : data,
+            createdAt: now().toISOString()
+          },
+          external
+            ? async () => {
+                if (
+                  options.assetStore?.availableBytes &&
+                  (await options.assetStore.availableBytes()) <
+                    storageMinFreeBytes + data.byteLength
+                ) {
+                  throw new ProtocolError(
+                    ErrorCodes.OFFLINE,
+                    "Temporary asset storage is full",
+                    true
+                  );
+                }
+                await options.assetStore!.put(body.sha256, data);
+              }
+            : undefined
+        )
+      );
       return { accepted: true, artifactId: body.artifactId };
     }
   );
@@ -2052,7 +2177,7 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
   async function authorizeTask(
     principal: Principal,
     task: DispatchRecord,
-    originalInvocation = false
+    originalInvocation: boolean | "either" = false
   ): Promise<void> {
     if (
       task.invocation.accountId !== principal.accountId ||
@@ -2068,11 +2193,14 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
       !grant ||
       grant.revokedAt ||
       grant.accountId !== principal.accountId ||
-      !(originalInvocation
-        ? grant.allowedTools.includes(task.invocation.tool)
-        : grant.allowedTools.some((tool) =>
+      !(
+        ((originalInvocation === true || originalInvocation === "either") &&
+          grant.allowedTools.includes(task.invocation.tool)) ||
+        ((originalInvocation === false || originalInvocation === "either") &&
+          grant.allowedTools.some((tool) =>
             ["task.status", "task.result", "task.wait"].includes(tool)
           ))
+      )
     )
       throw new ProtocolError(ErrorCodes.DENIED, "Task results are not granted.", false);
   }
@@ -2106,7 +2234,25 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
         retryable: false
       });
     }
-    return task.result ?? queuedResult(task);
+    const result =
+      task.result && task.receipt && !task.result.receipt
+        ? { ...task.result, receipt: task.receipt }
+        : task.result;
+    if (
+      result &&
+      !["queued", "leased", "running", "cancel_requested"].includes(task.status) &&
+      !(result.output as { contentRetired?: boolean } | undefined)?.contentRetired
+    ) {
+      const temporary =
+        jsonBytes(result.output) > retention.maxMetadataBytes ||
+        ["file.read", "screen.capture", "camera.capture"].includes(task.invocation.tool);
+      const expiry = task.resultExpiresAt
+        ? Date.parse(task.resultExpiresAt)
+        : Date.parse(task.updatedAt) +
+          (temporary ? retention.temporaryTtlMs : retention.detailTtlMs);
+      if (expiry <= now().getTime()) return retireResult(result, now(), "expired");
+    }
+    return result ?? queuedResult(task);
   }
 
   async function authorizeTransfer(
@@ -2300,6 +2446,14 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
     }
     const existing = await options.store.getDispatchByInvocation(invocation.invocationId);
     if (existing) {
+      if (existing.detailsRetiredAt) {
+        await authorizeTask(principal, existing, true);
+        throw new ProtocolError(
+          ErrorCodes.EXPIRED,
+          "Execution details have expired; the previous execution will not be repeated.",
+          false
+        );
+      }
       if (
         sha256(invocationIdentity(existing.invocation)) !== sha256(invocationIdentity(invocation))
       ) {
@@ -3314,7 +3468,7 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
     };
   });
 
-  async function readVisibleArtifact(request: FastifyRequest, artifactId: string) {
+  async function visibleArtifact(request: FastifyRequest, artifactId: string) {
     const accountId = accountOf(request);
     const artifact = await options.store.getArtifact(artifactId);
     if (!artifact || artifact.accountId !== accountId) {
@@ -3337,20 +3491,91 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
       !(await collaboration.resultVisible(dispatch.invocation, dispatch.nodeId))
     )
       throw new ProtocolError(ErrorCodes.NOT_FOUND, "artifact was not found", false);
-    let data = artifact.data;
-    if (["image/png", "image/jpeg"].includes(artifact.contentType) && data.byteLength === 0) {
-      if (!options.assetStore) {
-        throw new ProtocolError(ErrorCodes.OFFLINE, "image asset storage is unavailable", true);
-      }
-      try {
-        data = await options.assetStore.get(artifact.sha256);
-      } catch (error) {
-        requestLogError(app, error);
-        throw new ProtocolError(ErrorCodes.OFFLINE, "image asset is unavailable", true);
-      }
+    if (dispatch && ["queued", "leased", "running", "cancel_requested"].includes(dispatch.status)) {
+      // A consumption deadline is effective only once the owning task terminates.
+      delete artifact.expiresAt;
+    } else if (!artifact.expiresAt) {
+      artifact.expiresAt = new Date(
+        Date.parse(dispatch?.updatedAt ?? artifact.createdAt) + retention.temporaryTtlMs
+      ).toISOString();
     }
-    return { artifact, data };
+    return artifact;
   }
+
+  async function readVisibleArtifact(request: FastifyRequest, artifactId: string) {
+    const initial = await visibleArtifact(request, artifactId);
+    return options.store.withArtifactLock(initial.sha256, async () => {
+      const artifact = await visibleArtifact(request, artifactId);
+      if (
+        artifact.retiredAt ||
+        (artifact.expiresAt && Date.parse(artifact.expiresAt) <= now().getTime())
+      ) {
+        throw new ProtocolError(ErrorCodes.EXPIRED, "artifact content has expired", false);
+      }
+      let data = artifact.data;
+      if (["image/png", "image/jpeg"].includes(artifact.contentType) && data.byteLength === 0) {
+        if (!options.assetStore) {
+          throw new ProtocolError(ErrorCodes.OFFLINE, "image asset storage is unavailable", true);
+        }
+        try {
+          data = await options.assetStore.get(artifact.sha256);
+        } catch (error) {
+          requestLogError(app, error);
+          throw new ProtocolError(ErrorCodes.OFFLINE, "image asset is unavailable", true);
+        }
+      }
+      return { artifact, data };
+    });
+  }
+
+  app.post(
+    "/api/v1/artifacts/:artifactId/consumed",
+    { preHandler: requireAuthenticated },
+    async (request) => {
+      const { artifactId } = z.object({ artifactId: ArtifactIdSchema }).parse(request.params);
+      const artifact = await visibleArtifact(request, artifactId);
+      const body = z
+        .object({ sha256: z.string(), byteSize: z.number().int().nonnegative() })
+        .strict()
+        .parse(request.body);
+      if (body.sha256 !== artifact.sha256 || body.byteSize !== artifact.byteSize) {
+        throw new ProtocolError(
+          ErrorCodes.CONFLICT,
+          "Artifact consumption checksum differs",
+          false
+        );
+      }
+      await options.store.acknowledgeArtifact(artifactId, now());
+      return { accepted: true };
+    }
+  );
+
+  app.post(
+    "/api/v1/invocations/:invocationId/consumed",
+    { preHandler: requireAuthenticated },
+    async (request) => {
+      const { invocationId } = z.object({ invocationId: InvocationIdSchema }).parse(request.params);
+      const dispatch = await options.store.getDispatchByInvocation(invocationId);
+      if (!dispatch) throw new ProtocolError(ErrorCodes.NOT_FOUND, "Task was not found.", false);
+      await authorizeTask(principals.get(request)!, dispatch, "either");
+      if (
+        collaboration &&
+        !(await collaboration.resultVisible(dispatch.invocation, dispatch.nodeId))
+      ) {
+        throw new ProtocolError(ErrorCodes.DENIED, "Task is not visible.", false);
+      }
+      z.object({}).strict().parse(request.body);
+      if (["queued", "leased", "running", "cancel_requested"].includes(dispatch.status)) {
+        throw new ProtocolError(
+          ErrorCodes.CONFLICT,
+          "Only terminal results can be acknowledged",
+          false
+        );
+      }
+      await options.store.acknowledgeResult(invocationId, now());
+      return { accepted: true };
+    }
+  );
 
   app.get(
     "/api/v1/artifacts/:artifactId",
@@ -3386,6 +3611,17 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
         invoke: (invocation, options) =>
           invokeAndWait(invocation, principal, options?.waitMs, options?.signal),
         artifact: async (artifactId) => (await readVisibleArtifact(request, artifactId)).data
+      },
+      onDeliveryPrepared: ({ result, artifactIds }) => {
+        // A prepared DTO is not a delivery receipt. Abort/error responses never ACK.
+        reply.raw.once("finish", () => {
+          if (reply.raw.statusCode !== 200 || reply.raw.destroyed) return;
+          const acknowledgments = [
+            ...(result ? [options.store.acknowledgeResult(result.invocationId, now())] : []),
+            ...artifactIds.map((id) => options.store.acknowledgeArtifact(id, now()))
+          ];
+          void Promise.all(acknowledgments).catch((error) => requestLogError(app, error));
+        });
       },
       context: grantContext(grant, await grantNodes(grant)),
       allowedTools: grant.allowedTools
@@ -3504,6 +3740,9 @@ export async function createControlPlane(options: ControlPlaneOptions): Promise<
 
   app.addHook("preClose", async () => taskWaitHub.close());
   app.addHook("onClose", async () => {
+    clearInterval(storageTimer);
+    await storageRunning;
+    await options.assetStore?.close?.();
     if (cleanupTimer) clearInterval(cleanupTimer);
     await cleanupRunning;
     taskWaitHub.close();
